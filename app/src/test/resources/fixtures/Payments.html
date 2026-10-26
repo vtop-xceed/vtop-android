@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" type="text/css" href="assets/css/sweetalert.css" />
+<script src="assets/js/sweetalert.min.js"></script>
+<head>
+<body>
+	<section class="content">
+		<div class="col-process-flow page-responsive"
+			style="padding-right: 10px; padding-left: 10px; padding-top: 10px"
+			id="main-section">
+			<div class="box box-solid box box-info">
+				<div class="box-header with-border">
+					<br />
+					<h3 class="box-title  box-info" align="center">
+						<b>ONLINE PAYMENT</b>
+					</h3>
+					<!-- /.box-header -->
+					<!-- form start -->
+					
+					
+					<form id="tutPayForm" class="form-horizontal" autocomplete="off">
+						<input type="hidden" name="_csrf"
+							value="00000000-0000-0000-0000-000000000000" /> <input type="hidden"
+							name="authorizedID" id="authorizedID"
+							value="TESTUSER" />
+						<div id="view">
+							<div id="modalView">
+								<div class="modal fade modal-md" id="myModal" tabindex="-1"
+									aria-labelledby="myModalLabel" data-backdrop="static"
+									data-keyboard="false" aria-hidden="true">
+									<div class="modal-dialog modal-md"
+										style="max-width: 60%; margin-top: 80px;">
+										<div class="modal-content">
+
+											<div class="modal-header">
+												<h4 class="modal-title">TRANSACTION DETAILS</h4>
+												<button type="button" class="btn-close"
+													data-bs-dismiss="modal"></button>
+											</div>
+											<div class="modal-body">
+												<table
+													class="table table-bordered table-responsive table-hover">
+													<tr class="table-primary" align="center">
+														<td class="" style="font-weight: bold;">SL.NO</td>
+														<td class="" style="font-weight: bold;">TRANSACTION
+															ID</td>
+														<td class="" style="font-weight: bold;">INVOICE
+															NUMBER</td>
+														<td class="" style="font-weight: bold;">AMOUNT</td>
+														<td class="" style="font-weight: bold;">STATUS</td>
+														<td class="" style="font-weight: bold;">TRANSACTION
+															TIME</td>
+														<td class="" style="font-weight: bold;">RESPONSE</td>
+														<td class="" style="font-weight: bold;">CHECK STATUS
+														</td>
+													</tr>
+													
+												</table>
+
+												<div class="form-group text-center">
+													<h4 style="color: red; font-weight: bold;">NO
+														TRANSACTION DETAILS FOUND</h4>
+												</div>
+
+											</div>
+											<div class="modal-footer"></div>
+										</div>
+									</div>
+
+								</div>
+							</div>
+						</div>
+
+						<div id="transactionresult">
+							<div id="modalView">
+								<div class="modal fade modal-md" id="myModalDetails"
+									tabindex="-1" aria-labelledby="myModalLabel"
+									data-backdrop="static" data-keyboard="false" aria-hidden="true">
+									<div class="modal-dialog modal-md"
+										style="max-width: 60%; margin-top: 80px;">
+										<div class="modal-content">
+
+											<div class="modal-header">
+												<button type="button" class="btn-close"
+													data-bs-dismiss="modal"></button>
+											</div>
+
+											<div class="modal-body">
+
+												<div class="form-group text-center">
+													<h4 style="color: red; font-weight: bold;">TRANSACATION
+														FAILED</h4>
+													<span style="font-weight: bold;">BANK RESPONSE :null</span>
+												</div>
+
+												
+											</div>
+											<div class="modal-footer"></div>
+										</div>
+									</div>
+
+								</div>
+							</div>
+						</div>
+
+						<div class="box-body">
+							
+							<div>
+								<div class="col-12"></div>
+
+								<div class="row-md-6 text-center"
+									style="font-size: 20px; text-align: right; font-weight: Bold; color: red;">
+									<strong></strong> <strong></strong>
+								</div>
+								<div class="visible-lg col-sm-12">
+									<div class="table-responsive">
+										<span class="col-sm-offset-3"
+											style="font-weight: bold; font-size: large; text-align: center;"><font color=green align=center>There is no payment dues in your account!</span>
+										
+									</div>
+									<!-- <span th:text="${msg}"></span> -->
+									
+
+									<!--------------------------- Alumni Payment ---------------------- -->
+									<div class="text-center"
+										style="font-size: 15px; text-align: right; font-weight: Bold; color: red;">
+										<strong></strong>
+									</div>
+									
+								</div>
+							</div>
+						</div>
+					</form>
+					<br />
+
+					<div class="alert alert-info " role="alert"
+						style="font-weight: bold;">
+						Note:
+						<ul>
+							<li><span style="color: maroon; font-weight: bold;">
+									Kindly use Chrome Browser For Payments </span></li>
+							<li><span style="color: maroon; font-weight: bold;">
+									Fire Fox Users kindly Allow Block pop-up windows,Move to
+									Settings Type "Block pop-up" uncheck the check box </span></li>
+
+							<li><span style="color: maroon; font-weight: bold;">
+									Click 'Pay Now' button to make fee adjustment using Wallet (if
+									any amount available in it), view the balance amount to be paid
+									and proceed payment </span></li>
+						<li><span style="color: maroon; font-weight: bold;">
+									All the payments are suspended between 11:30 PM  to 12:30 AM. Please try after 12:30 AM. </span></li>			
+									
+						</ul>
+					</div>
+				</div>
+			</div>
+		</div>
+		<form id="homePageForm" action="/vtop/content"></form>
+
+		<script>
+						 				/*<![CDATA[*/				
+						 				    var Emessage = null;						 				
+						 					if (Emessage!=null)
+						 					{
+						 					  swal(Emessage,"","error");						 						
+						 					}				 				
+						 					  var message = null;						 				
+						 					if (message!=null)
+						 					{					 					  
+						 						swal(message,"","error");						 						
+						 					}  
+						 				 /*]]>*/
+						</script>
+		<script>
+						/*<![CDATA[*/
+				
+						function doPayment(Invoiceno) {						
+
+						
+						var authorizedID = document.getElementById("authorizedID").value;
+						var now = new Date();
+						var csrfName = "_csrf";
+						var csrfValue = "00000000-0000-0000-0000-000000000000";
+						params =csrfName + "=" + csrfValue +"&authorizedID="+authorizedID+"&x="+now.toUTCString()+"&invoiceNumber="+Invoiceno;
+						$.blockUI({
+								message : '<img src="assets/img/482.GIF"> loading... Just a moment...'
+							});
+							$.ajax({
+									url : "finance/doOnlinePaymentController",
+									type : "POST",
+									data : params,
+									
+									//For Progress Bar
+									success : function(response) {
+										$.unblockUI();
+										$("#main-section").html(response);
+										document.getElementById('homePageForm').submit();
+									},
+									error : function(jqXHR, textStatus,
+											errorMessage) {
+										$.unblockUI();
+										
+									}
+								});
+						$("html, body").animate({
+							scrollTop : 0
+						}, "slow");
+						
+					}
+						
+						function doAlumniPayment(Invoiceno,Applno) {						
+
+							var authorizedID = document.getElementById("authorizedID").value;
+							var now = new Date();
+							var csrfName = "_csrf";
+							var csrfValue = "00000000-0000-0000-0000-000000000000";
+							params =csrfName + "=" + csrfValue +"&authorizedID="+authorizedID+"&x="+now.toUTCString()+"&invoiceNumber="+Invoiceno+"&Applno="+Applno;
+							$.blockUI({
+									message : '<img src="assets/img/482.GIF"> loading... Just a moment...'
+								});
+								$.ajax({
+										url : "p2p/alumniPaymentProcess",
+										type : "POST",
+										data : params,
+										async: false,
+										//For Progress Bar
+										success : function(response) {
+											$.unblockUI();
+											$("#main-section").html(response);
+
+										},
+										error : function(jqXHR, textStatus,
+												errorMessage) {
+											$.unblockUI();
+									
+										}
+									});
+							$("html, body").animate({
+								scrollTop : 0
+							}, "slow");
+							
+							document.getElementById('homePageForm').submit();
+						}
+					
+					
+				function doUpload() {						
+					var authorizedID = document.getElementById("authorizedID").value;
+					var now = new Date();
+					var csrfName = "_csrf";
+					var csrfValue = "00000000-0000-0000-0000-000000000000";
+					params =csrfName + "=" + csrfValue +"&authorizedID="+authorizedID+"&x="+now.toUTCString();
+					$.blockUI({
+							message : '<img src="assets/img/482.GIF"> loading... Just a moment...'
+						});
+						$.ajax({
+								url : "finance/getOnlineTransfer",
+								type : "POST",
+								data : params,
+								
+								//For Progress Bar
+								success : function(response) {
+									$.unblockUI();
+									$("#main-section").html(response);
+
+								},
+								error : function(jqXHR, textStatus,
+										errorMessage) {
+									$.unblockUI();
+								
+								}
+							});
+					$("html, body").animate({
+						scrollTop : 0
+					}, "slow");
+				}
+
+				function getPreview(Invoiceno) 
+				{
+					
+					var authorizedID = document.getElementById("authorizedID").value;
+					var now = new Date();
+					var csrfName = "_csrf";
+					var csrfValue = "00000000-0000-0000-0000-000000000000";
+					params =csrfName + "=" + csrfValue +"&authorizedID="+authorizedID+"&x="+now.toUTCString()+"&invoiceNumber="+Invoiceno;
+					
+						$.ajax({
+								url : "finance/PaymentsTransactionDetails",
+								type : "POST",
+								data : params,
+								
+								//For Progress Bar
+								success : function(response) 
+						{
+									
+									$("#view").html(response);
+									$('#myModal').modal({backdrop: 'static', keyboard: false})  
+					         $("#myModal").modal('show');
+					         
+						},
+								error : function(jqXHR, textStatus,
+										errorMessage) {
+									$.unblockUI();
+								
+								}
+							});
+					$("html, body").animate({
+						scrollTop : 0
+					}, "slow");
+					
+					
+				}
+
+				function doPaymentStatus(transactionId,invoiceNo) {						
+
+					var authorizedID = document.getElementById("authorizedID").value;
+					var now = new Date();
+					var csrfName = "_csrf";
+					var csrfValue = "00000000-0000-0000-0000-000000000000";
+					params =csrfName + "=" + csrfValue +"&authorizedID="+authorizedID+"&x="+now.toUTCString()+"&transactionId="+transactionId+"&invoiceNo="+invoiceNo;
+					
+						$.ajax({
+								url : "finance/PaymentsTransactionDetailsStatus",
+								type : "POST",
+								data : params,
+								
+								//For Progress Bar
+								success : function(response) {
+								
+									$("#transactionresult").html(response);
+							         $("#myModalDetails").modal('show');
+							         
+							     	
+								},
+								error : function(jqXHR, textStatus,
+										errorMessage) {
+									$.unblockUI();
+									$("#upload-file-message")
+											.text(
+													errorMessage
+															+ "Error while Addition");
+								}
+							});		
+					
+				}
+
+				 function refreshParentPage() {
+				        // Reload the parent page
+				        location.reload();
+				    }
+				/*]]>*/
+				</script>
+
+	</section>
+	<!-- /.content -->
+
+</body>
+</html>

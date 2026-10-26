@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+
+	<head>
+	    <meta charset='utf-8'>
+	    <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+	    <title></title>
+	    <meta name='viewport' content='width=device-width, initial-scale=1'>
+	    
+	    
+	    	<script type="text/javascript">
+	    	
+			   	function showMessage(messageType, messageText)
+			   	{
+			   		var messageTitle = "", messageTextType = "";
+			   		if ((messageText != null) && (messageText != "") && (messageText.trim().length > 0))
+					{
+				   		switch (parseInt(messageType))
+				   		{
+					   	  	case 1:
+					   	  		messageTitle = "Error....!";
+				   				messageTextType = "text-danger";
+					   	    	break;
+					   	 	case 2:
+					   			messageTitle = "Success....!";
+					   			messageTextType = "text-success";
+					   	    	break;
+					   	    default:
+					   	    	messageTitle = "Info....!";
+				   				messageTextType = "text-dark";
+					   	    	break;
+					   	}
+				   		
+						new ConfirmBox().withParameters({
+							title : messageTitle,
+			                textMessage : messageText,
+			                textCss : [messageTextType, "fw-bold"],
+			                keepOpen: false,
+			            }).showText();
+					}
+			   	}
+	    	
+	    		function showAndClearMessage(messageType, inputId)
+	    		{
+	    			if ((inputId != null) && (inputId != ""))
+					{
+		    			var onloadMessage = document.getElementById(inputId).value;
+			    		document.getElementById(inputId).value = "";
+			    		showMessage(messageType, onloadMessage);
+					}
+	    		}
+	    		
+	    		function showMessageAndFocusInput(inputId, messageText)
+	    		{	
+			   		if ((typeof inputId != "undefined") && (inputId != null) && (inputId != "") && (inputId.trim().length > 0) 
+			   				&& (messageText != null) && (messageText != "") && (messageText.trim().length > 0))
+					{
+			   			var inputType = document.getElementById(inputId).type;
+				   						   		
+						new ConfirmBox().withParameters({
+							title : "Info....!",
+			                textMessage : messageText,
+			                textCss : ["text-danger", "fw-bold"],
+			                onClose: function () {
+			                	switch (inputType)
+						   		{
+							   	  	case "select-one":
+							   	 	case "checkbox":
+							   	 	case "radio":
+							   	  		document.getElementById(inputId).focus();
+						   	    		break;
+						   	    		
+							   	    default:							   	    	
+							   	    	document.getElementById(inputId).select();
+							   	  		document.getElementById(inputId).focus();
+							   	    	break;
+							   	}
+				            },
+			            }).showText();
+					}
+	    		}
+	    		
+	    		function callScrollTop()
+	    		{
+	    			window.scrollTo(0, 0);
+	    		}
+	    		
+	    		function validateIPAddress(ipAddress)
+				{
+					var ipformat = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+				 	if (ipAddress.match(ipformat))
+				 	{
+				 		return true;
+					}
+					else
+					{
+				 		return false;
+				 	}
+				}				
+						
+				function textCounter(field, countfield, maxlimit)
+				{
+					if (field.value.length > maxlimit)
+					{
+						field.value = field.value.substring(0, maxlimit);
+						field.blur();
+						field.focus();
+						return false;
+					}
+					else
+					{
+						countfield.value = maxlimit	- field.value.length;
+					}
+				}
+	    		
+				function formatDateWithMonthShortName(inputDate)
+				{
+					if ((inputDate != null) && (inputDate != ""))
+					{
+		            	var dateParts = inputDate.split('-');
+		            	var parsedDate = new Date(dateParts[2], dateParts[1] - 1, dateParts[0]);
+		                
+		            	if (!isNaN(parsedDate))
+		                {
+			            	return parsedDate.getDate().toString().padStart(2, '0') 
+			                			+'-'+ getMonthShortAbbreviation(parsedDate.getMonth()) 
+			                    		+'-'+ parsedDate.getFullYear();
+						}
+		                else
+		                {
+		                	return "";
+		                }
+					}
+					else
+					{
+						return "";
+					}
+                }
+
+                function getMonthShortAbbreviation(monthIndex)
+                {
+                    var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];                    
+                    return months[monthIndex];
+                }
+                
+                function showMessageAndFocusInputByName(inputName, messageText, index)
+	    		{	
+			   		if ((inputName != null) && (inputName != "") 			   				
+			   				&& (messageText != null) && (messageText.trim() != "") 
+			   				&& (index != null) && (!isNaN(index)))
+					{
+			   			var inputNameArray = new Array();
+			   			inputNameArray = document.getElementsByName(inputName);
+			   			
+						new ConfirmBox().withParameters({
+							title : "Info....!",
+				            textMessage : messageText,
+				            textCss : ["text-danger", "fw-bold"],
+				            onClose: function () {
+				               	switch (inputNameArray[index].type)
+						   		{
+							   	  	case "select-one":
+							   	 	case "checkbox":
+							   	 	case "radio":
+							   	 		inputNameArray[index].focus();
+						   	    		break;
+						   	    		
+							   	    default:							   	    	
+							   	    	inputNameArray[index].select();
+							   			inputNameArray[index].focus();
+							   	    	break;
+							   	}
+					    	},
+				       	}).showText();						
+					}
+	    		}
+                
+                function getTimeStampForDownload()
+                {
+                	var now = new Date();
+    				var timeStamp = now.getFullYear() 
+    									+"-"+ ((now.getMonth() < 10) ? "0"+ now.getMonth() : now.getMonth()) 
+    									+"-"+ ((now.getDate() < 10) ? "0"+ now.getDate() : now.getDate())
+    									+"_"+ ((now.getHours() < 10) ? "0"+ now.getHours() : now.getHours()) 
+    									+"-"+ ((now.getMinutes() < 10) ? "0"+ now.getMinutes() : now.getMinutes())
+    									+"-"+ ((now.getSeconds() < 10) ? "0"+ now.getSeconds() : now.getSeconds());
+    				
+    				return timeStamp;
+                }
+			</script>
+	    
+	</head>
+	
+	<body>
+		<div id="main-section">
+		
+		<div class="container-fluid">
+			<div class="row">
+            <div class="col-12 WhiteBackground">
+				<div class="card mt-2 mb-5 primaryFontStyle">
+            	
+                    <div class="card-header primaryBorderTop">
+                        <strong class="fw-bold h3">Time Table</strong>
+                    </div>
+                    
+					<div class="card-body">
+				
+						<form class="row col-12 mx-auto" id="studentTimeTable" name="studentTimeTable"
+							method="post" autocomplete="off">
+							
+							<input type="hidden" name="_csrf" value="00000000-0000-0000-0000-000000000000" />
+							<input type="hidden" name="authorizedID" id="authorizedID"
+								value="TESTUSER" />
+								
+							<div class="form-group col-sm-12 row">											
+								<div class="form-group col-md-2 text-end">
+									<label class="form-label fw-bold">Semester</label>
+								</div>
+								<div class="form-group col-md-4">
+									<select class="form-select" name="semesterSubId" id="semesterSubId"
+											onchange="processViewTimeTable();">
+										<option value="" selected="selected">--Choose Semester--</option>
+										<option value="BL20262701">Fall Semester 2026-27</option>
+										<option value="BL20252605">Winter Semester 2025-26</option>
+										<option value="BL20252604">INTERIM SEMESTER 2025-26</option>
+										<option value="BL20252601">Fall Semester 2025-26</option>
+										<option value="BL20242505">Winter Semester 2024-25</option>
+										<option value="BL20242504">INTERIM SEMESTER 2024-25</option>
+									</select>
+								</div>
+								<div class="form-group col-md-6">
+									<span class="text-danger">* Only Registered Semester</span>
+								</div>
+							</div>									
+						</form><br/>
+
+						<div class="form-group" id="loadMyFragment">						
+						
+							
+						</div>
+					</div>
+				</div>
+			</div>
+			</div>
+		</div>	
+		
+		<noscript>
+			<h2 class="text-red">Enable JavaScript to Access VTOP</h2>
+		</noscript>
+				
+		<script type="text/javascript">
+		/*<![CDATA[*/
+		
+			function processViewTimeTable()
+			{						
+				var id = "TESTUSER";
+				var now = new Date();
+				var csrfName = "_csrf";
+			    var csrfValue = "00000000-0000-0000-0000-000000000000";			    
+				var semesterSubId = document.getElementById("semesterSubId").value;
+				var params = csrfName +"="+ csrfValue +"&semesterSubId="+ semesterSubId 
+								+"&authorizedID="+ id +"&x="+ now.toUTCString();				
+				blockGUI();
+				
+				new ConfirmBox().withParameters({
+		            submitTo: {url: "processViewTimeTable", data: params},
+		            updateResponseTo: "loadMyFragment",
+		            onSuccess: function (response) {
+		            	unblockGUI();
+		            },
+		            onError: function (errText) {
+		            	unblockGUI();
+		            },
+		        }).call();
+			}
+			
+			function processViewInvoice()
+			{
+				var id = "TESTUSER";
+				var now = new Date();
+				var csrfName = "_csrf";
+			    var csrfValue = "00000000-0000-0000-0000-000000000000";				
+			    var semesterSubId = document.getElementById("semesterSubId").value;
+			    var validateStatus = false;
+			    
+			    if (semesterSubId == "")
+				{
+					showMessageAndFocusInput("semesterSubId", "Select the Semester.");
+				}
+				else
+				{
+					validateStatus = true;
+				}
+				
+				if (validateStatus)
+				{
+					var params = csrfName +"="+ csrfValue +"&semesterSubId="+ semesterSubId 
+									+"&authorizedID="+ id +"&x="+ now.toUTCString();					
+					blockGUI();
+					
+					new ConfirmBox().withParameters({
+			            submitTo: {url: "processViewInvoice", data: params},
+			            updateResponseTo: "studentDetailsList",
+			            onSuccess: function (response) {
+			            	unblockGUI();
+			            },
+			            onError: function (errText) {
+			            	unblockGUI();
+			            },
+			        }).call();
+				}
+			}
+			
+			function cancleInvoiceGenerate()
+			{
+				var id = "TESTUSER";
+				var now = new Date();
+				var csrfName = "_csrf";
+			    var csrfValue = "00000000-0000-0000-0000-000000000000";				
+			    var semesterSubId = document.getElementById("semesterSubId").value;
+				var validateStatus = false;
+			    
+			    if (semesterSubId == "")
+				{
+					showMessageAndFocusInput("semesterSubId", "Select the Semester.");
+				}
+				else
+				{
+					validateStatus = true;
+				}
+				
+				if (validateStatus)
+				{
+					var params = csrfName +"="+ csrfValue +"&semesterSubId="+ semesterSubId 
+									+"&authorizedID="+ id +"&x="+ now.toUTCString();					
+					blockGUI();
+					
+					new ConfirmBox().withParameters({
+			            submitTo: {url: "cancleInvoiceGenerate", data: params},
+			            updateResponseTo: "studentDetailsList",
+			            onSuccess: function (response) {
+			            	unblockGUI();
+			            },
+			            onError: function (errText) {
+			            	unblockGUI();
+			            },
+			        }).call();
+				}
+			}
+
+		/*]]>*/
+		</script>
+
+	</div>
+</body>
+</html>

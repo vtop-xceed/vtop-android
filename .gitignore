@@ -1,0 +1,24 @@
+# Build
+.gradle/
+build/
+app/build/
+local.properties
+
+# Local secrets (never commit)
+local/
+secrets.env
+*.env
+
+# IDE
+.idea/
+*.iml
+
+# Logs / device dumps
+captures/
+*.log
+
+# Ideation
+idea-RE/
+
+# Hardcoded test creds (never commit)
+app/src/main/java/dev/vtoppp/vtop/Creds.kt

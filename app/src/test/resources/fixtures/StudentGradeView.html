@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<!--
+  Author: xxxxxxxx
+  Date  : 23/08/2017
+-->
+<html>
+
+<head>
+<style>
+.box {
+  float: left;
+  height: 20px;
+  width: 40px;
+  margin-bottom: 15px;
+  border: 1px solid #727372;
+  clear: both;
+}
+
+
+.green {
+  background-color: #c2ffe3;
+}
+
+</style>
+</head>
+
+
+<body class="hold-transition skin-blue-light sidebar-mini fixed">
+
+
+	<div class="container-fluid">
+		<div class="row">
+			<div class="col-12 WhiteBackground">
+				<div class="card mt-5 mb-5 primaryFontStyle">
+					<div class="card-header primaryBorderTop">
+						<strong class="fw-bold h3">Result - Grade View</strong>
+					</div>
+					<div class="card-body " id="main-section">
+
+						<form role="form" id="studentGradeView" name="studentGradeView"
+							method="post" autocomplete="off">
+							<input type="hidden" name="authorizedID" id="authorizedID"
+								value="TESTUSER" />
+								<input
+								type="hidden" name="_csrf"
+								value="00000000-0000-0000-0000-000000000000" />
+							<div class="col-md-12"
+								style="margin-top: 20px; margin-left: 1px;">
+								<div>
+									<div class="container mt-6 mb-5">
+										<div class="row">
+											<div class="col d-flex justify-content-end">Select Semester</div>
+											<div class="col">
+												<select class="form-select" name="semesterSubId" style="width: 50%;"
+													id="semesterSubId" required="required"
+													onchange="doViewExamGrade();">
+													<option value="" selected="selected">-- Choose
+														Semester --</option>
+													<option value="BL20262701">Fall Semester 2026-27</option>
+													<option value="BL20252607">Summer Semester 2025-26</option>
+													<option value="BL20252605">Winter Semester 2025-26</option>
+													<option value="BL20252604">INTERIM SEMESTER 2025-26</option>
+													<option value="BL20252601">Fall Semester 2025-26</option>
+													<option value="BL20242507">Summer Semester 2024-25</option>
+													<option value="BL20242506">Tri Semester III &amp; VI 2024-25</option>
+													<option value="BL20242505">Winter Semester 2024-25</option>
+													<option value="BL20242503">Tri Semester II &amp; V 2024-25</option>
+													<option value="BL20242504">INTERIM SEMESTER 2024-25</option>
+													<option value="BL20242502">Tri Semester I &amp; IV 2024-25</option>
+													<option value="BL20242501">Fall Semester 2024-25</option>
+													<option value="BL20202108">SEMESTER 2020-21</option>
+													<option value="BL20232406">Tri Semester III &amp; VI 2023-24</option>
+													<option value="BL20232405">Winter Semester 2023-24</option>
+													<option value="BL2023243">Tri Semester II &amp; V 2023-24</option>
+													<option value="BL2023244">INTERIM SEMESTER 2023-24</option>
+													<option value="BL2023242">Tri Semester I &amp; IV 2023-24</option>
+													<option value="BL2022238">Summer Semester - I 2022-23</option>
+													<option value="BL2023241">Fall Semester 2023-24</option>
+													<option value="BL2022236">Tri Semester III &amp; VI 2022-23</option>
+													<option value="BL20222311">Winter Inter Semester - II 2022-23</option>
+													<option value="BL2022237">Summer Semester 2022-23</option>
+													<option value="BL20222310">Winter Inter Semester - I 2022-23</option>
+													<option value="BL2022233">Tri Semester II &amp; V 2022-23</option>
+													<option value="BL2022235">Winter Semester 2022-23</option>
+													<option value="BL2022234">INTERIM SEMESTER 2022-23</option>
+													<option value="BL2022232">Tri Semester I &amp; IV 2022-23</option>
+													<option value="BL2021229">Summer Semester - II 2021-22</option>
+													<option value="BL2021227">Summer Semester 2021-22</option>
+													<option value="BL2022231">Fall Semester 2022-23</option>
+													<option value="BL20212211">Winter Inter Semester - II 2021-22</option>
+													<option value="BL20212210">Winter Inter Semester - I 2021-22</option>
+													<option value="BL2021225">Winter Semester 2021-22</option>
+													<option value="BL2021221">Fall Semester 2021-22</option>
+													<option value="BL2021224">INTERIM SEMESTER 2021-22</option>
+													<option value="BL2020219">Summer Semester 2020-21 (APRIL)</option>
+													<option value="BL2020215">Winter Semester 2020-21</option>
+													<option value="BL2020214">Inter Session Semester 2020-21</option>
+													<option value="BL2020217">Summer Semester 2020-21</option>
+													<option value="BL2019207">Summer Semester 2019-20</option>
+													<option value="BL2019205">Winter Semester 2019-20</option>
+													<option value="BL2018195">Winter Semester 2018-19</option>
+													<option value="BL2018197">Summer Semester 2018-19</option>
+													<option value="BL2017185">Winter Semester 2017-18</option>
+												</select>
+											</div>
+
+										</div>
+									</div>
+									<div class="form-group col-sm-12"></div>
+									
+									<div class="col d-flex justify-content-center">
+									<span class="col"
+										style="font-size: 20px; color: green; "></span> <span
+										class="col"
+										style="font-size: 20px; color: red; "></span>
+										</div>
+
+
+									
+								</div>
+							</div>
+
+		<script>
+			/*<![CDATA[*/
+
+		
+			function doViewExamGrade() 
+			{
+				
+				 new ConfirmBox().withParameters({
+				        submitTo: { url: "examinations/examGradeView/doStudentGradeView", dataform: 'studentGradeView' },
+				        updateResponseTo: 'main-section',
+				    }).call();		
+
+			};
+			function getGradeViewDetails(courseId) {
+				var myform = document.getElementById("studentGradeView");
+				var semesterSubId = document.getElementById("semesterSubId").value;
+				var authorizedID = document.getElementById("authorizedID").value;
+				var now = new Date();
+				var csrfName = "_csrf";
+	            var csrfValue = "00000000-0000-0000-0000-000000000000";
+	            
+				var params = "authorizedID="+authorizedID+"&x="+now.toUTCString()+"&semesterSubId=" + semesterSubId + "&courseId="
+						+ courseId+"&"+csrfName+"="+csrfValue;
+				
+				
+				
+				new ConfirmBox()
+				.withParameters(
+						{
+							submitTo : {
+								url : "examinations/examGradeView/getGradeViewDetails",
+								data : params
+							},
+							updateResponseTo : 'main-section',
+						}).call();
+				
+				
+			};
+			/*]]>*/
+		</script>
+
+						</form>
+
+
+
+					</div>
+
+
+				</div>
+			</div>
+		</div>
+	</div>
+
+
+</body>
+</html>

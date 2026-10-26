@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<!--
+  Author: xxxxxxxx
+  Date  : 23/08/2017
+-->
+<html>
+<head>
+ <script type="text/javascript" src="assets/js/jquery.validationEngine.js"charset="utf-8"></script>
+<script type="text/javascript" src="assets/js/jquery.validationEngine-en.js"charset="utf-8"></script>
+</head>
+<body class="hold-transition skin-blue-light sidebar-mini fixed">
+	
+<div id="main-section">
+		<!-- Main content -->
+		<section class="content">
+			<div class="col-sm-12">
+				<div class="box box-info">
+
+					<div class="box-header with-border">
+						<h3 class="box-title" >Marks View</h3>
+					</div>
+					<div class="box-body">
+					<form role="form" id="studentMarkView" name="studentMarkView"
+						method="post" autocomplete="off">
+						<input type="hidden" name="authorizedID" id="authorizedID"
+								value="TESTUSER" />
+						<!-- th:object="${examSchedule}"> -->
+						<div class="col-md-12" style="margin-top: 20px; margin-left: 2px;">
+								
+								<div>
+									<div class="col-sm-6 col-sm-offset-3">
+										<div>
+											<label for="acadYear" class="col-sm-4 control-label">Select
+												Semester</label>
+
+											<div class="col-md-8">
+												<select class="form-control" name="semesterSubId"
+													id="semesterSubId"
+													data-validation-engine="validate[required]"
+													onchange="doViewExamMark();">
+													<option value="" selected="selected">-- Choose
+														Semester --</option>
+													<option value="BL20262701">Fall Semester 2026-27</option>
+													<option value="BL20252607">Summer Semester 2025-26</option>
+													<option value="BL20252605">Winter Semester 2025-26</option>
+													<option value="BL20252604">INTERIM SEMESTER 2025-26</option>
+													<option value="BL20252601">Fall Semester 2025-26</option>
+													<option value="BL20242507">Summer Semester 2024-25</option>
+													<option value="BL20242506">Tri Semester III &amp; VI 2024-25</option>
+													<option value="BL20242505">Winter Semester 2024-25</option>
+													<option value="BL20242503">Tri Semester II &amp; V 2024-25</option>
+													<option value="BL20242504">INTERIM SEMESTER 2024-25</option>
+													<option value="BL20242502">Tri Semester I &amp; IV 2024-25</option>
+													<option value="BL20242501">Fall Semester 2024-25</option>
+													<option value="BL20202108">SEMESTER 2020-21</option>
+													<option value="BL20232406">Tri Semester III &amp; VI 2023-24</option>
+													<option value="BL20232405">Winter Semester 2023-24</option>
+													<option value="BL2023243">Tri Semester II &amp; V 2023-24</option>
+													<option value="BL2023244">INTERIM SEMESTER 2023-24</option>
+													<option value="BL2023242">Tri Semester I &amp; IV 2023-24</option>
+													<option value="BL2022238">Summer Semester - I 2022-23</option>
+													<option value="BL2023241">Fall Semester 2023-24</option>
+													<option value="BL2022236">Tri Semester III &amp; VI 2022-23</option>
+													<option value="BL20222311">Winter Inter Semester - II 2022-23</option>
+													<option value="BL2022237">Summer Semester 2022-23</option>
+													<option value="BL20222310">Winter Inter Semester - I 2022-23</option>
+													<option value="BL2022233">Tri Semester II &amp; V 2022-23</option>
+													<option value="BL2022235">Winter Semester 2022-23</option>
+													<option value="BL2022234">INTERIM SEMESTER 2022-23</option>
+													<option value="BL2022232">Tri Semester I &amp; IV 2022-23</option>
+													<option value="BL2021229">Summer Semester - II 2021-22</option>
+													<option value="BL2021227">Summer Semester 2021-22</option>
+													<option value="BL2022231">Fall Semester 2022-23</option>
+													<option value="BL20212211">Winter Inter Semester - II 2021-22</option>
+													<option value="BL20212210">Winter Inter Semester - I 2021-22</option>
+													<option value="BL2021225">Winter Semester 2021-22</option>
+													<option value="BL2021221">Fall Semester 2021-22</option>
+													<option value="BL2021224">INTERIM SEMESTER 2021-22</option>
+													<option value="BL2020219">Summer Semester 2020-21 (APRIL)</option>
+													<option value="BL2020215">Winter Semester 2020-21</option>
+													<option value="BL2020214">Inter Session Semester 2020-21</option>
+													<option value="BL2020217">Summer Semester 2020-21</option>
+													<option value="BL2019207">Summer Semester 2019-20</option>
+													<option value="BL2019205">Winter Semester 2019-20</option>
+													<option value="BL2018195">Winter Semester 2018-19</option>
+													<option value="BL2018197">Summer Semester 2018-19</option>
+													<option value="BL2017185">Winter Semester 2017-18</option>
+												</select>
+											</div>
+										</div>
+									</div>
+									<div class="form-group col-sm-12"></div>
+									<span class="col-sm-12 col-md-12"
+										style="font-size: 20px; color: green; text-align: center;"></span> <span
+										class="col-sm-12 col-md-12"
+										style="font-size: 20px; color: red; text-align: center;"></span>
+									
+								</div>
+						</div>
+
+					</form>
+
+				<noscript>
+					<h2 class="text-red">Enable JavaScript to Access VTOP</h2>
+				</noscript>
+				<!-- Custom Scripts for VTOP Pages-->
+
+				<script>
+					/*<![CDATA[*/
+
+					jQuery(document).ready(function() {
+						// binds form submission and fields to the validation engine								
+						jQuery("#studentMarkView").validationEngine('attach', {
+							autoHidePrompt : true,
+							binded : false,
+							onValidationComplete : function(form, status) {
+								if (status) {
+									doSavestudentMarkView();
+								}
+							}
+						});
+					});
+
+					function doViewExamMark() {
+						var myform = document.getElementById("studentMarkView");
+						var fd = new FormData(myform);
+						var csrfName = "_csrf";
+		                var csrfValue = "00000000-0000-0000-0000-000000000000";
+		                fd.append(csrfName,csrfValue);
+						$
+								.blockUI({
+									message : '<img src="assets/img/482.GIF"> loading... Just a moment...'
+								});
+						$.ajax({
+							url : "examinations/doStudentMarkView",
+							type : "POST",
+							data : fd,
+							cache : false,
+							processData : false,
+							contentType : false,
+							success : function(response) {
+								$.unblockUI();
+								$("#main-section").html(response);
+
+							}
+
+						});
+					}
+					/*]]>*/
+				</script>
+		
+	<!-- /.content-wrapper 
+		<footer class="main-footer" th:include="layouts/footer::footer"></footer>-->
+</div></div></div></section></div>
+</body>
+</html>
