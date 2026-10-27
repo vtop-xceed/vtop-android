@@ -3,10 +3,12 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Material 3 Expressive wordmark: a bolder, softer "V" built from
+         rounded strokes, sized inside the adaptive-icon safe circle. -->
     <path
-        android:pathData="M36,36 L54,72 L72,36"
+        android:pathData="M29,34 L54,75 L79,34"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="8"
+        android:strokeWidth="12"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
 </vector>

@@ -19,6 +19,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -156,10 +158,15 @@ private fun SigninForm(
             IconButton(onClick = {
                 showPassword = !showPassword
             }) {
-                Text(
-                    if (showPassword) "🙈" else "👁",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                val eyeIcon = if (showPassword) {
+                    dev.vtoppp.vtop.R.drawable.ic_visibility_off
+                } else {
+                    dev.vtoppp.vtop.R.drawable.ic_visibility
+                }
+                Icon(
+                    painterResource(eyeIcon),
+                    contentDescription = if (showPassword) "Hide password" else "Show password",
+                    tint = MaterialTheme.colorScheme.primary,
                 )
             }
         },
