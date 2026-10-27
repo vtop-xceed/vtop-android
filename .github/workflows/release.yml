@@ -78,7 +78,13 @@ jobs:
       - name: Ensure the APK is signed
         if: steps.gate.outputs.release == 'true'
         run: |
-          apk="app/build/outputs/apk/release/app-release.apk"
+          apk="$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)"
+          if [ -z "$apk" ]; then
+            echo '::error::assembleRelease produced no APK under app/build/outputs/apk/release'
+            ls -R app/build/outputs/apk
+            exit 1
+          fi
+          echo "APK: $apk"
           bt="$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -1)"
           if ! "$bt/apksigner" verify --print-certs "$apk" >/dev/null 2>&1; then
             echo 'Unsigned output: signing with an ephemeral CI key so the APK installs.'
@@ -100,8 +106,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          apk="$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)"
+          if [ -z "$apk" ]; then
+            echo '::error::assembleRelease produced no APK under app/build/outputs/apk/release'
+            exit 1
+          fi
           gh release create "${{ steps.version.outputs.tag }}" \
             --target "${{ github.sha }}" \
             --title "VTOP++ Android v${{ steps.version.outputs.version }}" \
             --generate-notes \
-            app/build/outputs/apk/release/app-release.apk
+            "$apk"
