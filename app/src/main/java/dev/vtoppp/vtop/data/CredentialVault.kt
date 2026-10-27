@@ -71,7 +71,12 @@ class CredentialVault(
         // biometrics. Devices whose only authenticator is Class 2 (e.g. face
         // unlock on some ColorOS/OnePlus builds) must NOT gate: prompting with
         // a CryptoObject there throws IllegalArgumentException and crashes.
-        canGate = BiometricManager.from(appContext).canAuthenticate(
+        // vT-gate-refusal: the Manager's verdict alone is not proof — ColorOS
+        // on this OnePlus reports BIOMETRIC_SUCCESS for BIOMETRIC_STRONG yet
+        // refuses every CryptoObject prompt at runtime, so a persisted refusal
+        // marker (set when a save first sees the refusal) forces the ungated
+        // tier for the rest of the device's life with this app.
+        val managerAllowsGate = BiometricManager.from(appContext).canAuthenticate(
             BiometricManager.Authenticators.BIOMETRIC_STRONG,
         ) == BiometricManager.BIOMETRIC_SUCCESS
         // vT-vault-update-hardening: the seam keeps JVM tests on plain prefs;
@@ -93,7 +98,29 @@ class CredentialVault(
                     BootOutcome.OPENED -> VaultState.Ready
                 }
             }
+            // vT-vault-boot-memory: a transient boot may have journaled the last
+            // sign-in into the plain fallback file while later healthy boots open
+            // the (older, possibly emptied) encrypted store — the pair then hid
+            // from hasCredentials and every launch landed on the manual form
+            // (OnePlus, 2026-10-27). One-shot recovery copies a fallback-only
+            // user into the active store. The test seam skips this: production
+            // storage is not in play there.
+            recoverFallbackCredentialsInto(boot.prefs, plainPrefs(), AppLog::d)
             boot.prefs
+        }
+        canGate = managerAllowsGate && !prefs.getBoolean(KEY_GATE_BROKEN, false)
+    }
+
+    /**
+     * vT-gate-refusal: records a runtime crypto-prompt refusal permanently.
+     * The Manager claimed biometrics; the prompt path is broken for Crypto
+     * use, and future saves/unlocks must not dirge through it again.
+     */
+    fun markGateBroken() {
+        if (canGate) {
+            prefs.edit().putBoolean(KEY_GATE_BROKEN, true).apply()
+            canGate = false
+            AppLog.d("vault: crypto gate marked broken for this device")
         }
     }
 
@@ -212,6 +239,10 @@ class CredentialVault(
 
     fun clear() {
         prefs.edit().clear().apply()
+        // vT-vault-boot-memory: "Forget saved account" must also clear the
+        // plain fallback copy, or the one-shot recovery resurrects a
+        // deliberately forgotten account on the next healthy boot.
+        plainPrefs().edit().clear().apply()
         state = VaultState.Ready
     }
 
@@ -290,14 +321,14 @@ class CredentialVault(
 
     private fun plainPrefs(): SharedPreferences =
         appContext.getSharedPreferences(PREFS_FALLBACK_NAME, Context.MODE_PRIVATE)
-
-    private companion object {
+    internal companion object {
         const val KEY_ALIAS = "vtop_creds_gated"
         const val KEY_USER = "vtop_user"
         const val KEY_PASS = "vtop_pass"
         const val KEY_BLOB = "vtop_pass_blob"
         const val KEY_IV = "vtop_pass_iv"
         const val KEY_GATED = "vtop_gated"
+        const val KEY_GATE_BROKEN = "vtop_gate_broken"
         const val TRANSFORM = "AES/GCM/NoPadding"
         const val PREFS_NAME = "vtop_creds"
         const val PREFS_FALLBACK_NAME = "vtop_creds_fallback"
@@ -367,4 +398,44 @@ internal fun guardedBootstrap(
     }
     log("vault: treating open failure as transient — encrypted store kept, plain fallback for this process")
     return VaultBoot(fallbackPrefs(), BootOutcome.TRANSIENT_FALLBACK)
+}
+
+/**
+ * vT-vault-boot-memory one-shot recovery.
+ *
+ * The guarded bootstrap's transient path degrades this process to the plain
+ * fallback file; a sign-in saved on such a boot lands there, while every later
+ * healthy boot that opens the encrypted store successfully would look at an
+ * older (possibly emptied) store and miss the pair — the app then showed the
+ * manual sign-in form on every launch even though credentials were saved
+ * (observed on a class-2 OnePlus running 0.1.6, 2026-10-27).
+ *
+ * When the freshly opened active store is a non-gated store WITHOUT a user
+ * row while the fallback file HAS one, the fallback pair is copied across and
+ * then wiped from the plain copy so the encrypted store stays the single home
+ * of the secret. Returns true when a recovery happened.
+ */
+internal fun recoverFallbackCredentialsInto(
+    prefs: SharedPreferences,
+    fallback: SharedPreferences,
+    log: (String) -> Unit = {},
+): Boolean {
+    if (prefs.getBoolean(CredentialVault.KEY_GATED, false)) return false
+    if (prefs.contains(CredentialVault.KEY_USER)) return false
+    val user = fallback.getString(CredentialVault.KEY_USER, null) ?: return false
+    val pass = fallback.getString(CredentialVault.KEY_PASS, null) ?: return false
+    prefs.edit()
+        .putString(CredentialVault.KEY_USER, user)
+        .putString(CredentialVault.KEY_PASS, pass)
+        .putBoolean(CredentialVault.KEY_GATED, false)
+        .apply()
+    fallback.edit()
+        .remove(CredentialVault.KEY_USER)
+        .remove(CredentialVault.KEY_PASS)
+        .remove(CredentialVault.KEY_GATED)
+        .remove(CredentialVault.KEY_BLOB)
+        .remove(CredentialVault.KEY_IV)
+        .apply()
+    log("vault: recovered fallback-only credentials into the active store")
+    return true
 }

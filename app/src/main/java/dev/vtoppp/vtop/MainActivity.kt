@@ -48,7 +48,6 @@ import dev.vtoppp.vtop.ui.home.HomeViewModel
 import dev.vtoppp.vtop.ui.login.LoginScreen
 import dev.vtoppp.vtop.ui.login.LoginUiState
 import dev.vtoppp.vtop.ui.login.LoginViewModel
-import dev.vtoppp.vtop.ui.login.UnlockGateDialog
 import dev.vtoppp.vtop.ui.theme.VtopTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -149,11 +148,6 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
             // Held only for a warm-recovery re-submit; the same plaintext copy
             // is already present in memory from the first auto attempt.
             val autoPass = remember { mutableStateOf<String?>(null) }
-            // The ungated fallback (no Class 3 biometric; e.g. Class-2-only
-            // OnePlus builds) cannot be opened by the system prompt, so its
-            // boot ask is this dialog: the saved secret must be retyped once
-            // per app open before auto-login proceeds.
-            val askPass = remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
                 val fa = activity as? FragmentActivity
                 if (fa == null) {
@@ -171,36 +165,21 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                         phase = BootPhase.Login
                     }
                 } else {
-                    // Ungated secret + user present → ask; nothing saved → gate.
-                    if (vault.username != null && vault.password != null) {
-                        askPass.value = true
+                    // vT-boot-silent-login (2026-10-27 user directive): the
+                    // ungated fallback no longer asks at the gate — saved
+                    // creds sign straight in. Manual sign-in stays reachable
+                    // via a failed auto attempt (SavedAccountCard) and an
+                    // empty vault.
+                    val user = vault.username
+                    val pass = vault.password
+                    if (user != null && pass != null) {
+                        autoPass.value = pass
+                        loginVm.submit(user, pass, false)
                     } else {
                         vaultBanner = vault.stateNotice
                         phase = BootPhase.Login
                     }
                 }
-            }
-            if (askPass.value) {
-                UnlockGateDialog(
-                    username = vault.username,
-                    verify = { entered -> vault.password?.let { stored -> entered == stored } == true },
-                    onVerified = {
-                        askPass.value = false
-                        val user = vault.username
-                        val stored = vault.password
-                        if (user != null && stored != null) {
-                            vaultBanner = vault.stateNotice
-                            autoPass.value = stored
-                            loginVm.submit(user, stored, false)
-                        } else {
-                            phase = BootPhase.Login
-                        }
-                    },
-                    onDismiss = {
-                        askPass.value = false
-                        phase = BootPhase.Login
-                    },
-                )
             }
             // T15 fix: the first auto try can bounce on a dead network before
             // the warm loop connects; once warm recovers into a fresh CaptchaReady
@@ -351,21 +330,49 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
 
 // ---------------------------------------------------------------- biometric
 
+/**
+ * vT-gate-refusal: the outcome of one biometric/device-credential prompt.
+ * The Manager's pre-check cannot be trusted (ColorOS reports BIOMETRIC_STRONG
+ * yet refuses every CryptoObject prompt), so the caller NEEDS to tell a real
+ * user cancellation apart from a hard system refusal — the former means
+ * "don't save (ask again)", the latter degrades to the ungated tier so the
+ * credentials survive.
+ */
+private sealed interface AuthOutcome {
+    data class Proven(val result: BiometricPrompt.AuthenticationResult) : AuthOutcome
+    data object Cancelled : AuthOutcome
+
+    /** A non-cancel failure of a WORKING prompt (e.g. fingerprint lockout): transient, ask again. */
+    data class Denied(val why: String) : AuthOutcome
+
+    /** The prompt path is structurally unusable for CryptoObject (ColorOS Class-2 lie): permanent. */
+    data class Refused(val why: String) : AuthOutcome
+}
+
 private suspend fun FragmentActivity.promptAuth(
     title: String,
     subtitle: String,
     cipher: Cipher?,
-): BiometricPrompt.AuthenticationResult? = suspendCancellableCoroutine { cont ->
+): AuthOutcome = suspendCancellableCoroutine { cont ->
     val prompt = BiometricPrompt(
         this,
         ContextCompat.getMainExecutor(this),
         object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                if (cont.isActive) cont.resume(result)
+                if (cont.isActive) cont.resume(AuthOutcome.Proven(result))
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                if (cont.isActive) cont.resume(null)
+                if (cont.isActive) {
+                    cont.resume(
+                        when (errorCode) {
+                            BiometricPrompt.ERROR_USER_CANCELED,
+                            BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+                            -> AuthOutcome.Cancelled
+                            else -> AuthOutcome.Denied("biometric error $errorCode: $errString")
+                        },
+                    )
+                }
             }
         },
     )
@@ -386,8 +393,7 @@ private suspend fun FragmentActivity.promptAuth(
         if (cipher != null) prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
         else prompt.authenticate(info)
     } catch (e: IllegalArgumentException) {
-        AppLog.d("biometric: prompt refused (${e.message?.take(80)})")
-        if (cont.isActive) cont.resume(null)
+        if (cont.isActive) cont.resume(AuthOutcome.Refused("authenticate() threw: ${e.message?.take(120)}"))
     }
 }
 
@@ -431,11 +437,24 @@ private suspend fun saveSecurely(
         "Decrypting later needs your fingerprint or device PIN",
         saveCipher,
     )
-    if (proven != null) {
-        vault.saveGated(user, pass, saveCipher)
-        setNotice(null)
-    } else {
-        setNotice("Fingerprint protection cancelled — password not saved; you'll be asked again next sign-in.")
+    when (proven) {
+        is AuthOutcome.Proven -> {
+            vault.saveGated(user, pass, saveCipher)
+            setNotice(null)
+        }
+        AuthOutcome.Cancelled -> setNotice("Fingerprint protection cancelled — password not saved; you'll be asked again next sign-in.")
+        is AuthOutcome.Denied -> setNotice("Fingerprint protection failed (${proven.why}) — password not saved; try again at next sign-in.")
+        is AuthOutcome.Refused -> {
+            // vT-gate-refusal: ColorOS claims Class 3 in the Manager check and
+            // then refuses every CryptoObject prompt (seen on the OnePlus 13R,
+            // 2026-10-27). Losing the credentials to that would put every
+            // future launch back on the manual form; record the refusal and
+            // degrade to the ungated encrypted tier with an explicit notice.
+            AppLog.d("biometric: crypto save refused (${proven.why.take(80)})")
+            vault.markGateBroken()
+            vault.savePlaintext(user, pass)
+            setNotice("Fingerprint protection is unavailable on this device — the password was saved without it.")
+        }
     }
 }
 
@@ -447,6 +466,17 @@ private suspend fun unlockVault(activity: FragmentActivity, vault: CredentialVau
         "Unlock saved credentials",
         "Sign in as $user",
         cipher,
-    ) ?: return null
-    return vault.revealPassword(proven.cryptoObject?.cipher ?: cipher)
+    )
+    return when (proven) {
+        is AuthOutcome.Proven -> vault.revealPassword(proven.result.cryptoObject?.cipher ?: cipher)
+        AuthOutcome.Cancelled -> null
+        is AuthOutcome.Denied -> null
+        is AuthOutcome.Refused -> {
+            // A refusal here means the sealed password cannot be opened on
+            // this device build: the boot path treats the key the same way.
+            AppLog.d("biometric: crypto unlock refused (${proven.why.take(80)})")
+            vault.markGateBroken()
+            null
+        }
+    }
 }

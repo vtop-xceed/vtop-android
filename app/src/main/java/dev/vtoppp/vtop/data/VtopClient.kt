@@ -311,10 +311,18 @@ class VtopClient(
                 AppLog.d("prewarm: session restored")
                 return
             }
-            clearSession()
-            authorizedId = null
-            csrf = null
         }
+        // Landing here means the session is NOT live server-side: the splash
+        // is the login form (any seeded snapshot bounced straight back), or
+        // the dashboard did not carry an authorizedID. PROV-T15: the seeded
+        // markers must be dropped, or hasSession stays true from the snapshot
+        // alone and authenticate()'s T15.3 short-circuit skips the POST
+        // forever while every section 404s (OnePlus 13R, 2026-10-28:
+        // "seeded persisted session snapshot" → "live session already
+        // established; POST skipped" → sections 404).
+        clearSession()
+        authorizedId = null
+        csrf = null
         // Two-phase login (Jira flavor): role setup first, then the real form.
         val roleCsrf = csrfOf(get("login", referer = BASE).second)
             ?: fail("no csrf on login page")

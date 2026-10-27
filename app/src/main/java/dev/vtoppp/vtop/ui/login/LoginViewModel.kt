@@ -208,8 +208,12 @@ class LoginViewModel(
                         // forces the full form again). The remember-me checkbox
                         // is gone — nothing left to forget ticking. Same pair
                         // already stored (ungated compare) restages nothing.
+                        // Boot/unlock auto-logins pass remember=false on
+                        // purpose: they must never re-stage a vault they
+                        // themselves read — on gated devices that re-fired the
+                        // "Protect your saved password" prompt on every launch.
                         val unchanged = vault.username == username && vault.password == password
-                        if (!unchanged) {
+                        if (rememberCredentials && !unchanged) {
                             pendingRemember = username to password
                             // T16.4: only the username survives death —
                             // passwords are excluded from SavedStateHandle.
