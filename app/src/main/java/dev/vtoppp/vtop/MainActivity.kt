@@ -35,12 +35,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.vtoppp.vtop.data.AppLog
 import dev.vtoppp.vtop.data.AutoCaptchaClient
+import dev.vtoppp.vtop.data.AutoUpdater
 import dev.vtoppp.vtop.data.CredentialVault
 import dev.vtoppp.vtop.data.SessionCache
 import dev.vtoppp.vtop.data.SessionStore
 import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.WarmState
 import dev.vtoppp.vtop.data.pillOf
+import dev.vtoppp.vtop.ui.home.AutoUpdateDialog
 import dev.vtoppp.vtop.ui.home.HomeScreen
 import dev.vtoppp.vtop.ui.home.HomeViewModel
 import dev.vtoppp.vtop.ui.login.LoginScreen
@@ -98,6 +100,11 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
     // T5/T6: the vault surfaces one notice (bootstrap reset, lost credentials,
     // transient unlock trouble); shown here, on the login gate.
     var vaultBanner by remember { mutableStateOf<String?>(null) }
+
+    // Self-update gate: silent startup ping (opt-out remembered), then the
+    // popup drives download with a loading animation and the final Update tap.
+    val updater = remember { AutoUpdater(activity.applicationContext) }
+    LaunchedEffect(Unit) { updater.autoCheck() }
 
     // T16.1: login-success handling must survive the Auto/Home branch flip, so
     // it lives at Root level and the biometric save runs in the activity scope
@@ -240,6 +247,7 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                         pill = pillOf(warm, loginVm.hasLiveSession()),
                         staleNotice = staleNotice,
                         onStaleNoticeShown = { homeVm.consumeStaleNotice() },
+                        onCheckUpdate = { updater.check(force = true) },
                     )
                 }
             }
@@ -298,6 +306,9 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
             }
         }
     }
+
+    // Update popup overlays every phase (splash, login, home).
+    AutoUpdateDialog(updater)
 }
 
 // ---------------------------------------------------------------- biometric

@@ -72,6 +72,7 @@ fun HomeScreen(
     pill: PillState = PillState(PillKind.Busy, "Connecting…", pulse = true),
     staleNotice: String? = null,
     onStaleNoticeShown: () -> Unit = {},
+    onCheckUpdate: () -> Unit = {},
 ) {
     val ready = state as? HomeUiState.Ready
 
@@ -107,6 +108,7 @@ fun HomeScreen(
             },
             actions = {
                 SessionPill(pill)
+                TextButton(onClick = onCheckUpdate) { Text("Update") }
                 ready?.let {
                     Text(
                         it.authorizedId,
