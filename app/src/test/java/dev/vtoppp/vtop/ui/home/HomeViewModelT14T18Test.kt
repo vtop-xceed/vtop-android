@@ -40,7 +40,7 @@ class HomeViewModelT14T18Test {
 
     private fun newVm() = HomeViewModel(
         client = dev.vtoppp.vtop.data.VtopClient(AutoCaptchaClient()),
-        authorizedId = "AUTH1234567",
+        authorizedId = "EXAMPLE0000001",
     )
 
     private val sample = MenuItem("Profile", "studentsRecord/StudentProfileAllView", "Student")
@@ -59,7 +59,7 @@ class HomeViewModelT14T18Test {
         val state = vm.state.value
         assertTrue(state is HomeUiState.Ready)
         assertEquals(
-            "AUTH1234567",
+            "EXAMPLE0000001",
             (state as HomeUiState.Ready).authorizedId,
         )
         assertNull(vm.staleNotice.value)

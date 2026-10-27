@@ -38,11 +38,11 @@ class VtopClientSessionRestoreTest {
         for (name in listOf("csrf", "authorizedId")) {
             val f = VtopClient::class.java.getDeclaredField(name)
             f.isAccessible = true
-            f[client] = if (name == "csrf") "seed-csrf" else "AUTH1234567"
+            f[client] = if (name == "csrf") "seed-csrf" else "EXAMPLE0000001"
         }
     }
 
-    private val dashboardPage = VtopPages.dashboard("restored-csrf", "AUTH1234567")
+    private val dashboardPage = VtopPages.dashboard("restored-csrf", "EXAMPLE0000001")
 
     @Test
     fun prewarmRestoresViaDashboardGetWithoutCaptchaChain() = runTest {
@@ -102,7 +102,7 @@ class VtopClientSessionRestoreTest {
         val result = client.login("user", "pass")
 
         val res = result.getOrNull()!!
-        assertEquals("AUTH1234567", res.authorizedId)
+        assertEquals("EXAMPLE0000001", res.authorizedId)
         assertTrue(res.studentLabel.endsWith("(STUDENT)"))
         assertTrue(client.hasSession)
     }

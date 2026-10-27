@@ -59,8 +59,8 @@ fun LoginScreen(
     onErrorRetry: () -> Unit,
     onErrorEdit: () -> Unit,
 ) {
-    var username by rememberSaveable { mutableStateOf(dev.vtoppp.vtop.Creds.USER) }
-    var password by rememberSaveable { mutableStateOf(dev.vtoppp.vtop.Creds.PASS) }
+    var username by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
     var typingNew by rememberSaveable { mutableStateOf(false) }
     var remember by rememberSaveable { mutableStateOf(true) }
     var showForm by rememberSaveable { mutableStateOf(!haveSavedCredentials) }

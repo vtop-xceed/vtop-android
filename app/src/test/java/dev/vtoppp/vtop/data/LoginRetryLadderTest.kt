@@ -28,7 +28,7 @@ class LoginRetryLadderTest {
         dashboardFromAttempt: Int? = null,
     ): FakeTransport {
         var loginPosts = 0
-        val dashboardHtml = VtopPages.dashboard("derived-csrf", "AUTH1234567")
+        val dashboardHtml = VtopPages.dashboard("derived-csrf", "EXAMPLE0000001")
         val dashboard = HttpResponse(200, dashboardHtml, emptyList(), null)
         return FakeTransport { req ->
             when {

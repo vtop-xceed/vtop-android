@@ -153,8 +153,8 @@ base64 -w0 local/keystores/vtop-release.keystore   # paste into VTOP_STORE_FILE_
 
 ## Security rules
 
-- Credentials and session cookies never leave the device; the vault is
-  biometric-gated and the session snapshot is encrypted with Keystore keys.
+- Credentials and session cookies never leave the device; the credential vault
+  is always encrypted at rest (`EncryptedSharedPreferences` with a Keystore
+  master key) and, on Class 3 biometric devices, additionally sealed behind a
+  per-use biometric/device-credential prompt.
 - Logs (`AppLog`) never contain passwords or session cookies.
-- `app/src/main/java/dev/vtoppp/vtop/Creds.kt` holds only local test
-  credentials and is gitignored.
