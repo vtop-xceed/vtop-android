@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          version=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Gate on untagged version
+        id: gate
+        run: |
+          if git rev-parse -q --verify "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore release keystore from CI secrets (optional)
+        if: steps.gate.outputs.release == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.VTOP_STORE_FILE_B64 }}
+          STORE_PASS: ${{ secrets.VTOP_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.VTOP_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.VTOP_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            mkdir -p local/keystores
+            printf '%s' "$KEYSTORE_B64" | base64 -d > local/keystores/vtop-release.keystore
+            {
+              echo "vtop.signing.storeFile=local/keystores/vtop-release.keystore"
+              echo "vtop.signing.storePassword=$STORE_PASS"
+              echo "vtop.signing.keyAlias=$KEY_ALIAS"
+            } >> local.properties
+            if [ -n "$KEY_PASS" ]; then
+              echo "vtop.signing.keyPassword=$KEY_PASS" >> local.properties
+            fi
+          else
+            echo 'VTOP_STORE_FILE_B64 not set; release APK will get the ephemeral CI key.'
+          fi
+
+      - name: Set up JDK 17
+        if: steps.gate.outputs.release == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        if: steps.gate.outputs.release == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build release APK
+        if: steps.gate.outputs.release == 'true'
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Ensure the APK is signed
+        if: steps.gate.outputs.release == 'true'
+        run: |
+          apk="app/build/outputs/apk/release/app-release.apk"
+          bt="$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -1)"
+          if ! "$bt/apksigner" verify --print-certs "$apk" >/dev/null 2>&1; then
+            echo 'Unsigned output: signing with an ephemeral CI key so the APK installs.'
+            keytool -genkeypair -v \
+              -keystore ci-release.keystore \
+              -alias ci -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass vtopci -keypass vtopci \
+              -dname 'CN=VTOP CI'
+            "$bt/apksigner" sign \
+              --ks ci-release.keystore --ks-pass pass:vtopci \
+              --key-pass pass:vtopci \
+              --out "$apk" "$apk"
+          else
+            echo 'APK carries the project release signature.'
+          fi
+
+      - name: Publish GitHub release
+        if: steps.gate.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --target "${{ github.sha }}" \
+            --title "VTOP++ Android v${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            app/build/outputs/apk/release/app-release.apk
