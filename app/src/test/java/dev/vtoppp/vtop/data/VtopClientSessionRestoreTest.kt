@@ -105,5 +105,45 @@ class VtopClientSessionRestoreTest {
         assertEquals("EXAMPLE0000001", res.authorizedId)
         assertTrue(res.studentLabel.endsWith("(STUDENT)"))
         assertTrue(client.hasSession)
+        // Regression (2026-10-27): the short-circuit left _warm pulsing
+        // "Signing in…" on Home forever — success must settle the pill to
+        // the Ready mapping (Idle + live session).
+        assertEquals(WarmState.Idle, client.warm.value)
+    }
+
+    @Test
+    fun silentReAuthFailureUnwedgesPillFromSigningIn() = runTest {
+        // No csrf: a silent re-auth via fetchSection runs the full chain
+        // against a refusing (Invalid Captcha) portal; the give-up should NOT
+        // leave _warm stuck at Working("Signing in…") (regression 2026-10-27).
+        val http = FakeTransport { req ->
+            when {
+                req.method == Method.Get && req.url.endsWith("/vtop/login") ->
+                    HttpResponse(200, VtopPages.loginForm("role-csrf"), emptyList(), null)
+                req.method == Method.PostForm && req.url.endsWith("/vtop/prelogin/setup") ->
+                    HttpResponse(200, "", emptyList(), null)
+                req.method == Method.Get && req.url.endsWith("/vtop/init/page") ->
+                    HttpResponse(200, VtopPages.loginForm("warm-csrf"), emptyList(), null)
+                req.url.endsWith("/vtop/get/new/captcha") ->
+                    HttpResponse(200, VtopPages.captchaPage(), emptyList(), null)
+                req.method == Method.PostForm && req.url.endsWith("/vtop/login") ->
+                    HttpResponse(302, "", emptyList(), VtopPages.ERROR_LOCATION)
+                req.method == Method.Get && req.url.endsWith("/vtop/login/error") ->
+                    HttpResponse(200, """<html>swal({"title": "Invalid Captcha"})</html>""", emptyList(), null)
+                else -> HttpResponse(404, "", emptyList(), null)
+            }
+        }
+        val client = VtopClient(
+            SteadySolver("AAA"),
+            { 0L },
+            credentialsProvider = { "user" to "pass" },
+            transportOverride = http,
+        )
+        seedCookies(client)
+
+        val result = client.fetchSection("/vtop/fake")
+
+        assertTrue(result.isFailure)
+        assertTrue(client.warm.value is WarmState.Failed)
     }
 }

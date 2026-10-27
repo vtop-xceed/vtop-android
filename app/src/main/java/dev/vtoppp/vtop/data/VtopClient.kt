@@ -395,6 +395,11 @@ class VtopClient(
                 try {
                     val res = authenticate(username.uppercase(), password)
                     sessionCredentials = username to password
+                    // The T15.3 restored-session short-circuit returns without
+                    // touching _warm; without this reset the pill sits pulsing
+                    // "Signing in…" forever on that success path (observed on
+                    // 2026-10-27). Idle + live session = Ready pill.
+                    clearWarm()
                     res
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -650,6 +655,7 @@ class VtopClient(
                 throw e
             } catch (e: Exception) {
                 AppLog.d("session: re-auth failed: ${e.javaClass.simpleName} ${e.message}")
+                _warm.value = WarmState.Failed(warmFailureText(e))
                 throw reauthFailure(e)
             }
         }
