@@ -7,7 +7,6 @@ import dev.vtoppp.vtop.data.pillOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -35,7 +34,15 @@ class HomeViewModelT14T18Test {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
+        // T-test-leak (observed 2026-10-27): do NOT resetMain. vm.open()
+        // launches the real client on the global IO pool, and a straggler
+        // continuation that outlives the test evaluates Dispatchers.Main;
+        // after resetMain() that getter throws (main looper never mocked) and
+        // the uncaught exception poisons whichever runTest opens next, failing
+        // an unrelated test ~4/6 runs. With Main kept valid nothing can crash:
+        // a cancelled continuation fails fast, a leaked one writes its state
+        // to an already-dropped ViewModel instance. Every other class that
+        // needs Main re-declares its own dispatchers in @Before.
     }
 
     private fun newVm() = HomeViewModel(

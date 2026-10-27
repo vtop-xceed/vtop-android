@@ -202,11 +202,14 @@ class LoginViewModel(
             withContext(Dispatchers.Main) {
                 result.fold(
                     onSuccess = { res ->
-                        // T16.2: the save is staged whenever "remember me" is
-                        // checked AND the submitted pair differs from what is
-                        // stored (same passwords means nothing to update).
+                        // vT-vault-auto-capture: every successful manual sign-in
+                        // journals its pair so credentials survive app updates
+                        // (in-place updates keep app data; only an empty vault
+                        // forces the full form again). The remember-me checkbox
+                        // is gone — nothing left to forget ticking. Same pair
+                        // already stored (ungated compare) restages nothing.
                         val unchanged = vault.username == username && vault.password == password
-                        if (rememberCredentials && !unchanged) {
+                        if (!unchanged) {
                             pendingRemember = username to password
                             // T16.4: only the username survives death —
                             // passwords are excluded from SavedStateHandle.

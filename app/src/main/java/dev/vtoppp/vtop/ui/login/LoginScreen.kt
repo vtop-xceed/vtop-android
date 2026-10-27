@@ -17,7 +17,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,7 +61,6 @@ fun LoginScreen(
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var typingNew by rememberSaveable { mutableStateOf(false) }
-    var remember by rememberSaveable { mutableStateOf(true) }
     var showForm by rememberSaveable { mutableStateOf(!haveSavedCredentials) }
 
     val failure = state as? LoginUiState.Failure
@@ -95,14 +93,17 @@ fun LoginScreen(
             else -> SigninForm(
                 username = username,
                 password = password,
-                remember = remember,
                 state = state,
                 warm = warm,
                 onUsername = { username = it.trim() },
                 onPassword = { password = it },
-                onRemember = { remember = it },
                 onSubmit = {
-                    onSubmit(username, password, remember); password = ""
+                    // vT-vault-auto-capture: the checkbox is gone — every
+                    // successful sign-in is remembered (LoginViewModel journals
+                    // it to the vault; MainActivity's biometric save prompt
+                    // still runs for gated vaults).
+                    onSubmit(username, password, true)
+                    password = ""
                 },
             )
         }
@@ -114,12 +115,10 @@ fun LoginScreen(
 private fun SigninForm(
     username: String,
     password: String,
-    remember: Boolean,
     state: LoginUiState,
     warm: WarmState,
     onUsername: (String) -> Unit,
     onPassword: (String) -> Unit,
-    onRemember: (Boolean) -> Unit,
     onSubmit: () -> Unit,
 ) {
     Text("Sign in to VTOP", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -172,13 +171,12 @@ private fun SigninForm(
         },
     )
     Spacer(Modifier.height(8.dp))
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Text(
+        "Your last successful sign-in is saved, encrypted, on this device.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.outline,
         modifier = Modifier.fillMaxWidth(),
-    ) {
-        Checkbox(checked = remember, onCheckedChange = onRemember)
-        Text("Remember me in this app", style = MaterialTheme.typography.bodyMedium)
-    }
+    )
     Spacer(Modifier.height(12.dp))
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,

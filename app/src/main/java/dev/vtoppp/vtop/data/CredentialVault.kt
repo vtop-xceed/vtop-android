@@ -26,9 +26,15 @@ import javax.crypto.spec.GCMParameterSpec
  *  - fallback (no authenticator available): password lives in
  *    EncryptedSharedPreferences only, readable without user auth.
  *
- * Failures never crash the app: bootstrap failures rebuild the storage once and
- * surface a degraded [state]; keystore trouble only destroys sealed data that is
- * provably unrecoverable, and transient failures leave prefs untouched.
+ * Failures never crash the app: bootstrap failures no longer destroy the
+ * storage — vT-vault-update-hardening: transient open trouble at cold start
+ * (common right after an app update or just after unlock on some OEM builds)
+ * is retried with small waits and then degrades to a plain fallback store for
+ * this process, keeping the encrypted file for later boots; the destructive
+ * reset runs only when the master-key alias is provably gone, because those
+ * stored blobs can never decrypt again. Keystore trouble only destroys sealed
+ * data that is provably unrecoverable, and transient failures leave prefs
+ * untouched.
  */
 class CredentialVault(
     context: Context,
@@ -42,8 +48,6 @@ class CredentialVault(
 
     private val appContext = context.applicationContext
 
-    private var degradedBoot = false
-
     /** User-visible vault state, consumed by MainActivity to show a login banner. */
     var state: VaultState = VaultState.Ready
         private set
@@ -56,7 +60,7 @@ class CredentialVault(
             VaultState.TemporarilyLocked -> NOTICE_LOCKED
         }
 
-    private val prefs: SharedPreferences = prefsForTest?.invoke(appContext) ?: bootstrapStorage()
+    private val prefs: SharedPreferences
 
     var canGate: Boolean
         private set
@@ -70,7 +74,27 @@ class CredentialVault(
         canGate = BiometricManager.from(appContext).canAuthenticate(
             BiometricManager.Authenticators.BIOMETRIC_STRONG,
         ) == BiometricManager.BIOMETRIC_SUCCESS
-        if (degradedBoot) state = VaultState.LostCredentials
+        // vT-vault-update-hardening: the seam keeps JVM tests on plain prefs;
+        // production runs the guarded bootstrap and stamps health from its
+        // outcome instead of assuming every degraded boot is LostCredentials.
+        prefs = prefsForTest?.invoke(appContext) ?: run {
+            val boot = guardedBootstrap(
+                openEncrypted = ::encryptedPrefs,
+                fallbackPrefs = ::plainPrefs,
+                masterKeyPresent = ::keystoreHasMasterKey,
+                resetStorage = { resetStorage() },
+                sleep = { Thread.sleep(it) },
+                log = AppLog::d,
+            )
+            if (boot.outcome != BootOutcome.OPENED) {
+                state = when (boot.outcome) {
+                    BootOutcome.RESET_AND_OPENED, BootOutcome.RESET_FALLBACK -> VaultState.LostCredentials
+                    BootOutcome.TRANSIENT_FALLBACK -> VaultState.TemporarilyLocked
+                    BootOutcome.OPENED -> VaultState.Ready
+                }
+            }
+            boot.prefs
+        }
     }
 
     val isGated: Boolean
@@ -229,20 +253,16 @@ class CredentialVault(
         return generator.generateKey()
     }
 
-    /** Guarded bootstrap: one delete + rebuild cycle before giving up encrypted storage. */
-    private fun bootstrapStorage(): SharedPreferences = try {
-        encryptedPrefs()
-    } catch (base: Exception) {
-        AppLog.d("vault: vtop_creds unreadable (${base.javaClass.simpleName}) — deleting storage, recreating once")
-        resetStorage()
-        try {
-            degradedBoot = true
-            encryptedPrefs()
-        } catch (retry: Exception) {
-            AppLog.d("vault: reset-recreate failed (${retry.javaClass.simpleName}) — last-resort plain prefs")
-            degradedBoot = true
-            plainPrefs()
-        }
+    /**
+     * Master-key presence check. Failure here is treated conservatively as
+     * "present", so a flaky check can never justify wiping the store.
+     */
+    private fun keystoreHasMasterKey(): Boolean = try {
+        java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            .containsAlias(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+    } catch (e: Exception) {
+        AppLog.d("vault: master-key presence check failed (${e.javaClass.simpleName})")
+        true
     }
 
     private fun encryptedPrefs(): SharedPreferences = EncryptedSharedPreferences.create(
@@ -288,3 +308,63 @@ class CredentialVault(
 
 /** Surfaced vault health, shared by boot reset (T5) and unlock/save handling (T6). */
 enum class VaultState { Ready, LostCredentials, TemporarilyLocked }
+
+/** How the guarded vault bootstrap resolved this process's backing store. */
+internal enum class BootOutcome {
+    OPENED,
+    RESET_AND_OPENED,
+    TRANSIENT_FALLBACK,
+    RESET_FALLBACK,
+}
+
+internal data class VaultBoot(
+    val prefs: SharedPreferences,
+    val outcome: BootOutcome,
+)
+
+/**
+ * Guarded vault bootstrap decision matrix (vT-vault-update-hardening).
+ *
+ * History: the previous implementation deleted the pref file and the master
+ * key on the FIRST failed open, so one transient exception right after an
+ * app update erased every saved credential and forced a full manual sign-in.
+ *
+ * Now: (1) retries the open with small waits; (2) persistent trouble degrades
+ * to the plain fallback WITHOUT deleting the encrypted store — this boot does
+ * not see saved credentials, but the next healthy boot self-heals and nothing
+ * is lost; (3) the destructive reset runs only when the encrypted store exists
+ * while its master-key alias is provably absent, since those blobs can never
+ * decrypt again. Pure over callables so JVM tests can pin it.
+ */
+internal fun guardedBootstrap(
+    openEncrypted: () -> SharedPreferences,
+    fallbackPrefs: () -> SharedPreferences,
+    masterKeyPresent: () -> Boolean,
+    resetStorage: () -> Unit,
+    attempts: Int = 3,
+    sleep: (Long) -> Unit = {},
+    log: (String) -> Unit = {},
+): VaultBoot {
+    var lastFailure: Exception? = null
+    repeat(attempts) { attempt ->
+        try {
+            return VaultBoot(openEncrypted(), BootOutcome.OPENED)
+        } catch (e: Exception) {
+            lastFailure = e
+            log("vault: vtop_creds open attempt ${attempt + 1}/$attempts failed (${e.javaClass.simpleName})")
+            sleep(50L * (attempt + 1))
+        }
+    }
+    if (!masterKeyPresent()) {
+        log("vault: store survives without its master key — resetting storage (${lastFailure?.javaClass?.simpleName})")
+        resetStorage()
+        return try {
+            VaultBoot(openEncrypted(), BootOutcome.RESET_AND_OPENED)
+        } catch (e: Exception) {
+            log("vault: reset-recreate failed (${e.javaClass.simpleName}) — last-resort plain fallback")
+            VaultBoot(fallbackPrefs(), BootOutcome.RESET_FALLBACK)
+        }
+    }
+    log("vault: treating open failure as transient — encrypted store kept, plain fallback for this process")
+    return VaultBoot(fallbackPrefs(), BootOutcome.TRANSIENT_FALLBACK)
+}
