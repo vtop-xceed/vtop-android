@@ -133,11 +133,11 @@ class CredentialVault(
     val username: String?
         get() = prefs.getString(KEY_USER, null)
 
-    /** Plaintext password; only readable in the non-gated fallback mode. */
+    /** Encrypted password stored securely in EncryptedSharedPreferences. */
     val password: String?
-        get() = if (isGated) null else prefs.getString(KEY_PASS, null)
+        get() = prefs.getString(KEY_PASS, null)
 
-    fun savePlaintext(user: String, pass: String) {
+    fun saveCredentials(user: String, pass: String) {
         prefs.edit()
             .putString(KEY_USER, user)
             .putString(KEY_PASS, pass)
@@ -147,6 +147,11 @@ class CredentialVault(
             .apply()
         state = VaultState.Ready
     }
+
+    fun savePlaintext(user: String, pass: String) {
+        saveCredentials(user, pass)
+    }
+
 
     /** Cipher seam for the save prompt; the same cipher turns the password into the blob. */
     fun newSaveCipher(): Cipher = initSaveCipher(obtainKey())

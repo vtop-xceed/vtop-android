@@ -1,5 +1,7 @@
 package dev.vtoppp.vtop
 
+import android.app.KeyguardManager
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -45,6 +47,7 @@ import dev.vtoppp.vtop.data.pillOf
 import dev.vtoppp.vtop.ui.home.AutoUpdateDialog
 import dev.vtoppp.vtop.ui.home.HomeScreen
 import dev.vtoppp.vtop.ui.home.HomeViewModel
+import dev.vtoppp.vtop.ui.login.LockScreen
 import dev.vtoppp.vtop.ui.login.LoginScreen
 import dev.vtoppp.vtop.ui.login.LoginUiState
 import dev.vtoppp.vtop.ui.login.LoginViewModel
@@ -91,14 +94,18 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
         mutableStateOf(if (vault.hasCredentials) BootPhase.Auto else BootPhase.Login)
     }
 
+    // App Lock: if saved credentials exist, user must unlock using fingerprint scan or lockscreen PIN
+    var isUnlocked by rememberSaveable { mutableStateOf(!vault.hasCredentials) }
+    var isAuthenticating by remember { mutableStateOf(false) }
+    var isBackgrounded by remember { mutableStateOf(false) }
+    var backgroundedAt by remember { mutableStateOf(0L) }
+
     val loginState by loginVm.state.collectAsStateWithLifecycle()
     val warm by loginVm.warm.collectAsStateWithLifecycle()
     // T15 fix: the warm give-up must be visible to composition even when no
     // NEW LoginUiState arrives (a stale Failure already occupies _state).
     val warmGaveUp by loginVm.warmGaveUp.collectAsStateWithLifecycle()
 
-    // T5/T6: the vault surfaces one notice (bootstrap reset, lost credentials,
-    // transient unlock trouble); shown here, on the login gate.
     var vaultBanner by remember { mutableStateOf<String?>(null) }
 
     // Self-update gate: silent startup ping (opt-out remembered), then the
@@ -106,31 +113,43 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
     val updater = remember { AutoUpdater(activity.applicationContext) }
     LaunchedEffect(Unit) { updater.autoCheck() }
 
-    // T16.1: login-success handling must survive the Auto/Home branch flip, so
-    // it lives at Root level and the biometric save runs in the activity scope
-    // — a composition switch to Home can no longer cancel the prompt midway
-    // (the previous Login-branch effect died with the branch, never saving).
+    // Once user signs in with user ID and password, securely save credentials and grant access
     LaunchedEffect(Unit) {
         loginVm.state.collect { s ->
             if (s is LoginUiState.Success) {
                 authorizedId = s.authorizedId
                 loginVm.consumePendingRemember()?.let { (user, pass) ->
-                    scope.launch {
-                        saveSecurely(activity as? FragmentActivity, vault, user, pass) { vaultBanner = it }
+                    if (user.isNotBlank() && pass.isNotBlank()) {
+                        vault.saveCredentials(user, pass)
+                        isUnlocked = true
+                        phase = BootPhase.Auto
+                        AppLog.d("vault: saved credentials; app lock enabled")
                     }
                 }
             }
         }
     }
 
-    // T13.4: gate the warm retry loop on foreground visibility so it never
-    // burns requests while backgrounded.
+    // Lifecycle observer: gate warm loop and re-lock app when returning from background
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> loginVm.setForeground(true)
-                Lifecycle.Event.ON_STOP -> loginVm.setForeground(false)
+                Lifecycle.Event.ON_START -> {
+                    loginVm.setForeground(true)
+                    // If returning after being away in background, lock the app
+                    if (vault.hasCredentials && isBackgrounded && System.currentTimeMillis() - backgroundedAt > 2000L) {
+                        isUnlocked = false
+                    }
+                    isBackgrounded = false
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    loginVm.setForeground(false)
+                    if (!isAuthenticating && vault.hasCredentials) {
+                        isBackgrounded = true
+                        backgroundedAt = System.currentTimeMillis()
+                    }
+                }
                 else -> {}
             }
         }
@@ -138,54 +157,54 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Auto sign-in effects (only valid in the Auto phase).
-    if (phase == BootPhase.Auto) {
-        // T15.2: keyed on the null-authorizedId condition — after a success
-        // (rememberSaveable persists it) this effect cannot re-run on a
-        // configuration change or process death, so no surprise second
-        // biometric prompt discards a live session.
+    // Automatically prompt for fingerprint or lockscreen PIN when app is opened in locked state
+    LaunchedEffect(isUnlocked, vault.hasCredentials) {
+        if (!isUnlocked && vault.hasCredentials) {
+            val fa = activity as? FragmentActivity ?: return@LaunchedEffect
+            if (isAuthenticating) return@LaunchedEffect
+            isAuthenticating = true
+            try {
+                val res = fa.promptDeviceAuth(
+                    title = "Unlock VTOP",
+                    subtitle = "Use fingerprint or lockscreen PIN to access",
+                )
+                when (res) {
+                    DeviceAuthResult.Success, DeviceAuthResult.NotAvailable -> {
+                        isUnlocked = true
+                        vaultBanner = null
+                        if (phase != BootPhase.Auto) {
+                            phase = BootPhase.Auto
+                        }
+                    }
+                    DeviceAuthResult.Cancelled -> {
+                        // User dismissed prompt; remain on LockScreen
+                    }
+                    is DeviceAuthResult.Failed -> {
+                        vaultBanner = res.error
+                    }
+                }
+            } finally {
+                isAuthenticating = false
+            }
+        }
+    }
+
+    // Auto sign-in effects (only run when unlocked and in Auto phase).
+    if (phase == BootPhase.Auto && isUnlocked) {
         if (authorizedId == null) {
-            // Held only for a warm-recovery re-submit; the same plaintext copy
-            // is already present in memory from the first auto attempt.
             val autoPass = remember { mutableStateOf<String?>(null) }
             LaunchedEffect(Unit) {
-                val fa = activity as? FragmentActivity
-                if (fa == null) {
-                    phase = BootPhase.Login
-                    return@LaunchedEffect
-                }
-                if (vault.isGated) {
-                    val gated = unlockVault(fa, vault)
-                    vaultBanner = vault.stateNotice
-                    val user = vault.username
-                    if (gated != null && user != null) {
-                        autoPass.value = gated
-                        loginVm.submit(user, gated, false)
-                    } else {
-                        phase = BootPhase.Login
-                    }
+                val user = vault.username
+                val pass = vault.password
+                if (user != null && pass != null) {
+                    autoPass.value = pass
+                    loginVm.submit(user, pass, false)
                 } else {
-                    // vT-boot-silent-login (2026-10-27 user directive): the
-                    // ungated fallback no longer asks at the gate — saved
-                    // creds sign straight in. Manual sign-in stays reachable
-                    // via a failed auto attempt (SavedAccountCard) and an
-                    // empty vault.
-                    val user = vault.username
-                    val pass = vault.password
-                    if (user != null && pass != null) {
-                        autoPass.value = pass
-                        loginVm.submit(user, pass, false)
-                    } else {
-                        vaultBanner = vault.stateNotice
-                        phase = BootPhase.Login
-                    }
+                    vaultBanner = vault.stateNotice
+                    phase = BootPhase.Login
                 }
             }
-            // T15 fix: the first auto try can bounce on a dead network before
-            // the warm loop connects; once warm recovers into a fresh CaptchaReady
-            // nothing re-fired login() (observed on 2026-10-27 — the splash sat
-            // idle with a Failure(Network) and a solved captcha). Re-submit once
-            // per recovery; the ladder's own pacing and attempt cap bound retries.
+            // Recover on network ready
             LaunchedEffect(warm, loginState) {
                 val w = warm
                 if (w is WarmState.CaptchaReady && !loginVm.hasLiveSession()) {
@@ -199,20 +218,12 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                 }
             }
         }
-        // A hard rejection means the Vault no longer matches; hand the keys
-        // back. Network trouble keeps the app alive (the cached content stays),
-        // but T15.1: persistent Network failures (2 in a row, still no live
-        // session) escape the Auto phase too — Login keeps the failure detail.
         var autoNetworkFailures by rememberSaveable { mutableStateOf(0) }
         LaunchedEffect(loginState, warmGaveUp) {
             val s = loginState
             if (s is LoginUiState.Failure && !loginVm.hasLiveSession()) {
                 if (s.error is VtopError.Network) {
                     autoNetworkFailures++
-                    // T15 fix: a warm-loop give-up already aggregates 5 failed
-                    // connection attempts — one emission is "persistent", so it
-                    // escapes immediately instead of waiting for a second
-                    // foreground resume the user may never perform.
                     if (autoNetworkFailures >= 2 || warmGaveUp) phase = BootPhase.Login
                 } else {
                     phase = BootPhase.Login
@@ -223,8 +234,49 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         when {
-            // T15.4: blank splash chrome until auto-login resolves — no menu
-            // flash before the vault verdict is known.
+            // App Lock screen: shown when user has saved credentials but app is locked
+            vault.hasCredentials && !isUnlocked -> {
+                LockScreen(
+                    savedUsername = vault.username,
+                    banner = vaultBanner,
+                    onUnlock = {
+                        val fa = activity as? FragmentActivity ?: return@LockScreen
+                        if (isAuthenticating) return@LockScreen
+                        scope.launch {
+                            isAuthenticating = true
+                            try {
+                                val res = fa.promptDeviceAuth(
+                                    title = "Unlock VTOP",
+                                    subtitle = "Use fingerprint or lockscreen PIN to access",
+                                )
+                                when (res) {
+                                    DeviceAuthResult.Success, DeviceAuthResult.NotAvailable -> {
+                                        isUnlocked = true
+                                        vaultBanner = null
+                                        if (phase != BootPhase.Auto) {
+                                            phase = BootPhase.Auto
+                                        }
+                                    }
+                                    DeviceAuthResult.Cancelled -> {}
+                                    is DeviceAuthResult.Failed -> {
+                                        vaultBanner = res.error
+                                    }
+                                }
+                            } finally {
+                                isAuthenticating = false
+                            }
+                        }
+                    },
+                    onSwitchAccount = {
+                        vault.clear()
+                        sessionStore.clear()
+                        isUnlocked = true
+                        phase = BootPhase.Login
+                        vaultBanner = null
+                    },
+                    modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
+                )
+            }
             phase == BootPhase.Auto && authorizedId == null -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -248,8 +300,6 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                 val lastSectionTitle by homeVm.lastSectionTitle.collectAsStateWithLifecycle()
                 val staleNotice by homeVm.staleNotice.collectAsStateWithLifecycle()
                 Box(
-                    // T18.4: screens consume the scaffold padding instead of
-                    // drawing under the system bars.
                     modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
                 ) {
                     HomeScreen(
@@ -258,16 +308,11 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                         onOpen = { homeVm.open(it) },
                         onBackToMenu = { homeVm.backToMenu() },
                         onRetry = { homeVm.retry() },
-                        // T18.3: readiness claims come from the live session.
                         pill = pillOf(warm, loginVm.hasLiveSession()),
                         staleNotice = staleNotice,
                         onStaleNoticeShown = { homeVm.consumeStaleNotice() },
                         onCheckUpdate = { updater.check(force = true) },
                     )
-                    // Update popup lives with the open app only: the startup
-                    // check is silent, so the splash ask and the sign-in gate
-                    // are never overlaid; an update found while starting pops
-                    // as soon as Home is visible.
                     AutoUpdateDialog(updater)
                 }
             }
@@ -285,7 +330,6 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                 }
 
                 Box(
-                    // T18.4: same system-bar discipline on the login gate.
                     modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
                 ) {
                     LoginScreen(
@@ -293,22 +337,30 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                         warm = warm,
                         haveSavedCredentials = vault.hasCredentials,
                         savedUsername = vault.username,
-                        gatedVault = vault.isGated,
+                        gatedVault = true,
                         onUnlockSaved = {
                             val fa = activity as? FragmentActivity ?: return@LoginScreen
                             if (loginVm.state.value is LoginUiState.Loading) return@LoginScreen
                             scope.launch {
-                                val pass = unlockVault(fa, vault)
-                                vaultBanner = vault.stateNotice
-                                val user = vault.username
-                                if (pass != null && user != null) loginVm.submit(user, pass, false)
+                                val res = fa.promptDeviceAuth(
+                                    title = "Unlock VTOP",
+                                    subtitle = "Use fingerprint or lockscreen PIN to access",
+                                )
+                                if (res is DeviceAuthResult.Success || res is DeviceAuthResult.NotAvailable) {
+                                    isUnlocked = true
+                                    vaultBanner = null
+                                    val user = vault.username
+                                    val pass = vault.password
+                                    if (user != null && pass != null) loginVm.submit(user, pass, false)
+                                }
                             }
                         },
                         onForgetSaved = {
-                            // T8.4: explicit logout clears BOTH stores (credentials vault + session snapshot).
                             vault.clear()
                             sessionStore.clear()
                             vaultBanner = null
+                            isUnlocked = true
+                            phase = BootPhase.Login
                         },
                         onSubmit = { user, pass, remember ->
                             errorDismissed = false
@@ -328,155 +380,66 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
     }
 }
 
-// ---------------------------------------------------------------- biometric
+// ---------------------------------------------------------------- device auth (fingerprint / lockscreen PIN)
 
-/**
- * vT-gate-refusal: the outcome of one biometric/device-credential prompt.
- * The Manager's pre-check cannot be trusted (ColorOS reports BIOMETRIC_STRONG
- * yet refuses every CryptoObject prompt), so the caller NEEDS to tell a real
- * user cancellation apart from a hard system refusal — the former means
- * "don't save (ask again)", the latter degrades to the ungated tier so the
- * credentials survive.
- */
-private sealed interface AuthOutcome {
-    data class Proven(val result: BiometricPrompt.AuthenticationResult) : AuthOutcome
-    data object Cancelled : AuthOutcome
-
-    /** A non-cancel failure of a WORKING prompt (e.g. fingerprint lockout): transient, ask again. */
-    data class Denied(val why: String) : AuthOutcome
-
-    /** The prompt path is structurally unusable for CryptoObject (ColorOS Class-2 lie): permanent. */
-    data class Refused(val why: String) : AuthOutcome
+sealed interface DeviceAuthResult {
+    data object Success : DeviceAuthResult
+    data object Cancelled : DeviceAuthResult
+    data class Failed(val error: String) : DeviceAuthResult
+    data object NotAvailable : DeviceAuthResult
 }
 
-private suspend fun FragmentActivity.promptAuth(
+private suspend fun FragmentActivity.promptDeviceAuth(
     title: String,
     subtitle: String,
-    cipher: Cipher?,
-): AuthOutcome = suspendCancellableCoroutine { cont ->
+): DeviceAuthResult = suspendCancellableCoroutine { cont ->
+    val bm = BiometricManager.from(this)
+    val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+    val canAuth = bm.canAuthenticate(authenticators)
+    val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+    val isSecure = km?.isDeviceSecure == true
+
+    if (canAuth != BiometricManager.BIOMETRIC_SUCCESS && !isSecure) {
+        cont.resume(DeviceAuthResult.NotAvailable)
+        return@suspendCancellableCoroutine
+    }
+
     val prompt = BiometricPrompt(
         this,
         ContextCompat.getMainExecutor(this),
         object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                if (cont.isActive) cont.resume(AuthOutcome.Proven(result))
+                if (cont.isActive) cont.resume(DeviceAuthResult.Success)
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                 if (cont.isActive) {
-                    cont.resume(
-                        when (errorCode) {
-                            BiometricPrompt.ERROR_USER_CANCELED,
-                            BiometricPrompt.ERROR_NEGATIVE_BUTTON,
-                            -> AuthOutcome.Cancelled
-                            else -> AuthOutcome.Denied("biometric error $errorCode: $errString")
-                        },
-                    )
+                    if (errorCode == BiometricPrompt.ERROR_USER_CANCELED ||
+                        errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON ||
+                        errorCode == BiometricPrompt.ERROR_CANCELED
+                    ) {
+                        cont.resume(DeviceAuthResult.Cancelled)
+                    } else {
+                        cont.resume(DeviceAuthResult.Failed("Auth error $errorCode: $errString"))
+                    }
                 }
             }
         },
     )
     cont.invokeOnCancellation { prompt.cancelAuthentication() }
+
     val info = BiometricPrompt.PromptInfo.Builder()
         .setTitle(title)
         .setSubtitle(subtitle)
-        .setAllowedAuthenticators(
-            BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL,
-        )
+        .setAllowedAuthenticators(authenticators)
         .build()
-    // Some vendor builds throw IllegalArgumentException from authenticate()
-    // even after areAllDevicesSupported checks (e.g. Class 2 biometrics on
-    // ColorOS; the class verdict is theirs to make late). A throw here means
-    // the prompt cannot be used — degrade to "no prompt" instead of crashing.
+
     try {
-        if (cipher != null) prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
-        else prompt.authenticate(info)
-    } catch (e: IllegalArgumentException) {
-        if (cont.isActive) cont.resume(AuthOutcome.Refused("authenticate() threw: ${e.message?.take(120)}"))
+        prompt.authenticate(info)
+    } catch (e: Exception) {
+        AppLog.d("biometric prompt failed: ${e.message}")
+        if (cont.isActive) cont.resume(DeviceAuthResult.Failed(e.message ?: "Authentication failed"))
     }
 }
 
-// T6.4: a prompt cancel means "don't save (ask again)"; a keystore failure
-// retries the cipher once and then falls back to plaintext with an explicit
-// on-screen notice — never a silent downgrade.
-private suspend fun saveSecurely(
-    activity: FragmentActivity?,
-    vault: CredentialVault,
-    user: String,
-    pass: String,
-    setNotice: (String?) -> Unit,
-) {
-    // T16.2/T16.4: a process-death-recovered pending save arrives password-
-    // less (passwords never enter SavedStateHandle) — never store an empty
-    // secret; ask the user to sign in again instead.
-    if (pass.isEmpty()) {
-        setNotice("Password not restored after restart — sign in again to save it.")
-        return
-    }
-    if (activity == null || !vault.canGate) {
-        vault.savePlaintext(user, pass)
-        setNotice("Saved without fingerprint protection (no device lock available).")
-        return
-    }
-    var opened: Cipher? = null
-    repeat(2) { attempt ->
-        try {
-            opened = vault.newSaveCipher()
-        } catch (e: Exception) {
-            AppLog.d("vault: save cipher attempt $attempt failed (${e.javaClass.simpleName})")
-        }
-    }
-    val saveCipher = opened ?: run {
-        vault.savePlaintext(user, pass)
-        setNotice("Fingerprint protection unavailable — password saved without it.")
-        return
-    }
-    val proven = activity.promptAuth(
-        "Protect your saved password",
-        "Decrypting later needs your fingerprint or device PIN",
-        saveCipher,
-    )
-    when (proven) {
-        is AuthOutcome.Proven -> {
-            vault.saveGated(user, pass, saveCipher)
-            setNotice(null)
-        }
-        AuthOutcome.Cancelled -> setNotice("Fingerprint protection cancelled — password not saved; you'll be asked again next sign-in.")
-        is AuthOutcome.Denied -> setNotice("Fingerprint protection failed (${proven.why}) — password not saved; try again at next sign-in.")
-        is AuthOutcome.Refused -> {
-            // vT-gate-refusal: ColorOS claims Class 3 in the Manager check and
-            // then refuses every CryptoObject prompt (seen on the OnePlus 13R,
-            // 2026-10-27). Losing the credentials to that would put every
-            // future launch back on the manual form; record the refusal and
-            // degrade to the ungated encrypted tier with an explicit notice.
-            AppLog.d("biometric: crypto save refused (${proven.why.take(80)})")
-            vault.markGateBroken()
-            vault.savePlaintext(user, pass)
-            setNotice("Fingerprint protection is unavailable on this device — the password was saved without it.")
-        }
-    }
-}
-
-private suspend fun unlockVault(activity: FragmentActivity, vault: CredentialVault): String? {
-    if (!vault.isGated) return vault.password
-    val user = vault.username ?: return null
-    val cipher = vault.newUnlockCipher() ?: return null
-    val proven = activity.promptAuth(
-        "Unlock saved credentials",
-        "Sign in as $user",
-        cipher,
-    )
-    return when (proven) {
-        is AuthOutcome.Proven -> vault.revealPassword(proven.result.cryptoObject?.cipher ?: cipher)
-        AuthOutcome.Cancelled -> null
-        is AuthOutcome.Denied -> null
-        is AuthOutcome.Refused -> {
-            // A refusal here means the sealed password cannot be opened on
-            // this device build: the boot path treats the key the same way.
-            AppLog.d("biometric: crypto unlock refused (${proven.why.take(80)})")
-            vault.markGateBroken()
-            null
-        }
-    }
-}
