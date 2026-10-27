@@ -1,6 +1,7 @@
 package dev.vtoppp.vtop.ui.login
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,8 +48,9 @@ fun LockScreen(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         ) {
             Column(
                 modifier = Modifier
@@ -60,11 +63,7 @@ fun LockScreen(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     modifier = Modifier.size(72.dp),
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                    ) {
+                    Box(contentAlignment = Alignment.Center) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_lock),
                             contentDescription = "App Locked",
@@ -83,14 +82,27 @@ fun LockScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (!savedUsername.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = savedUsername,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
 
                 Text(
-                    text = if (!savedUsername.isNullOrBlank()) {
-                        "Scan your fingerprint or enter your lockscreen PIN to access account $savedUsername"
-                    } else {
-                        "Scan your fingerprint or enter your lockscreen PIN to access VTOP"
-                    },
+                    text = "Scan your fingerprint or enter your lockscreen PIN to access your account",
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

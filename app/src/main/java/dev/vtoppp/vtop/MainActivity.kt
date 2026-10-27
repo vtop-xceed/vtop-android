@@ -9,8 +9,12 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -279,14 +283,30 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
             }
             phase == BootPhase.Auto && authorizedId == null -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Text(
-                            "Checking your VTOP session…",
-                            modifier = Modifier.padding(top = 16.dp, bottom = innerPadding.calculateBottomPadding()),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    androidx.compose.material3.Card(
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                        colors = androidx.compose.material3.CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        ),
+                        elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(32.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(40.dp),
+                                strokeWidth = 3.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "Checking your VTOP session…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -312,6 +332,14 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                         staleNotice = staleNotice,
                         onStaleNoticeShown = { homeVm.consumeStaleNotice() },
                         onCheckUpdate = { updater.check(force = true) },
+                        onLockApp = { isUnlocked = false },
+                        onSignOut = {
+                            vault.clear()
+                            sessionStore.clear()
+                            isUnlocked = true
+                            phase = BootPhase.Login
+                            vaultBanner = null
+                        },
                     )
                     AutoUpdateDialog(updater)
                 }

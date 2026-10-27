@@ -10,69 +10,67 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val VividPurple = Color(0xFF6746F1)
-private val CoralAccent = Color(0xFFFF5524)
-private val SkySecondary = Color(0xFF4A8CF0)
+// Google Material You signature color palette
+private val GoogleBlue = Color(0xFF0B57D0)
+private val GoogleBlueLight = Color(0xFFD3E3FD)
+private val GoogleTeal = Color(0xFF00639B)
+private val GoogleTealLight = Color(0xFFC2E7FF)
+private val GoogleGreen = Color(0xFF146C2E)
+private val GoogleGreenLight = Color(0xFFC4EED0)
 
-private val LightExpressiveColors = lightColorScheme(
-    primary = VividPurple,
+private val LightGoogleColors = lightColorScheme(
+    primary = GoogleBlue,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE5DEFF),
-    onPrimaryContainer = Color(0xFF19006B),
-    secondary = SkySecondary,
+    primaryContainer = GoogleBlueLight,
+    onPrimaryContainer = Color(0xFF041E49),
+    secondary = GoogleTeal,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD8E2FF),
-    onSecondaryContainer = Color(0xFF001B3F),
-    tertiary = CoralAccent,
+    secondaryContainer = GoogleTealLight,
+    onSecondaryContainer = Color(0xFF001D35),
+    tertiary = GoogleGreen,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFDACF),
-    onTertiaryContainer = Color(0xFF4A0009),
-    surface = Color(0xFFFDF7FF),
-    onSurface = Color(0xFF1A1B21),
-    surfaceContainer = Color(0xFFEFEDF4),
-    surfaceContainerHigh = Color(0xFFEAE7EF),
-    surfaceContainerHighest = Color(0xFFE4E1E9),
-    outline = Color(0xFF7A7589),
-    outlineVariant = Color(0xFFCBC3DC),
+    tertiaryContainer = GoogleGreenLight,
+    onTertiaryContainer = Color(0xFF072711),
+    surface = Color(0xFFF8F9FA),
+    onSurface = Color(0xFF1F1F1F),
+    surfaceVariant = Color(0xFFE1E3E1),
+    onSurfaceVariant = Color(0xFF444746),
+    surfaceContainer = Color(0xFFF0F4F9),
+    surfaceContainerHigh = Color(0xFFE9EEF6),
+    surfaceContainerHighest = Color(0xFFE1E8F0),
+    outline = Color(0xFF747775),
+    outlineVariant = Color(0xFFC4C7C5),
 )
 
-private val DarkExpressiveColors = darkColorScheme(
-    primary = Color(0xFFCBBFF7),
-    onPrimary = Color(0xFF4205D2),
-    primaryContainer = Color(0xFF4D33C1),
-    onPrimaryContainer = Color(0xFFE5DEFF),
-    secondary = Color(0xFFAFC6FF),
-    onSecondary = Color(0xFF002A65),
-    secondaryContainer = Color(0xFF00418C),
-    onSecondaryContainer = Color(0xFFD8E2FF),
-    tertiary = Color(0xFFFFB4A2),
-    onTertiary = Color(0xFF5F1503),
-    tertiaryContainer = Color(0xFF7E2E00),
-    onTertiaryContainer = Color(0xFFFFDACF),
-    surface = Color(0xFF121318),
-    onSurface = Color(0xFFE4E1E9),
-    surfaceContainer = Color(0xFF1D1D23),
-    surfaceContainerHigh = Color(0xFF28282E),
-    surfaceContainerHighest = Color(0xFF33333A),
-    outline = Color(0xFF948E9F),
-    outlineVariant = Color(0xFF49454F),
+private val DarkGoogleColors = darkColorScheme(
+    primary = Color(0xFFA8C7FA),
+    onPrimary = Color(0xFF062E6F),
+    primaryContainer = Color(0xFF0842A0),
+    onPrimaryContainer = Color(0xFFD3E3FD),
+    secondary = Color(0xFF7FCFFF),
+    onSecondary = Color(0xFF003355),
+    secondaryContainer = Color(0xFF004A77),
+    onSecondaryContainer = Color(0xFFC2E7FF),
+    tertiary = Color(0xFF6DD58C),
+    onTertiary = Color(0xFF0A3818),
+    tertiaryContainer = Color(0xFF0F5223),
+    onTertiaryContainer = Color(0xFFC4EED0),
+    surface = Color(0xFF131314),
+    onSurface = Color(0xFFE3E3E3),
+    surfaceVariant = Color(0xFF444746),
+    onSurfaceVariant = Color(0xFFC4C7C5),
+    surfaceContainer = Color(0xFF1E1F20),
+    surfaceContainerHigh = Color(0xFF28292A),
+    surfaceContainerHighest = Color(0xFF333537),
+    outline = Color(0xFF8E918F),
+    outlineVariant = Color(0xFF444746),
 )
 
-/**
- * Material 3 Expressive brand color treatment.
- *
- * Dynamic (wallpaper-derived) color is kept as `dynamicColor = false` by
- * default because androidx.compose material3's Expressive *color* API is not
- * published yet (as of material3 1.5.0-beta02); its dynamic functions
- * resolve to the legacy platform palettes (verified: pixel-identical output).
- * `dynamicColor = true` restores wallpaper-derived colors on S+ and forces
- * the Expressive motion/shape theme regardless.
- */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VtopTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val colorScheme = when {
@@ -84,9 +82,8 @@ fun VtopTheme(
                 androidx.compose.material3.dynamicLightColorScheme(context)
             }
         }
-
-        darkTheme -> DarkExpressiveColors
-        else -> LightExpressiveColors
+        darkTheme -> DarkGoogleColors
+        else -> LightGoogleColors
     }
 
     MaterialExpressiveTheme(

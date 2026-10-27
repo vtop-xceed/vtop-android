@@ -1,7 +1,9 @@
 package dev.vtoppp.vtop.ui.login
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -17,22 +20,25 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -40,7 +46,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.AppLog
 import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.WarmState
@@ -83,11 +91,17 @@ fun LoginScreen(
                 savedUsername = savedUsername,
                 onUnlock = onUnlockSaved,
                 onOtherAccount = {
-                    showForm = true; typingNew = true; username = ""; password = ""
+                    showForm = true
+                    typingNew = true
+                    username = ""
+                    password = ""
                 },
                 onForget = {
                     onForgetSaved()
-                    showForm = true; typingNew = true; username = ""; password = ""
+                    showForm = true
+                    typingNew = true
+                    username = ""
+                    password = ""
                 },
             )
             else -> SigninForm(
@@ -98,10 +112,6 @@ fun LoginScreen(
                 onUsername = { username = it.trim() },
                 onPassword = { password = it },
                 onSubmit = {
-                    // vT-vault-auto-capture: the checkbox is gone — every
-                    // successful sign-in is remembered (LoginViewModel journals
-                    // it to the vault; MainActivity's biometric save prompt
-                    // still runs for gated vaults).
                     onSubmit(username, password, true)
                     password = ""
                 },
@@ -110,7 +120,6 @@ fun LoginScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SigninForm(
     username: String,
@@ -121,110 +130,174 @@ private fun SigninForm(
     onPassword: (String) -> Unit,
     onSubmit: () -> Unit,
 ) {
-    Text("Sign in to VTOP", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-    Spacer(Modifier.height(6.dp))
-    WarmStatusLine(warm)
-    Spacer(Modifier.height(18.dp))
-    OutlinedTextField(
-        value = username,
-        onValueChange = onUsername,
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        label = { Text("REG no. / User ID") },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-        shape = RoundedCornerShape(16.dp),
-    )
-    Spacer(Modifier.height(12.dp))
-    var showPassword by rememberSaveable { mutableStateOf(false) }
-    OutlinedTextField(
-        value = password,
-        onValueChange = onPassword,
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text("Password") },
-        singleLine = true,
-        visualTransformation = if (showPassword) {
-            VisualTransformation.None
-        } else {
-            PasswordVisualTransformation()
-        },
-        keyboardOptions = KeyboardOptions(
-            keyboardType = if (showPassword) KeyboardType.Text else KeyboardType.Password,
-            imeAction = ImeAction.Done,
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
-        keyboardActions = KeyboardActions(onDone = { onSubmit() }),
-        shape = RoundedCornerShape(16.dp),
-        trailingIcon = {
-            IconButton(onClick = {
-                showPassword = !showPassword
-            }) {
-                val eyeIcon = if (showPassword) {
-                    dev.vtoppp.vtop.R.drawable.ic_visibility_off
-                } else {
-                    dev.vtoppp.vtop.R.drawable.ic_visibility
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Google-style monogram icon
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(56.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "V",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
                 }
-                Icon(
-                    painterResource(eyeIcon),
-                    contentDescription = if (showPassword) "Hide password" else "Show password",
-                    tint = MaterialTheme.colorScheme.primary,
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                "Sign in with VTOP",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+
+            Spacer(Modifier.height(4.dp))
+
+            Text(
+                "Use your Student Registration Number",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            WarmStatusLine(warm)
+
+            Spacer(Modifier.height(20.dp))
+
+            OutlinedTextField(
+                value = username,
+                onValueChange = onUsername,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Registration Number / User ID") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                shape = RoundedCornerShape(18.dp),
+            )
+
+            Spacer(Modifier.height(14.dp))
+
+            var showPassword by rememberSaveable { mutableStateOf(false) }
+            OutlinedTextField(
+                value = password,
+                onValueChange = onPassword,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Password") },
+                singleLine = true,
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = if (showPassword) KeyboardType.Text else KeyboardType.Password,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(onDone = { onSubmit() }),
+                shape = RoundedCornerShape(18.dp),
+                trailingIcon = {
+                    IconButton(onClick = { showPassword = !showPassword }) {
+                        val eyeIcon = if (showPassword) R.drawable.ic_visibility_off else R.drawable.ic_visibility
+                        Icon(
+                            painterResource(eyeIcon),
+                            contentDescription = if (showPassword) "Hide password" else "Show password",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            Text(
+                "Encrypted on-device · Protected with Biometric / PIN App Lock",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            val loading = state as? LoginUiState.Loading
+            if (loading != null) {
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Text(loading.line, style = MaterialTheme.typography.bodyMedium)
+                }
+                ActivityLog()
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            Button(
+                onClick = onSubmit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(26.dp),
+                enabled = username.isNotBlank() && password.isNotBlank() && state !is LoginUiState.Loading,
+            ) {
+                Text(
+                    text = "Sign in",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
-        },
-    )
-    Spacer(Modifier.height(8.dp))
-    Text(
-        "Your last successful sign-in is saved, encrypted, on this device.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.outline,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Spacer(Modifier.height(12.dp))
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(),
-    ) {
-        val loading = state as? LoginUiState.Loading
-        if (loading != null) {
-            LoadingIndicator(modifier = Modifier.size(48.dp))
-            Text(loading.line, style = MaterialTheme.typography.bodyMedium)
-            ActivityLog()
         }
-    }
-    Spacer(Modifier.height(12.dp))
-    Button(
-        onClick = onSubmit,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(52.dp),
-        shape = RoundedCornerShape(24.dp),
-        enabled = username.isNotBlank() && password.isNotBlank() && state !is LoginUiState.Loading,
-    ) {
-        Text("Log in")
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun WarmStatusLine(warm: WarmState) {
-    val (text, color) = when (warm) {
+    val (text, dotColor) = when (warm) {
         is WarmState.Idle -> return
-        is WarmState.Working -> warm.step to MaterialTheme.colorScheme.onSurfaceVariant
-        is WarmState.CaptchaReady -> "Captcha solved · sign in in one tap" to MaterialTheme.colorScheme.primary
-        is WarmState.Failed -> warm.message to MaterialTheme.colorScheme.onSurfaceVariant
+        is WarmState.Working -> warm.step to MaterialTheme.colorScheme.primary
+        is WarmState.CaptchaReady -> "Connection ready · Instant sign-in" to Color(0xFF146C2E)
+        is WarmState.Failed -> warm.message to MaterialTheme.colorScheme.error
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier.padding(horizontal = 4.dp),
     ) {
-        if (warm is WarmState.Working) {
-            LoadingIndicator(modifier = Modifier.size(20.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor),
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        Text(text, style = MaterialTheme.typography.bodySmall, color = color)
     }
 }
 
-/** Recent live activity lines from [AppLog], so the steps of login stay visible. */
 @Composable
 private fun ActivityLog() {
     val logs: List<String> by produceState(initialValue = emptyList()) {
@@ -258,42 +331,84 @@ private fun SavedAccountCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
             modifier = Modifier
-                .padding(24.dp)
+                .padding(28.dp)
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(64.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = (savedUsername?.firstOrNull()?.uppercase() ?: "V"),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
             Text(
                 "Welcome back",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
             )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                savedUsername?.let { "$it is saved in this app." } ?: "A saved account exists in this app.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            Spacer(Modifier.height(16.dp))
-            Button(onClick = onUnlock) { Text("Unlock") }
+
             Spacer(Modifier.height(4.dp))
+
+            Text(
+                savedUsername?.let { "$it is saved on this device." } ?: "A saved account exists in this app.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(24.dp))
+
             Button(
+                onClick = onUnlock,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(26.dp),
+            ) {
+                Text(
+                    "Unlock & Continue",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            OutlinedButton(
                 onClick = onOtherAccount,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(24.dp),
             ) {
                 Text("Use another account")
             }
+
+            Spacer(Modifier.height(8.dp))
+
             TextButton(onClick = onForget) {
                 Text(
-                    "Forget saved account",
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    "Remove account from this device",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
         }
@@ -307,28 +422,49 @@ private fun ErrorCard(
     onRetry: () -> Unit,
     onEdit: () -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        Text(errorTitle(error), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        detail?.let {
-            Spacer(Modifier.height(4.dp))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(
-                it,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                errorTitle(error),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onErrorContainer,
             )
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                onClick = onEdit,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                ),
-            ) {
-                Text("Edit credentials")
+            detail?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    textAlign = TextAlign.Center,
+                )
             }
-            Button(onClick = onRetry) { Text("Try again") }
+            Spacer(Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = onEdit,
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Text("Edit credentials")
+                }
+                Button(
+                    onClick = onRetry,
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Text("Try again")
+                }
+            }
         }
     }
 }
