@@ -15,7 +15,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -98,6 +97,14 @@ class LoginViewModel(
         const val MAX_WARM_FAILURES_PER_FOREGROUND = 5
     }
 
+    /** T15 fix: true once the warm loop exhausted its per-foreground failure budget
+     *  (5 aggregation-worth of network failures already happened; one give-up is
+     *  enough evidence for the Auto phase to escape instead of a frozen splash).
+     *  StateFlow-ed because Compose must see the transition even when no NEW
+     *  LoginUiState gets emitted (an earlier Failure may already be showing). */
+    private val _warmGaveUp = MutableStateFlow(false)
+    val warmGaveUp: StateFlow<Boolean> = _warmGaveUp.asStateFlow()
+
     private var lastUsername: String? = null
 
     init {
@@ -131,24 +138,42 @@ class LoginViewModel(
                     foregrounded.first { it }
                     failures = 0 // fresh failure budget on every foreground resume
                 }
-                val warmNow = warm.value
-                if (warmNow is WarmState.Working || _state.value is LoginUiState.Loading) {
-                    // Wait for the in-flight chain/manual login to reach a
-                    // terminal state; only success/failure resumes the loop.
-                    combine(warm, _state) { w, s ->
-                        w !is WarmState.Working && s !is LoginUiState.Loading
-                    }.first { it }
+                if (_state.value is LoginUiState.Loading) {
+                    // A manual login is running: wait for a terminal _state, never
+                    // for warm.Working — a Working value with nothing in flight
+                    // (e.g. our own retry countdown announcement) would strand the
+                    // loop here forever, freezing the splash with no Failure and
+                    // no escape (observed on 2026-10-27).
+                    _state.first { it !is LoginUiState.Loading }
                     continue
                 }
+                val warmNow = warm.value
                 when {
                     client.hasSession || warmNow == WarmState.CaptchaReady -> return@launch
                     warmNow is WarmState.Failed -> {
                         failures++
-                        if (failures > MAX_WARM_FAILURES_PER_FOREGROUND) return@launch
+                        if (failures > MAX_WARM_FAILURES_PER_FOREGROUND) {
+                            // T15 fix: going quiet silently left the splash up with
+                            // no LoginUiState.Failure, so the Auto-phase escape in
+                            // MainActivity could never fire. Surface the give-up.
+                            AppLog.d("warm: gave up after $failures failures")
+                            _warmGaveUp.value = true
+                            if (_state.value is LoginUiState.Idle) {
+                                _state.value = LoginUiState.Failure(
+                                    VtopError.Network,
+                                    "VTOP unreachable — $failures connection attempts failed; check your internet",
+                                )
+                            }
+                            return@launch
+                        }
                         val waitMs = backoffMs(failures)
+                        AppLog.d("warm: retry $failures in ${waitMs / 1000}s")
                         client.announceWarm("Retrying VTOP connection in ${waitMs / 1000}s…")
                         delay(waitMs)
                     }
+                    // WarmState.Idle AND the phantom Working("Retrying in …s") left
+                    // after our own countdown both land here — the next chain simply
+                    // runs; there is never another in-flight owner of warm at loop top.
                     else -> client.prewarm()
                 }
             }

@@ -39,6 +39,7 @@ import dev.vtoppp.vtop.data.CredentialVault
 import dev.vtoppp.vtop.data.SessionCache
 import dev.vtoppp.vtop.data.SessionStore
 import dev.vtoppp.vtop.data.VtopError
+import dev.vtoppp.vtop.data.WarmState
 import dev.vtoppp.vtop.data.pillOf
 import dev.vtoppp.vtop.ui.home.HomeScreen
 import dev.vtoppp.vtop.ui.home.HomeViewModel
@@ -90,6 +91,9 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
 
     val loginState by loginVm.state.collectAsStateWithLifecycle()
     val warm by loginVm.warm.collectAsStateWithLifecycle()
+    // T15 fix: the warm give-up must be visible to composition even when no
+    // NEW LoginUiState arrives (a stale Failure already occupies _state).
+    val warmGaveUp by loginVm.warmGaveUp.collectAsStateWithLifecycle()
 
     // T5/T6: the vault surfaces one notice (bootstrap reset, lost credentials,
     // transient unlock trouble); shown here, on the login gate.
@@ -134,6 +138,9 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
         // configuration change or process death, so no surprise second
         // biometric prompt discards a live session.
         if (authorizedId == null) {
+            // Held only for a warm-recovery re-submit; the same plaintext copy
+            // is already present in memory from the first auto attempt.
+            val autoPass = remember { mutableStateOf<String?>(null) }
             LaunchedEffect(Unit) {
                 val fa = activity as? FragmentActivity
                 var pass: String? = null
@@ -144,11 +151,29 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                     }
                     vaultBanner = vault.stateNotice
                 }
+                autoPass.value = pass
                 val user = vault.username
                 if (pass != null && user != null) {
                     loginVm.submit(user, pass, false)
                 } else {
                     phase = BootPhase.Login
+                }
+            }
+            // T15 fix: the first auto try can bounce on a dead network before
+            // the warm loop connects; once warm recovers into a fresh CaptchaReady
+            // nothing re-fired login() (observed on 2026-10-27 — the splash sat
+            // idle with a Failure(Network) and a solved captcha). Re-submit once
+            // per recovery; the ladder's own pacing and attempt cap bound retries.
+            LaunchedEffect(warm, loginState) {
+                val w = warm
+                if (w is WarmState.CaptchaReady && !loginVm.hasLiveSession()) {
+                    val user = vault.username
+                    val pass = autoPass.value
+                    if (user != null && pass != null &&
+                        (loginState as? LoginUiState.Failure)?.error is VtopError.Network
+                    ) {
+                        loginVm.submit(user, pass, false)
+                    }
                 }
             }
         }
@@ -157,12 +182,16 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
         // but T15.1: persistent Network failures (2 in a row, still no live
         // session) escape the Auto phase too — Login keeps the failure detail.
         var autoNetworkFailures by rememberSaveable { mutableStateOf(0) }
-        LaunchedEffect(loginState) {
+        LaunchedEffect(loginState, warmGaveUp) {
             val s = loginState
             if (s is LoginUiState.Failure && !loginVm.hasLiveSession()) {
                 if (s.error is VtopError.Network) {
                     autoNetworkFailures++
-                    if (autoNetworkFailures >= 2) phase = BootPhase.Login
+                    // T15 fix: a warm-loop give-up already aggregates 5 failed
+                    // connection attempts — one emission is "persistent", so it
+                    // escapes immediately instead of waiting for a second
+                    // foreground resume the user may never perform.
+                    if (autoNetworkFailures >= 2 || warmGaveUp) phase = BootPhase.Login
                 } else {
                     phase = BootPhase.Login
                 }
