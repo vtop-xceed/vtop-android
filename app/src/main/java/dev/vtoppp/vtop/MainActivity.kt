@@ -329,8 +329,17 @@ private suspend fun FragmentActivity.promptAuth(
                 BiometricManager.Authenticators.DEVICE_CREDENTIAL,
         )
         .build()
-    if (cipher != null) prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
-    else prompt.authenticate(info)
+    // Some vendor builds throw IllegalArgumentException from authenticate()
+    // even after areAllDevicesSupported checks (e.g. Class 2 biometrics on
+    // ColorOS; the class verdict is theirs to make late). A throw here means
+    // the prompt cannot be used — degrade to "no prompt" instead of crashing.
+    try {
+        if (cipher != null) prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
+        else prompt.authenticate(info)
+    } catch (e: IllegalArgumentException) {
+        AppLog.d("biometric: prompt refused (${e.message?.take(80)})")
+        if (cont.isActive) cont.resume(null)
+    }
 }
 
 // T6.4: a prompt cancel means "don't save (ask again)"; a keystore failure

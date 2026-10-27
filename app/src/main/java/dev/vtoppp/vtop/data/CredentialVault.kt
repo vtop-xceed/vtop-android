@@ -62,9 +62,13 @@ class CredentialVault(
         private set
 
     init {
+        // Gated mode seals the password with a per-use Keystore cipher and needs
+        // a Crypto-based prompt, which Android only allows for Class 3 (strong)
+        // biometrics. Devices whose only authenticator is Class 2 (e.g. face
+        // unlock on some ColorOS/OnePlus builds) must NOT gate: prompting with
+        // a CryptoObject there throws IllegalArgumentException and crashes.
         canGate = BiometricManager.from(appContext).canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+            BiometricManager.Authenticators.BIOMETRIC_STRONG,
         ) == BiometricManager.BIOMETRIC_SUCCESS
         if (degradedBoot) state = VaultState.LostCredentials
     }
