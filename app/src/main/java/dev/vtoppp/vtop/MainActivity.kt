@@ -48,6 +48,7 @@ import dev.vtoppp.vtop.ui.home.HomeViewModel
 import dev.vtoppp.vtop.ui.login.LoginScreen
 import dev.vtoppp.vtop.ui.login.LoginUiState
 import dev.vtoppp.vtop.ui.login.LoginViewModel
+import dev.vtoppp.vtop.ui.login.UnlockGateDialog
 import dev.vtoppp.vtop.ui.theme.VtopTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -148,23 +149,58 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
             // Held only for a warm-recovery re-submit; the same plaintext copy
             // is already present in memory from the first auto attempt.
             val autoPass = remember { mutableStateOf<String?>(null) }
+            // The ungated fallback (no Class 3 biometric; e.g. Class-2-only
+            // OnePlus builds) cannot be opened by the system prompt, so its
+            // boot ask is this dialog: the saved secret must be retyped once
+            // per app open before auto-login proceeds.
+            val askPass = remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
                 val fa = activity as? FragmentActivity
-                var pass: String? = null
-                if (fa != null) {
-                    pass = when {
-                        !vault.isGated -> vault.password
-                        else -> unlockVault(fa, vault)
-                    }
-                    vaultBanner = vault.stateNotice
-                }
-                autoPass.value = pass
-                val user = vault.username
-                if (pass != null && user != null) {
-                    loginVm.submit(user, pass, false)
-                } else {
+                if (fa == null) {
                     phase = BootPhase.Login
+                    return@LaunchedEffect
                 }
+                if (vault.isGated) {
+                    val gated = unlockVault(fa, vault)
+                    vaultBanner = vault.stateNotice
+                    val user = vault.username
+                    if (gated != null && user != null) {
+                        autoPass.value = gated
+                        loginVm.submit(user, gated, false)
+                    } else {
+                        phase = BootPhase.Login
+                    }
+                } else {
+                    // Ungated secret + user present → ask; nothing saved → gate.
+                    if (vault.username != null && vault.password != null) {
+                        askPass.value = true
+                    } else {
+                        vaultBanner = vault.stateNotice
+                        phase = BootPhase.Login
+                    }
+                }
+            }
+            if (askPass.value) {
+                UnlockGateDialog(
+                    username = vault.username,
+                    verify = { entered -> vault.password?.let { stored -> entered == stored } == true },
+                    onVerified = {
+                        askPass.value = false
+                        val user = vault.username
+                        val stored = vault.password
+                        if (user != null && stored != null) {
+                            vaultBanner = vault.stateNotice
+                            autoPass.value = stored
+                            loginVm.submit(user, stored, false)
+                        } else {
+                            phase = BootPhase.Login
+                        }
+                    },
+                    onDismiss = {
+                        askPass.value = false
+                        phase = BootPhase.Login
+                    },
+                )
             }
             // T15 fix: the first auto try can bounce on a dead network before
             // the warm loop connects; once warm recovers into a fresh CaptchaReady
@@ -249,6 +285,11 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                         onStaleNoticeShown = { homeVm.consumeStaleNotice() },
                         onCheckUpdate = { updater.check(force = true) },
                     )
+                    // Update popup lives with the open app only: the startup
+                    // check is silent, so the splash ask and the sign-in gate
+                    // are never overlaid; an update found while starting pops
+                    // as soon as Home is visible.
+                    AutoUpdateDialog(updater)
                 }
             }
             else -> {
@@ -306,9 +347,6 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
             }
         }
     }
-
-    // Update popup overlays every phase (splash, login, home).
-    AutoUpdateDialog(updater)
 }
 
 // ---------------------------------------------------------------- biometric

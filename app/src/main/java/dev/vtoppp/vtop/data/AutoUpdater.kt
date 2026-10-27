@@ -66,36 +66,50 @@ class AutoUpdater(context: Context) {
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
-    /** Startup ping: only fires when enabled and the release is not dismissed. */
+    /**
+     * Startup ping: only fires when enabled, and fully silent — never stages
+     * the checking spinner, an up-to-date card or a failure card, so the
+     * boot flow (credential ask, auto-login) is never blocked or overlaid.
+     * A genuinely newer release still becomes [AutoUpdateState.Available].
+     */
     fun autoCheck() {
         if (!autoCheckEnabled) return
-        check(force = false)
+        check(force = false, silent = true)
     }
 
-    /** Explicit user check (Home action): always honors [Later]-dismissed tags for nag-suppression. */
-    fun check(force: Boolean = true) {
+    /**
+     * Update check (Home top bar when [force]). [silent] keeps the startup
+     * ping invisible: only a newer release is allowed to change [state];
+     * everything else (no release, stale release, network trouble) is logged
+     * by [AppLog] and left as-is.
+     */
+    fun check(force: Boolean = true, silent: Boolean = false) {
         if (state is AutoUpdateState.Downloading) return
-        state = AutoUpdateState.Checking
+        if (!silent) state = AutoUpdateState.Checking
         kotlin.concurrent.thread(name = "update-check") {
             val result = runCatching { fetchLatest() }
             mainHandler.post {
+                val current = currentVersion()
                 when {
                     result.isSuccess -> {
                         val release = result.getOrNull()
-                        val current = currentVersion()
                         when {
+                            release == null && silent -> {}
                             release == null ->
                                 state = if (force) AutoUpdateState.UpToDate(current) else AutoUpdateState.Idle
                             isNewer(release.version, current) && !(release.tag in dismissedTags && !force) ->
                                 state = AutoUpdateState.Available(release)
+                            silent -> {}
                             force ->
                                 state = AutoUpdateState.UpToDate(current)
                             else -> state = AutoUpdateState.Idle
                         }
                     }
+                    silent ->
+                        AppLog.d("update: startup check failed (${result.exceptionOrNull()?.javaClass?.simpleName})")
                     force -> state = AutoUpdateState.Failed(describe(result.exceptionOrNull()))
                     else -> {
-                        AppLog.d("update: startup check failed (${result.exceptionOrNull()?.javaClass?.simpleName})")
+                        AppLog.d("update: check failed (${result.exceptionOrNull()?.javaClass?.simpleName})")
                         state = AutoUpdateState.Idle
                     }
                 }
