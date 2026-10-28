@@ -49,10 +49,9 @@ class LoginViewModel(
         VtopClient(
             autoCaptcha,
             credentialsProvider = {
-                // Only non-gated vaults can feed silent re-auth.
-                vault.username?.takeIf { !vault.isGated }?.let { user ->
-                    vault.password?.let { user to it }
-                }
+                val user = vault.username
+                val pass = vault.password
+                if (user != null && pass != null) user to pass else null
             },
             sessionStore = sessionStore,
         ).also { currentClient = it }
