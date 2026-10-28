@@ -15,7 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -46,6 +47,7 @@ import dev.vtoppp.vtop.data.CredentialVault
 import dev.vtoppp.vtop.data.SessionCache
 import dev.vtoppp.vtop.data.SessionStore
 import dev.vtoppp.vtop.data.VtopError
+import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.data.WarmState
 import dev.vtoppp.vtop.data.pillOf
 import dev.vtoppp.vtop.ui.home.AutoUpdateDialog
@@ -55,6 +57,8 @@ import dev.vtoppp.vtop.ui.login.LockScreen
 import dev.vtoppp.vtop.ui.login.LoginScreen
 import dev.vtoppp.vtop.ui.login.LoginUiState
 import dev.vtoppp.vtop.ui.login.LoginViewModel
+import dev.vtoppp.vtop.ui.theme.AppPalette
+import dev.vtoppp.vtop.ui.theme.ThemePreferences
 import dev.vtoppp.vtop.ui.theme.VtopTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -75,12 +79,33 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         AppLog.init(this)
         SessionCache.init(this)
+        UserDatabase.init(this)
+        UserDatabase.exportDatabase(this)
+        UserDatabase.exportHtmlState(this)
         AppLog.d("app: onCreate")
         setContent {
-            VtopTheme {
-                Root(vault, autoCaptcha, sessionStore)
+            var currentPalette by remember {
+                mutableStateOf(ThemePreferences.getPalette(this))
+            }
+            VtopTheme(palette = currentPalette) {
+                Root(
+                    vault = vault,
+                    autoCaptcha = autoCaptcha,
+                    sessionStore = sessionStore,
+                    currentPalette = currentPalette,
+                    onPaletteChange = { newPalette ->
+                        currentPalette = newPalette
+                        ThemePreferences.setPalette(this, newPalette)
+                    },
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        UserDatabase.exportDatabase(this)
+        UserDatabase.exportHtmlState(this)
     }
 }
 
@@ -88,7 +113,13 @@ class MainActivity : FragmentActivity() {
 enum class BootPhase { Auto, Login }
 
 @Composable
-private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, sessionStore: SessionStore) {
+private fun Root(
+    vault: CredentialVault,
+    autoCaptcha: AutoCaptchaClient,
+    sessionStore: SessionStore,
+    currentPalette: AppPalette,
+    onPaletteChange: (AppPalette) -> Unit,
+) {
     val activity = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -294,10 +325,9 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.padding(32.dp),
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(40.dp),
-                                strokeWidth = 3.dp,
-                                color = MaterialTheme.colorScheme.primary,
+                            @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+                            LoadingIndicator(
+                                modifier = Modifier.size(48.dp),
                             )
                             Spacer(Modifier.height(16.dp))
                             Text(
@@ -310,7 +340,7 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                     }
                 }
             }
-            phase == BootPhase.Auto || (authorizedId != null && loginVm.hasLiveSession()) -> {
+            phase != BootPhase.Login && (phase == BootPhase.Auto || (authorizedId != null && loginVm.hasLiveSession())) -> {
                 val id = authorizedId ?: vault.username ?: ""
                 val homeVm: HomeViewModel = viewModel(
                     factory = HomeVmFactory(loginVm.currentClient, id),
@@ -336,10 +366,14 @@ private fun Root(vault: CredentialVault, autoCaptcha: AutoCaptchaClient, session
                         onSignOut = {
                             vault.clear()
                             sessionStore.clear()
+                            authorizedId = null
+                            loginVm.reset()
                             isUnlocked = true
                             phase = BootPhase.Login
                             vaultBanner = null
                         },
+                        currentPalette = currentPalette,
+                        onPaletteChange = onPaletteChange,
                     )
                     AutoUpdateDialog(updater)
                 }

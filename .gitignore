@@ -22,3 +22,10 @@ idea-RE/
 
 # Hardcoded test creds (never commit)
 app/src/main/java/dev/vtoppp/vtop/Creds.kt
+
+# Local cache, sqlite dumps, and scratch files
+*.db
+*.html
+*.png
+pic_*.jpg
+section_cache/

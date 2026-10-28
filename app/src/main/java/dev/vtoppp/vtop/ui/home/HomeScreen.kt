@@ -43,19 +43,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import dev.vtoppp.vtop.ui.theme.AppPalette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
@@ -91,9 +92,28 @@ fun HomeScreen(
     onCheckUpdate: () -> Unit = {},
     onLockApp: () -> Unit = {},
     onSignOut: () -> Unit = {},
+    currentPalette: AppPalette = AppPalette.Dynamic,
+    onPaletteChange: (AppPalette) -> Unit = {},
 ) {
     val ready = state as? HomeUiState.Ready
     var showAccountDialog by remember { mutableStateOf(false) }
+    var showTestingDashboard by rememberSaveable { mutableStateOf(true) }
+
+    if (ready != null && showTestingDashboard) {
+        TestingDashboardScreen(
+            authorizedId = ready.authorizedId,
+            onOpenService = onOpen,
+            onSwitchToClassic = { showTestingDashboard = false },
+            pill = pill,
+            onCheckUpdate = onCheckUpdate,
+            onLockApp = onLockApp,
+            onSignOut = onSignOut,
+            currentPalette = currentPalette,
+            onPaletteChange = onPaletteChange,
+            sections = ready.sections,
+        )
+        return
+    }
 
     // T18.1: system back inside a section view returns to the menu instead of
     // exiting the app mid-fetch.
@@ -223,6 +243,28 @@ fun HomeScreen(
                 if (state !is HomeUiState.Ready) {
                     SessionPill(pill)
                 }
+                if (ready != null) {
+                    Surface(
+                        onClick = { showTestingDashboard = true },
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier
+                            .height(36.dp)
+                            .padding(end = 4.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "✨ New UI",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+                    }
+                }
                 Surface(
                     onClick = onCheckUpdate,
                     shape = RoundedCornerShape(20.dp),
@@ -322,7 +364,69 @@ fun HomeScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(18.dp))
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_palette),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "Theme Accent",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    AppPalette.entries.forEach { p ->
+                                        val isSelected = currentPalette == p
+                                        Surface(
+                                            onClick = { onPaletteChange(p) },
+                                            shape = CircleShape,
+                                            color = p.seedColor,
+                                            modifier = Modifier.size(if (isSelected) 36.dp else 30.dp),
+                                            border = if (isSelected) androidx.compose.foundation.BorderStroke(
+                                                2.dp,
+                                                MaterialTheme.colorScheme.onSurface,
+                                            ) else null,
+                                            shadowElevation = if (isSelected) 3.dp else 0.dp,
+                                        ) {
+                                            if (isSelected) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_check),
+                                                        contentDescription = "Selected",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(16.dp),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(20.dp))
                         OutlinedButton(
                             onClick = {
                                 showAccountDialog = false
@@ -586,19 +690,17 @@ private fun MenuList(
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Horizontal scrollable tabs matching each heading
-        ScrollableTabRow(
+        SecondaryScrollableTabRow(
             selectedTabIndex = pagerState.currentPage,
             edgePadding = 16.dp,
             containerColor = Color.Transparent,
             divider = {},
-            indicator = { tabPositions ->
-                if (pagerState.currentPage < tabPositions.size) {
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
-                        color = MaterialTheme.colorScheme.primary,
-                        height = 3.dp,
-                    )
-                }
+            indicator = {
+                TabRowDefaults.SecondaryIndicator(
+                    modifier = Modifier.tabIndicatorOffset(pagerState.currentPage, matchContentSize = false),
+                    color = MaterialTheme.colorScheme.primary,
+                    height = 3.dp,
+                )
             },
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -680,22 +782,31 @@ private fun MenuList(
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(8.dp),
-                            ) {}
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        painter = painterResource(categoryIcon(item.section, item.label)),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
                             Spacer(Modifier.width(14.dp))
                             Text(
                                 text = item.label,
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
                             )
-                            Spacer(Modifier.weight(1f))
                             Icon(
                                 painter = painterResource(R.drawable.ic_chevron_right),
                                 contentDescription = null,
@@ -706,5 +817,17 @@ private fun MenuList(
                 }
             }
         }
+    }
+}
+
+private fun categoryIcon(sectionName: String, label: String): Int {
+    val text = "$sectionName $label".lowercase()
+    return when {
+        "academic" in text || "timetable" in text || "attendance" in text || "course" in text || "curriculum" in text -> R.drawable.ic_school
+        "exam" in text || "grade" in text || "mark" in text || "coe" in text -> R.drawable.ic_grade
+        "payment" in text || "finance" in text || "fee" in text || "receipt" in text || "bank" in text -> R.drawable.ic_payments
+        "hostel" in text || "mess" in text || "room" in text -> R.drawable.ic_home
+        "profile" in text || "student" in text || "credential" in text || "spot-light" in text -> R.drawable.ic_person
+        else -> R.drawable.ic_launcher_foreground
     }
 }

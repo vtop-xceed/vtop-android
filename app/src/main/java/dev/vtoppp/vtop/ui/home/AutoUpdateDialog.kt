@@ -4,10 +4,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,6 +39,7 @@ import dev.vtoppp.vtop.data.ReleaseInfo
  *    downloaded APK to the system installer;
  *  - [AutoUpdateState.Failed]/[UpToDate]/[Checking] — short status cards with Retry.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AutoUpdateDialog(
     updater: AutoUpdater,
@@ -53,7 +58,7 @@ fun AutoUpdateDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    CircularProgressIndicator()
+                    LoadingIndicator(modifier = Modifier.size(36.dp))
                     Text("Pinging GitHub Releases")
                 }
             },
@@ -90,8 +95,20 @@ fun AutoUpdateDialog(
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.padding(8.dp))
+                    val total = s.total
+                    if (total != null && total > 0) {
+                        val fraction = (s.received.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                        LinearWavyProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth().height(10.dp),
+                        )
+                    } else {
+                        LinearWavyProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(10.dp),
+                        )
+                    }
                     Text(
                         text = s.total?.let { total ->
                             "Loading " + s.received.megabytes() + " / " +
