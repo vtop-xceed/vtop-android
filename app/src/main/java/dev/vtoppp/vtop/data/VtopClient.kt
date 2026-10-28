@@ -91,6 +91,7 @@ class VtopClient(
     private var lastLoginPostAt = 0L
 
     private val sessionLock = Mutex()
+    private var sessionGeneration = 0
 
     /**
      * Cookie store stapled into the transport jar (name → value,
@@ -185,12 +186,14 @@ class VtopClient(
         path: String,
         form: Map<String, String>,
         referer: String? = null,
+        headers: Map<String, String> = emptyMap(),
     ): Pair<Int, String> {
         val request = HttpRequest(
             method = Method.PostForm,
             url = urlOf(path),
             referer = referer,
             form = form.map { (k, v) -> k to v },
+            headers = headers,
         )
         val r = when (http) {
             is OkHttpHttpClient -> http.executeSuspend(request)
@@ -403,6 +406,7 @@ class VtopClient(
                 try {
                     val res = authenticate(username.uppercase(), password)
                     sessionCredentials = username to password
+                    sessionGeneration++
                     // The T15.3 restored-session short-circuit returns without
                     // touching _warm; without this reset the pill sits pulsing
                     // "Signing in…" forever on that success path (observed on
@@ -608,15 +612,34 @@ class VtopClient(
      * Fetches a section page; on session expiry re-authenticates once with the
      * session's stored credentials and retries.
      */
-    suspend fun fetchSection(endpoint: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun fetchSection(endpoint: String): Result<String> =
+        fetchSectionWithParams(endpoint, emptyMap())
+
+    suspend fun fetchSectionWithParams(endpoint: String, extraParams: Map<String, String>): Result<String> = withContext(Dispatchers.IO) {
         runCatchingLogin {
             if (csrf == null) reloginAfterExpiry()
             try {
-                rawSection(endpoint)
+                rawSectionWithParams(endpoint, extraParams, isSubAction = false)
             } catch (e: VtopError.SessionExpired) {
-                reloginAfterExpiry()
+                val gen = sessionGeneration
+                reloginAfterExpiry(gen)
                 AppLog.d("section: re-authenticated, retrying $endpoint")
-                rawSection(endpoint)
+                rawSectionWithParams(endpoint, extraParams, isSubAction = false)
+            }
+        }
+    }
+
+    suspend fun postSubAction(endpoint: String, params: Map<String, String>): Result<String> = withContext(Dispatchers.IO) {
+        runCatchingLogin {
+            if (csrf == null) reloginAfterExpiry()
+            val ajaxHeaders = mapOf("X-Requested-With" to "XMLHttpRequest")
+            try {
+                rawSectionWithParams(endpoint, params, isSubAction = true, headers = ajaxHeaders)
+            } catch (e: VtopError.SessionExpired) {
+                val gen = sessionGeneration
+                reloginAfterExpiry(gen)
+                AppLog.d("subaction: re-authenticated, retrying $endpoint")
+                rawSectionWithParams(endpoint, params, isSubAction = true, headers = ajaxHeaders)
             }
         }
     }
@@ -625,16 +648,25 @@ class VtopClient(
         !body.contains("page-wrapper") &&
             (body.contains("stdForm") || body.contains("empForm") || body.contains("parentForm"))
 
-    private suspend fun rawSection(endpoint: String): String {
+    private suspend fun rawSectionWithParams(
+        endpoint: String,
+        extraParams: Map<String, String>,
+        isSubAction: Boolean = false,
+        headers: Map<String, String> = emptyMap(),
+    ): String {
         val c = csrf ?: fail("no session")
-        val form = mapOf(
-            "verifyMenu" to "true",
+        val form = mutableMapOf(
             "authorizedID" to (authorizedId ?: ""),
             "_csrf" to c,
             "nocache" to System.currentTimeMillis().toString(),
+            "x" to java.util.Date().toString(),
         )
-        val (code, body) = postAwaiting(endpoint, form, referer = "$BASE/vtop/content")
-        if (code == 301 || code == 302 || code == 303 || code == 307) throw VtopError.SessionExpired
+        if (!isSubAction) {
+            form["verifyMenu"] = "true"
+        }
+        form.putAll(extraParams)
+        val (code, body) = postAwaiting(endpoint, form, referer = "$BASE/vtop/content", headers = headers)
+        if (code in 301..307 || code == 404) throw VtopError.SessionExpired
         if (code == 403 || code == 429) throw VtopError.Blocked("WAF_BLOCKED($code) on $endpoint")
         check(code in 200..299) { "section $endpoint -> $code" }
         AppLog.d("section: $endpoint -> $code ${body.length}B")
@@ -643,14 +675,16 @@ class VtopClient(
     }
 
     /** Transparent auto re-login; never surfaces wrong-credentials as such mid-app. */
-    private suspend fun reloginAfterExpiry() {
+    private suspend fun reloginAfterExpiry(fromGeneration: Int = sessionGeneration) {
         val creds = sessionCredentials
             ?: credentialsProvider()?.also { sessionCredentials = it }
             ?: throw VtopError.SessionExpired
-        AppLog.d("session: expired, re-authenticating")
         sessionLock.withLock {
-            // Another in-flight action may have already refreshed the session.
-            if (hasSession) return
+            if (sessionGeneration > fromGeneration) {
+                AppLog.d("session: already refreshed by concurrent request")
+                return
+            }
+            AppLog.d("session: expired, re-authenticating")
             try {
                 clearSession()
                 authorizedId = null
@@ -659,6 +693,7 @@ class VtopClient(
                 warmSolution = null
                 _warm.value = WarmState.Working("Signing in…")
                 authenticate(creds.first.uppercase(), creds.second)
+                sessionGeneration++
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

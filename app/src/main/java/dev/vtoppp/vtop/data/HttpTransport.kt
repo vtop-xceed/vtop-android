@@ -15,6 +15,7 @@ data class HttpRequest(
     val form: List<Pair<String, String>> = emptyList(),
     /** Lets the transport follow the redirect chain (e.g. the dashboard chase). */
     val followRedirects: Boolean = false,
+    val headers: Map<String, String> = emptyMap(),
 )
 
 /** Result of one request; Set-Cookie headers stay raw and ordered. */

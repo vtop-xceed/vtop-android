@@ -172,6 +172,9 @@ class OkHttpHttpClient(
         // not send is exactly what a WAF sniffs; keep the request bare above
         // the mandatory plumbings.
         request.referer?.let { builder.header("Referer", it) }
+        for ((name, value) in request.headers) {
+            builder.header(name, value)
+        }
         when (request.method) {
             Method.Get -> builder.get()
             Method.PostForm -> {

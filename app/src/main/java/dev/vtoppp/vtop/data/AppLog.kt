@@ -92,6 +92,10 @@ object AppLog {
 
     fun d(msg: String) {
         _lines.tryEmit(msg)
+        try {
+            android.util.Log.d("VtopLog", msg)
+        } catch (_: Throwable) {
+        }
         val f = file ?: return
         synchronized(lock) {
             // SimpleDateFormat.format is not thread-safe: format strictly
