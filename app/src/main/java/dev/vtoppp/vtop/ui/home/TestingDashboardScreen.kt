@@ -2,13 +2,16 @@ package dev.vtoppp.vtop.ui.home
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -385,9 +388,9 @@ fun TestingDashboardScreen(
 
                             // Fluid status pills below the name: VTOP session bridging & GitHub release ping
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(top = 6.dp),
+                                modifier = Modifier.padding(top = 5.dp),
                             ) {
                                 // 1. VTOP Session Bridging Pill / Green Check Dot
                                 val isVtopReady = pill.kind == PillKind.Ready
@@ -774,6 +777,7 @@ private suspend fun pingGitHubRelease(): Boolean = withContext(Dispatchers.IO) {
 
 /**
  * Small fluid pill that displays state and collapses into a green dot with a checkmark once ready.
+ * After 3 seconds of compressing, the checkmark smoothly fades out and the dot shrinks into a compact solid green dot.
  * Tapping toggles expansion to view detailed status label.
  */
 @Composable
@@ -787,6 +791,30 @@ private fun FluidStatusPill(
     isError: Boolean = false,
 ) {
     var userToggled by remember { mutableStateOf(false) }
+    var checkmarkVisible by rememberSaveable { mutableStateOf(false) }
+    var hasSettled by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(isReady) {
+        if (isReady) {
+            if (!hasSettled) {
+                checkmarkVisible = true
+                delay(3000L)
+                checkmarkVisible = false
+                hasSettled = true
+            }
+        } else {
+            checkmarkVisible = false
+            hasSettled = false
+        }
+    }
+
+    LaunchedEffect(userToggled) {
+        if (userToggled) {
+            delay(4000L)
+            userToggled = false
+        }
+    }
+
     val showExpanded = (!isReady && !isError) || isBusy || userToggled
 
     val backgroundColor by animateColorAsState(
@@ -796,7 +824,7 @@ private fun FluidStatusPill(
             isReady && userToggled -> MaterialTheme.colorScheme.primaryContainer
             else -> MaterialTheme.colorScheme.surfaceContainerHigh
         },
-        animationSpec = tween(250),
+        animationSpec = tween(350, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)),
         label = "pillBg",
     )
 
@@ -807,67 +835,124 @@ private fun FluidStatusPill(
             isReady && userToggled -> MaterialTheme.colorScheme.onPrimaryContainer
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = tween(250),
+        animationSpec = tween(350, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)),
         label = "pillContent",
     )
 
-    Surface(
-        onClick = {
-            if (isReady) {
-                userToggled = !userToggled
-            }
-            onClick()
-        },
-        shape = CircleShape,
-        color = backgroundColor,
-        modifier = modifier
-            .animateContentSize(tween(250))
-            .height(22.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(
-                horizontal = if (showExpanded) 8.dp else 5.dp,
-                vertical = 3.dp,
-            ),
-        ) {
-            if (isReady) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_check),
-                    contentDescription = readyLabel,
-                    tint = contentColor,
-                    modifier = Modifier.size(12.dp),
-                )
-            } else if (isBusy || !isReady) {
-                val transition = rememberInfiniteTransition(label = "pillPulse")
-                val alpha by transition.animateFloat(
-                    initialValue = 0.35f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(600, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse,
-                    ),
-                    label = "pillPulseAlpha",
-                )
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .graphicsLayer { this.alpha = alpha }
-                        .clip(CircleShape)
-                        .background(if (isError) MaterialTheme.colorScheme.error else Color(0xFFE65100)),
-                )
-            }
+    val checkmarkAlpha by animateFloatAsState(
+        targetValue = if (checkmarkVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = 350,
+            easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f),
+        ),
+        label = "checkmarkAlpha",
+    )
 
-            if (showExpanded) {
-                Spacer(Modifier.width(5.dp))
+    val targetCollapsedSize = if (checkmarkVisible) 14.dp else 8.dp
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            )
+            .clip(CircleShape)
+            .background(backgroundColor)
+            .clickable(
+                onClickLabel = if (isReady) readyLabel else label,
+            ) {
+                if (isReady) {
+                    userToggled = !userToggled
+                }
+                onClick()
+            },
+    ) {
+        if (showExpanded) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .height(20.dp)
+                    .padding(horizontal = 7.dp, vertical = 2.dp),
+            ) {
+                if (isReady) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_check),
+                        contentDescription = readyLabel,
+                        tint = contentColor,
+                        modifier = Modifier.size(10.dp),
+                    )
+                } else if (isBusy || !isReady) {
+                    val transition = rememberInfiniteTransition(label = "pillPulse")
+                    val alpha by transition.animateFloat(
+                        initialValue = 0.35f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(600, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "pillPulseAlpha",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .graphicsLayer { this.alpha = alpha }
+                            .clip(CircleShape)
+                            .background(if (isError) MaterialTheme.colorScheme.error else Color(0xFFE65100)),
+                    )
+                }
+
+                Spacer(Modifier.width(4.dp))
                 Text(
                     text = if (isReady) readyLabel else label,
                     style = MaterialTheme.typography.labelSmall,
-                    fontSize = 11.sp,
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Medium,
                     color = contentColor,
                     maxLines = 1,
                 )
+            }
+        } else {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(targetCollapsedSize),
+            ) {
+                if (isReady) {
+                    if (checkmarkAlpha > 0.01f) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_check),
+                            contentDescription = readyLabel,
+                            tint = contentColor,
+                            modifier = Modifier
+                                .size(9.dp)
+                                .graphicsLayer {
+                                    alpha = checkmarkAlpha
+                                    scaleX = 0.5f + 0.5f * checkmarkAlpha
+                                    scaleY = 0.5f + 0.5f * checkmarkAlpha
+                                },
+                        )
+                    }
+                } else if (isBusy || !isReady) {
+                    val transition = rememberInfiniteTransition(label = "collapsedPulse")
+                    val alpha by transition.animateFloat(
+                        initialValue = 0.35f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(600, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "collapsedPulseAlpha",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(5.dp)
+                            .graphicsLayer { this.alpha = alpha }
+                            .clip(CircleShape)
+                            .background(if (isError) MaterialTheme.colorScheme.error else Color(0xFFE65100)),
+                    )
+                }
             }
         }
     }
