@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -81,8 +82,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -108,22 +111,23 @@ import kotlin.math.absoluteValue
 data class ParsedDisplayName(
     val firstName: String,
     val secondaryName: String?,
+    val secondaryInitials: String? = null,
 )
 
-/** Splits raw name into primary first name and secondary middle/last names. */
+/** Splits raw name into primary first name and secondary middle/last names + initials. */
 fun parseDisplayName(rawName: String?, fallbackId: String = "Student"): ParsedDisplayName {
     val trimmed = rawName?.trim().orEmpty()
     if (trimmed.isBlank()) {
         val fb = fallbackId.ifBlank { "Student" }
-        return ParsedDisplayName(firstName = fb, secondaryName = null)
+        return ParsedDisplayName(firstName = fb, secondaryName = null, secondaryInitials = null)
     }
     // If it contains digits (like a registration number ID e.g. 24BCY10147), keep as single ID
     if (trimmed.any { it.isDigit() }) {
-        return ParsedDisplayName(firstName = trimmed.uppercase(), secondaryName = null)
+        return ParsedDisplayName(firstName = trimmed.uppercase(), secondaryName = null, secondaryInitials = null)
     }
     val words = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
     if (words.isEmpty()) {
-        return ParsedDisplayName(firstName = fallbackId.ifBlank { "Student" }, secondaryName = null)
+        return ParsedDisplayName(firstName = fallbackId.ifBlank { "Student" }, secondaryName = null, secondaryInitials = null)
     }
     val first = words.first().lowercase().replaceFirstChar { it.uppercase() }
     val secondary = if (words.size > 1) {
@@ -132,7 +136,13 @@ fun parseDisplayName(rawName: String?, fallbackId: String = "Student"): ParsedDi
             else word.lowercase().replaceFirstChar { it.uppercase() }
         }
     } else null
-    return ParsedDisplayName(firstName = first, secondaryName = secondary)
+    val initials = if (words.size > 1) {
+        words.drop(1).mapNotNull { word ->
+            val char = word.firstOrNull { it.isLetter() }?.uppercaseChar()
+            if (char != null) "$char." else null
+        }.joinToString(" ").ifBlank { null }
+    } else null
+    return ParsedDisplayName(firstName = first, secondaryName = secondary, secondaryInitials = initials)
 }
 
 private data class GreetingTypography(
@@ -351,38 +361,98 @@ fun TestingDashboardScreen(
                                 fontWeight = typography.greetingWeight,
                                 letterSpacing = typography.letterSpacing,
                             )
-                            Row(
-                                verticalAlignment = Alignment.Bottom,
+                            BoxWithConstraints(
                                 modifier = Modifier
+                                    .fillMaxWidth()
                                     .clickable { showAccountDialog = true }
                                     .padding(top = 1.dp),
                             ) {
-                                Text(
-                                    text = displayName,
-                                    style = MaterialTheme.typography.headlineLarge,
+                                val textMeasurer = rememberTextMeasurer()
+                                val density = LocalDensity.current
+                                val maxWidthPx = constraints.maxWidth
+                                val spacerPx = with(density) { 6.dp.roundToPx() }
+
+                                val baseFirstStyle = MaterialTheme.typography.headlineLarge.copy(
                                     fontWeight = typography.nameWeight,
                                     fontFamily = typography.fontFamily,
                                     letterSpacing = typography.letterSpacing,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false),
                                 )
-                                if (parsedName.secondaryName != null) {
-                                    Spacer(Modifier.width(6.dp))
+                                val secondaryStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = typography.greetingWeight,
+                                    fontFamily = typography.fontFamily,
+                                    letterSpacing = typography.letterSpacing,
+                                )
+
+                                // Measure first name: if it exceeds available width on wide fonts (like Monospace),
+                                // scale font size down so it NEVER gets ..ed
+                                val firstMeasure = textMeasurer.measure(
+                                    text = displayName,
+                                    style = baseFirstStyle,
+                                    maxLines = 1,
+                                )
+                                val firstWidthPx = firstMeasure.size.width
+
+                                val (effectiveFirstStyle, effectiveFirstWidthPx) = if (firstWidthPx > maxWidthPx && maxWidthPx > 0) {
+                                    val scale = (maxWidthPx.toFloat() / firstWidthPx.toFloat()).coerceIn(0.6f, 1f)
+                                    val scaled = baseFirstStyle.copy(fontSize = baseFirstStyle.fontSize * scale)
+                                    scaled to maxWidthPx
+                                } else {
+                                    baseFirstStyle to firstWidthPx
+                                }
+
+                                val availableForSecondary = maxWidthPx - effectiveFirstWidthPx - spacerPx
+
+                                // If name is too long, hide full middle & last name to use initials (e.g. Mayank K.)
+                                val resolvedSecondary = when {
+                                    parsedName.secondaryName == null -> null
+                                    availableForSecondary <= 0 -> null
+                                    else -> {
+                                        val fullWidth = textMeasurer.measure(
+                                            text = parsedName.secondaryName,
+                                            style = secondaryStyle,
+                                            maxLines = 1,
+                                        ).size.width
+                                        if (fullWidth <= availableForSecondary) {
+                                            parsedName.secondaryName
+                                        } else {
+                                            val initials = parsedName.secondaryInitials
+                                            if (initials != null) {
+                                                val initialsWidth = textMeasurer.measure(
+                                                    text = initials,
+                                                    style = secondaryStyle,
+                                                    maxLines = 1,
+                                                ).size.width
+                                                if (initialsWidth <= availableForSecondary) {
+                                                    initials
+                                                } else null
+                                            } else null
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.Bottom,
+                                ) {
                                     Text(
-                                        text = parsedName.secondaryName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontFamily = typography.fontFamily,
-                                        fontWeight = typography.greetingWeight,
-                                        letterSpacing = typography.letterSpacing,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        text = displayName,
+                                        style = effectiveFirstStyle,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier
-                                            .weight(1f, fill = false)
-                                            .padding(bottom = 3.dp),
+                                        softWrap = false,
+                                        overflow = TextOverflow.Clip,
                                     )
+                                    if (resolvedSecondary != null) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = resolvedSecondary,
+                                            style = secondaryStyle,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Clip,
+                                            modifier = Modifier.padding(bottom = 3.dp),
+                                        )
+                                    }
                                 }
                             }
 
@@ -1196,13 +1266,17 @@ private fun AttendanceSection(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Left Column: CSE3001, 76% [ 13 / 17 ]
+                    // Left Column: takes up to ~65-70% width, showing full subject name up to the skip box
                     Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 10.dp),
                         verticalArrangement = Arrangement.Center,
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
                                 text = subject.courseCode,
@@ -1212,12 +1286,19 @@ private fun AttendanceSection(
                                 letterSpacing = 0.5.sp,
                             )
                             Text(
-                                text = "· ${subject.courseTitle}",
+                                text = "·",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.outline,
+                            )
+                            Text(
+                                text = subject.courseTitle,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
                             )
                         }
 

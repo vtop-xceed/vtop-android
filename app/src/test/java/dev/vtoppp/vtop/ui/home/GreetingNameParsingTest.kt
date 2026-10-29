@@ -15,6 +15,7 @@ class GreetingNameParsingTest {
         val parsed = parseDisplayName("MOHAMMED RAYYAN A")
         assertEquals("Mohammed", parsed.firstName)
         assertEquals("Rayyan A", parsed.secondaryName)
+        assertEquals("R. A.", parsed.secondaryInitials)
     }
 
     @Test
@@ -22,6 +23,15 @@ class GreetingNameParsingTest {
         val parsed = parseDisplayName("SHREYANSH JAISWAL")
         assertEquals("Shreyansh", parsed.firstName)
         assertEquals("Jaiswal", parsed.secondaryName)
+        assertEquals("J.", parsed.secondaryInitials)
+    }
+
+    @Test
+    fun mayankExample_splitsWithInitial() {
+        val parsed = parseDisplayName("Mayank Kushwaha")
+        assertEquals("Mayank", parsed.firstName)
+        assertEquals("Kushwaha", parsed.secondaryName)
+        assertEquals("K.", parsed.secondaryInitials)
     }
 
     @Test
