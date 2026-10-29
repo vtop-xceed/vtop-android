@@ -1,7 +1,12 @@
 package dev.vtoppp.vtop.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -310,6 +315,17 @@ fun TestingDashboardScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var selectedNavTab by rememberSaveable { mutableIntStateOf(0) }
+    var isNavigatingService by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isNavigatingService) {
+        if (isNavigatingService) {
+            delay(3000L)
+            isNavigatingService = false
+        }
+    }
+
+    val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
+    val isProcessing = pill.kind == PillKind.Busy || !githubPingDone || isNavigatingService || isSyncing
 
     Box(
         modifier = Modifier
@@ -318,14 +334,20 @@ fun TestingDashboardScreen(
             .statusBarsPadding(), // Directly beneath system top navbar (time --- signal battery)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Squiggly loading line thingy sitting just under the system top navbar
-            LinearWavyProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            )
+            // Squiggly loading line only appears when processing networks or in transitions
+            AnimatedVisibility(
+                visible = isProcessing,
+                enter = fadeIn(tween(200)) + expandVertically(tween(250)),
+                exit = fadeOut(tween(250)) + shrinkVertically(tween(250)),
+            ) {
+                LinearWavyProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                )
+            }
 
             LazyColumn(
                 state = listState,
@@ -567,6 +589,7 @@ fun TestingDashboardScreen(
                     AttendanceSection(
                         subjects = attendanceSubjects,
                         onOpenAttendance = {
+                            isNavigatingService = true
                             val attendanceItem = sections.flatMap { it.second }.find {
                                 it.label.contains("Attendance", ignoreCase = true)
                             } ?: MenuItem("Academics", "Attendance", "academics/common/Attendance")

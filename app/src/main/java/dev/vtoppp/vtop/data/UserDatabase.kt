@@ -424,6 +424,13 @@ object UserDatabase {
     private val _calendarEventsFlow = MutableStateFlow<List<CalendarDayEvent>>(emptyList())
     val calendarEventsFlow: StateFlow<List<CalendarDayEvent>> = _calendarEventsFlow.asStateFlow()
 
+    private val _isSyncingFlow = MutableStateFlow(false)
+    val isSyncingFlow: StateFlow<Boolean> = _isSyncingFlow.asStateFlow()
+
+    fun setSyncing(syncing: Boolean) {
+        _isSyncingFlow.value = syncing
+    }
+
     private var appContext: Context? = null
 
     fun init(context: Context) {

@@ -69,176 +69,181 @@ class HomeViewModel(
 
     fun syncAllData() {
         viewModelScope.launch(Dispatchers.IO) {
-            // 0. Load cached data from local SQLite database into flows
-            UserDatabase.loadProfile(authorizedId)
-            UserDatabase.loadTimetable(authorizedId)
-            UserDatabase.loadAttendance(authorizedId)
-            UserDatabase.loadGradeHistory(authorizedId)
-            UserDatabase.loadMarks(authorizedId)
-
-            UserDatabase.loadCalendarEvents()
-
-            // 1. Fetch Profile & Cumulative Grade History from StudentGradeHistory
-            // This endpoint contains the student's real name (MAYANK KUSHWAHA), degree, school, CGPA, and course grades
+            UserDatabase.setSyncing(true)
             try {
-                val cachedGrades = SessionCache.load("examinations/examGradeView/StudentGradeHistory")
-                if (cachedGrades != null) {
-                    val p = ProfileParser.parse(cachedGrades.first, authorizedId)
-                    if (p.name != authorizedId && p.name.isNotBlank()) UserDatabase.saveProfile(p)
-                    val (summary, grades) = GradeHistoryParser.parse(cachedGrades.first, authorizedId)
-                    if (grades.isNotEmpty() || summary != null) UserDatabase.saveGradeHistory(authorizedId, summary, grades)
-                }
-                val cachedTt = SessionCache.load("processViewTimeTable_BL20262701")
-                if (cachedTt != null) {
-                    val entries = TimetableParser.parse(cachedTt.first, authorizedId, "BL20262701")
-                    if (entries.isNotEmpty()) UserDatabase.saveTimetable(authorizedId, entries, "BL20262701")
-                }
-                val cachedAtt = SessionCache.load("processViewStudentAttendance_BL20262701")
-                if (cachedAtt != null) {
-                    val att = AttendanceParser.parse(cachedAtt.first, authorizedId, "BL20262701")
-                    if (att.isNotEmpty()) UserDatabase.saveAttendance(authorizedId, att)
-                }
-            } catch (_: Exception) {}
+                // 0. Load cached data from local SQLite database into flows
+                UserDatabase.loadProfile(authorizedId)
+                UserDatabase.loadTimetable(authorizedId)
+                UserDatabase.loadAttendance(authorizedId)
+                UserDatabase.loadGradeHistory(authorizedId)
+                UserDatabase.loadMarks(authorizedId)
 
-            client.fetchSection("examinations/examGradeView/StudentGradeHistory").onSuccess { html ->
-                SessionCache.save("examinations/examGradeView/StudentGradeHistory", html)
-                val p = ProfileParser.parse(html, authorizedId)
-                if (p.name != authorizedId && p.name.isNotBlank()) {
-                    UserDatabase.saveProfile(p)
-                }
-                val (summary, grades) = GradeHistoryParser.parse(html, authorizedId)
-                if (grades.isNotEmpty() || summary != null) {
-                    UserDatabase.saveGradeHistory(authorizedId, summary, grades)
-                }
-            }
+                UserDatabase.loadCalendarEvents()
 
-            // Also check StudentProfileAllView just in case
-            client.fetchSection("studentsRecord/StudentProfileAllView").onSuccess { html ->
-                val p = ProfileParser.parse(html, authorizedId)
-                if (p.name != authorizedId && p.name.isNotBlank()) {
-                    UserDatabase.saveProfile(p)
-                }
-            }
+                // 1. Fetch Profile & Cumulative Grade History from StudentGradeHistory
+                // This endpoint contains the student's real name (MAYANK KUSHWAHA), degree, school, CGPA, and course grades
+                try {
+                    val cachedGrades = SessionCache.load("examinations/examGradeView/StudentGradeHistory")
+                    if (cachedGrades != null) {
+                        val p = ProfileParser.parse(cachedGrades.first, authorizedId)
+                        if (p.name != authorizedId && p.name.isNotBlank()) UserDatabase.saveProfile(p)
+                        val (summary, grades) = GradeHistoryParser.parse(cachedGrades.first, authorizedId)
+                        if (grades.isNotEmpty() || summary != null) UserDatabase.saveGradeHistory(authorizedId, summary, grades)
+                    }
+                    val cachedTt = SessionCache.load("processViewTimeTable_BL20262701")
+                    if (cachedTt != null) {
+                        val entries = TimetableParser.parse(cachedTt.first, authorizedId, "BL20262701")
+                        if (entries.isNotEmpty()) UserDatabase.saveTimetable(authorizedId, entries, "BL20262701")
+                    }
+                    val cachedAtt = SessionCache.load("processViewStudentAttendance_BL20262701")
+                    if (cachedAtt != null) {
+                        val att = AttendanceParser.parse(cachedAtt.first, authorizedId, "BL20262701")
+                        if (att.isNotEmpty()) UserDatabase.saveAttendance(authorizedId, att)
+                    }
+                } catch (_: Exception) {}
 
-            // 1.5 Sync Academic Calendar for Fall Semester 2026-27
-            val calSemId = "BL20262701"
-            client.postSubAction(
-                "getDateForSemesterPreview",
-                mapOf("semSubId" to calSemId, "paramReturnId" to "getDateForSemesterPreview"),
-            ).onSuccess { dateHtml ->
-                var monthDates = AcademicCalendarParser.extractMonthDates(dateHtml)
-                if (monthDates.isEmpty()) {
-                    monthDates = listOf("01-JUN-2026", "01-JUL-2026", "01-AUG-2026", "01-SEP-2026", "01-OCT-2026", "01-NOV-2026")
+                client.fetchSection("examinations/examGradeView/StudentGradeHistory").onSuccess { html ->
+                    SessionCache.save("examinations/examGradeView/StudentGradeHistory", html)
+                    val p = ProfileParser.parse(html, authorizedId)
+                    if (p.name != authorizedId && p.name.isNotBlank()) {
+                        UserDatabase.saveProfile(p)
+                    }
+                    val (summary, grades) = GradeHistoryParser.parse(html, authorizedId)
+                    if (grades.isNotEmpty() || summary != null) {
+                        UserDatabase.saveGradeHistory(authorizedId, summary, grades)
+                    }
                 }
-                val allEvents = mutableListOf<CalendarDayEvent>()
-                for (mDate in monthDates) {
+
+                // Also check StudentProfileAllView just in case
+                client.fetchSection("studentsRecord/StudentProfileAllView").onSuccess { html ->
+                    val p = ProfileParser.parse(html, authorizedId)
+                    if (p.name != authorizedId && p.name.isNotBlank()) {
+                        UserDatabase.saveProfile(p)
+                    }
+                }
+
+                // 1.5 Sync Academic Calendar for Fall Semester 2026-27
+                val calSemId = "BL20262701"
+                client.postSubAction(
+                    "getDateForSemesterPreview",
+                    mapOf("semSubId" to calSemId, "paramReturnId" to "getDateForSemesterPreview"),
+                ).onSuccess { dateHtml ->
+                    var monthDates = AcademicCalendarParser.extractMonthDates(dateHtml)
+                    if (monthDates.isEmpty()) {
+                        monthDates = listOf("01-JUN-2026", "01-JUL-2026", "01-AUG-2026", "01-SEP-2026", "01-OCT-2026", "01-NOV-2026")
+                    }
+                    val allEvents = mutableListOf<CalendarDayEvent>()
+                    for (mDate in monthDates) {
+                        client.postSubAction(
+                            "processViewCalendar",
+                            mapOf("semSubId" to calSemId, "classGroupId" to "COMB", "calDate" to mDate),
+                        ).onSuccess { mHtml ->
+                            val parsed = AcademicCalendarParser.parse(mHtml, mDate)
+                            allEvents.addAll(parsed)
+                        }
+                        delay(80)
+                    }
+                    if (allEvents.isNotEmpty()) {
+                        UserDatabase.saveCalendarEvents(calSemId, allEvents)
+                    }
+                }
+
+                // 2. Discover all attended semesters
+                var attendedSemesters: List<Pair<String, String>> = emptyList()
+
+                client.fetchSection("academics/common/StudentAttendance").onSuccess { html ->
+                    SessionCache.save("academics/common/StudentAttendance", html)
+                    val sems = MarksParser.extractSemesters(html)
+                    if (sems.isNotEmpty()) attendedSemesters = sems
+                }
+
+                if (attendedSemesters.isEmpty()) {
+                    client.fetchSection("academics/common/StudentTimeTable").onSuccess { html ->
+                        SessionCache.save("academics/common/StudentTimeTable", html)
+                        val sems = MarksParser.extractSemesters(html)
+                        if (sems.isNotEmpty()) attendedSemesters = sems
+                    }
+                }
+
+                if (attendedSemesters.isEmpty()) {
+                    client.fetchSection("examinations/StudentMarkView").onSuccess { html ->
+                        SessionCache.save("examinations/StudentMarkView", html)
+                        val sems = MarksParser.extractSemesters(html)
+                        if (sems.isNotEmpty()) attendedSemesters = sems
+                    }
+                }
+
+                if (attendedSemesters.isEmpty()) {
+                    val local = UserDatabase.loadSemesters(authorizedId)
+                    if (local.isNotEmpty()) {
+                        attendedSemesters = local.map { it.semesterSubId to it.semesterName }
+                    }
+                }
+
+                // Fallback list of known registered semesters for 24BCY10147 if network dropdown was unparsed
+                if (attendedSemesters.isEmpty()) {
+                    attendedSemesters = listOf(
+                        "BL20262701" to "Fall Semester 2026-27 - BPL",
+                        "BL20252605" to "Winter Semester 2025-26 - BPL",
+                        "BL20252604" to "INTERIM SEMESTER 2025-26 - BPL",
+                        "BL20252601" to "Fall Semester 2025-26 - BPL",
+                        "BL20242505" to "Winter Semester 2024-25 - BPL",
+                        "BL20242504" to "INTERIM SEMESTER 2024-25 - BPL",
+                    )
+                }
+
+                val semAttendedList = attendedSemesters.map { (id, name) ->
+                    SemesterAttended(regNo = authorizedId, semesterSubId = id, semesterName = name)
+                }
+                UserDatabase.saveSemesters(authorizedId, semAttendedList)
+
+                // 3. Sequentially fetch data for each attended semester (Attendance, Timetable, Marks)
+                for ((semId, semName) in attendedSemesters) {
+                    // A. Attendance for semester
                     client.postSubAction(
-                        "processViewCalendar",
-                        mapOf("semSubId" to calSemId, "classGroupId" to "COMB", "calDate" to mDate),
-                    ).onSuccess { mHtml ->
-                        val parsed = AcademicCalendarParser.parse(mHtml, mDate)
-                        allEvents.addAll(parsed)
+                        "processViewStudentAttendance",
+                        mapOf("semesterSubId" to semId),
+                    ).onSuccess { attHtml ->
+                        SessionCache.save("processViewStudentAttendance_$semId", attHtml)
+                        val attEntries = AttendanceParser.parse(attHtml, authorizedId, semId)
+                        if (attEntries.isNotEmpty()) {
+                            UserDatabase.saveAttendance(authorizedId, attEntries)
+                        }
                     }
-                    delay(80)
-                }
-                if (allEvents.isNotEmpty()) {
-                    UserDatabase.saveCalendarEvents(calSemId, allEvents)
-                }
-            }
+                    delay(120)
 
-            // 2. Discover all attended semesters
-            var attendedSemesters: List<Pair<String, String>> = emptyList()
-
-            client.fetchSection("academics/common/StudentAttendance").onSuccess { html ->
-                SessionCache.save("academics/common/StudentAttendance", html)
-                val sems = MarksParser.extractSemesters(html)
-                if (sems.isNotEmpty()) attendedSemesters = sems
-            }
-
-            if (attendedSemesters.isEmpty()) {
-                client.fetchSection("academics/common/StudentTimeTable").onSuccess { html ->
-                    SessionCache.save("academics/common/StudentTimeTable", html)
-                    val sems = MarksParser.extractSemesters(html)
-                    if (sems.isNotEmpty()) attendedSemesters = sems
-                }
-            }
-
-            if (attendedSemesters.isEmpty()) {
-                client.fetchSection("examinations/StudentMarkView").onSuccess { html ->
-                    SessionCache.save("examinations/StudentMarkView", html)
-                    val sems = MarksParser.extractSemesters(html)
-                    if (sems.isNotEmpty()) attendedSemesters = sems
-                }
-            }
-
-            if (attendedSemesters.isEmpty()) {
-                val local = UserDatabase.loadSemesters(authorizedId)
-                if (local.isNotEmpty()) {
-                    attendedSemesters = local.map { it.semesterSubId to it.semesterName }
-                }
-            }
-
-            // Fallback list of known registered semesters for 24BCY10147 if network dropdown was unparsed
-            if (attendedSemesters.isEmpty()) {
-                attendedSemesters = listOf(
-                    "BL20262701" to "Fall Semester 2026-27 - BPL",
-                    "BL20252605" to "Winter Semester 2025-26 - BPL",
-                    "BL20252604" to "INTERIM SEMESTER 2025-26 - BPL",
-                    "BL20252601" to "Fall Semester 2025-26 - BPL",
-                    "BL20242505" to "Winter Semester 2024-25 - BPL",
-                    "BL20242504" to "INTERIM SEMESTER 2024-25 - BPL",
-                )
-            }
-
-            val semAttendedList = attendedSemesters.map { (id, name) ->
-                SemesterAttended(regNo = authorizedId, semesterSubId = id, semesterName = name)
-            }
-            UserDatabase.saveSemesters(authorizedId, semAttendedList)
-
-            // 3. Sequentially fetch data for each attended semester (Attendance, Timetable, Marks)
-            for ((semId, semName) in attendedSemesters) {
-                // A. Attendance for semester
-                client.postSubAction(
-                    "processViewStudentAttendance",
-                    mapOf("semesterSubId" to semId),
-                ).onSuccess { attHtml ->
-                    SessionCache.save("processViewStudentAttendance_$semId", attHtml)
-                    val attEntries = AttendanceParser.parse(attHtml, authorizedId, semId)
-                    if (attEntries.isNotEmpty()) {
-                        UserDatabase.saveAttendance(authorizedId, attEntries)
+                    // B. Timetable for semester
+                    client.postSubAction(
+                        "processViewTimeTable",
+                        mapOf("semesterSubId" to semId),
+                    ).onSuccess { ttHtml ->
+                        SessionCache.save("processViewTimeTable_$semId", ttHtml)
+                        val ttEntries = TimetableParser.parse(ttHtml, authorizedId, semId)
+                        if (ttEntries.isNotEmpty()) {
+                            UserDatabase.saveTimetable(authorizedId, ttEntries, semesterSubId = semId)
+                        }
                     }
-                }
-                delay(120)
+                    delay(120)
 
-                // B. Timetable for semester
-                client.postSubAction(
-                    "processViewTimeTable",
-                    mapOf("semesterSubId" to semId),
-                ).onSuccess { ttHtml ->
-                    SessionCache.save("processViewTimeTable_$semId", ttHtml)
-                    val ttEntries = TimetableParser.parse(ttHtml, authorizedId, semId)
-                    if (ttEntries.isNotEmpty()) {
-                        UserDatabase.saveTimetable(authorizedId, ttEntries, semesterSubId = semId)
+                    // C. Marks for semester
+                    client.postSubAction(
+                        "examinations/doStudentMarkView",
+                        mapOf("semesterSubId" to semId),
+                    ).onSuccess { marksHtml ->
+                        val marksEntries = MarksParser.parse(marksHtml, authorizedId, semId)
+                        if (marksEntries.isNotEmpty()) {
+                            SessionCache.save("examinations/doStudentMarkView_$semId", marksHtml)
+                            UserDatabase.saveMarks(authorizedId, marksEntries)
+                        }
                     }
+                    delay(120)
                 }
-                delay(120)
 
-                // C. Marks for semester
-                client.postSubAction(
-                    "examinations/doStudentMarkView",
-                    mapOf("semesterSubId" to semId),
-                ).onSuccess { marksHtml ->
-                    val marksEntries = MarksParser.parse(marksHtml, authorizedId, semId)
-                    if (marksEntries.isNotEmpty()) {
-                        SessionCache.save("examinations/doStudentMarkView_$semId", marksHtml)
-                        UserDatabase.saveMarks(authorizedId, marksEntries)
-                    }
-                }
-                delay(120)
+                // Export to phone /sdcard/Download/ for immediate verification
+                UserDatabase.autoExport()
+            } finally {
+                UserDatabase.setSyncing(false)
             }
-
-            // Export to phone /sdcard/Download/ for immediate verification
-            UserDatabase.autoExport()
         }
     }
 
