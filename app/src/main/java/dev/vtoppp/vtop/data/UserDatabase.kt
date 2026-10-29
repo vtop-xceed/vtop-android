@@ -293,9 +293,51 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
                 """.trimIndent(),
             )
         }
+        if (oldVersion < 5) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS academic_calendar (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    semester_sub_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    day_number INTEGER NOT NULL,
+                    month_year TEXT NOT NULL,
+                    day_of_week TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    subtitle TEXT NOT NULL,
+                    event_category TEXT NOT NULL,
+                    is_holiday INTEGER NOT NULL DEFAULT 0,
+                    is_instructional INTEGER NOT NULL DEFAULT 0,
+                    is_exam INTEGER NOT NULL DEFAULT 0,
+                    updated_at_ms INTEGER NOT NULL,
+                    UNIQUE(semester_sub_id, date)
+                );
+                """.trimIndent(),
+            )
+        }
     }
 
     private fun createAcademicTables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS academic_calendar (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                semester_sub_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                day_number INTEGER NOT NULL,
+                month_year TEXT NOT NULL,
+                day_of_week TEXT NOT NULL,
+                title TEXT NOT NULL,
+                subtitle TEXT NOT NULL,
+                event_category TEXT NOT NULL,
+                is_holiday INTEGER NOT NULL DEFAULT 0,
+                is_instructional INTEGER NOT NULL DEFAULT 0,
+                is_exam INTEGER NOT NULL DEFAULT 0,
+                updated_at_ms INTEGER NOT NULL,
+                UNIQUE(semester_sub_id, date)
+            );
+            """.trimIndent(),
+        )
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS grade_history (
@@ -355,7 +397,7 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
 
     companion object {
         const val DB_NAME = "vtop_user_data.db"
-        const val DB_VERSION = 4
+        const val DB_VERSION = 5
     }
 }
 
@@ -378,6 +420,9 @@ object UserDatabase {
 
     private val _attendanceFlow = MutableStateFlow<List<AttendanceEntry>>(emptyList())
     val attendanceFlow: StateFlow<List<AttendanceEntry>> = _attendanceFlow.asStateFlow()
+
+    private val _calendarEventsFlow = MutableStateFlow<List<CalendarDayEvent>>(emptyList())
+    val calendarEventsFlow: StateFlow<List<CalendarDayEvent>> = _calendarEventsFlow.asStateFlow()
 
     private var appContext: Context? = null
 
@@ -884,6 +929,67 @@ object UserDatabase {
         return list
     }
 
+    fun saveCalendarEvents(semesterSubId: String, events: List<CalendarDayEvent>) {
+        if (events.isEmpty()) return
+        val db = helper?.writableDatabase ?: return
+        db.beginTransaction()
+        try {
+            db.delete("academic_calendar", "semester_sub_id = ?", arrayOf(semesterSubId))
+            for (e in events) {
+                val cv = ContentValues().apply {
+                    put("semester_sub_id", semesterSubId)
+                    put("date", e.date)
+                    put("day_number", e.dayNumber)
+                    put("month_year", e.monthYear)
+                    put("day_of_week", e.dayOfWeek)
+                    put("title", e.title)
+                    put("subtitle", e.subtitle)
+                    put("event_category", e.eventCategory)
+                    put("is_holiday", if (e.isHoliday) 1 else 0)
+                    put("is_instructional", if (e.isInstructional) 1 else 0)
+                    put("is_exam", if (e.isExam) 1 else 0)
+                    put("updated_at_ms", System.currentTimeMillis())
+                }
+                db.insertWithOnConflict("academic_calendar", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            db.setTransactionSuccessful()
+            _calendarEventsFlow.value = events
+        } finally {
+            db.endTransaction()
+        }
+        autoExport()
+    }
+
+    fun loadCalendarEvents(semesterSubId: String? = null): List<CalendarDayEvent> {
+        val db = helper?.readableDatabase ?: return emptyList()
+        val semId = semesterSubId ?: getLatestSemesterId("")
+        val selection = if (semId.isNullOrBlank()) null else "semester_sub_id = ?"
+        val args = if (semId.isNullOrBlank()) null else arrayOf(semId)
+        val list = mutableListOf<CalendarDayEvent>()
+        db.query("academic_calendar", null, selection, args, null, null, "date ASC").use { c ->
+            while (c.moveToNext()) {
+                list.add(
+                    CalendarDayEvent(
+                        date = c.getString(c.getColumnIndexOrThrow("date")),
+                        dayNumber = c.getInt(c.getColumnIndexOrThrow("day_number")),
+                        monthYear = c.getString(c.getColumnIndexOrThrow("month_year")),
+                        dayOfWeek = c.getString(c.getColumnIndexOrThrow("day_of_week")),
+                        title = c.getString(c.getColumnIndexOrThrow("title")),
+                        subtitle = c.getString(c.getColumnIndexOrThrow("subtitle")) ?: "",
+                        eventCategory = c.getString(c.getColumnIndexOrThrow("event_category")),
+                        isHoliday = c.getInt(c.getColumnIndexOrThrow("is_holiday")) == 1,
+                        isInstructional = c.getInt(c.getColumnIndexOrThrow("is_instructional")) == 1,
+                        isExam = c.getInt(c.getColumnIndexOrThrow("is_exam")) == 1,
+                    ),
+                )
+            }
+        }
+        if (list.isNotEmpty()) {
+            _calendarEventsFlow.value = list
+        }
+        return list
+    }
+
     /**
      * Copies the active SQLite database to /sdcard/Download/ for easy ADB access.
      */
@@ -1114,6 +1220,34 @@ object UserDatabase {
 
                 append("</div>") // sem-card
             }
+
+            // 6. Academic Calendar
+            append("<div class='card'><h2>6. Academic Calendar (academic_calendar)</h2>")
+            db.rawQuery("SELECT date, day_of_week, title, subtitle, event_category, is_holiday, is_instructional, is_exam FROM academic_calendar ORDER BY date ASC", null).use { c ->
+                if (c.count > 0) {
+                    append("<table><thead><tr><th>Date</th><th>Day</th><th>Event Title</th><th>Details</th><th>Category</th></tr></thead><tbody>")
+                    while (c.moveToNext()) {
+                        val d = c.getString(0)
+                        val dow = c.getString(1)
+                        val title = c.getString(2)
+                        val sub = c.getString(3) ?: ""
+                        val cat = c.getString(4)
+                        val isHol = c.getInt(5) == 1
+                        val isExam = c.getInt(7) == 1
+                        val pillClass = when {
+                            isHol -> "pill-red"
+                            isExam -> "pill-grade"
+                            cat == "INSTRUCTIONAL" -> "pill-green"
+                            else -> "pill-sem"
+                        }
+                        append("<tr><td><b>$d</b></td><td>$dow</td><td>$title</td><td>$sub</td><td><span class='pill $pillClass'>$cat</span></td></tr>")
+                    }
+                    append("</tbody></table>")
+                } else {
+                    append("<div class='empty'>No academic calendar records cached yet</div>")
+                }
+            }
+            append("</div>")
 
             append("</body></html>")
         }

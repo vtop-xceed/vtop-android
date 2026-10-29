@@ -2,7 +2,9 @@ package dev.vtoppp.vtop.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.vtoppp.vtop.data.AcademicCalendarParser
 import dev.vtoppp.vtop.data.AttendanceParser
+import dev.vtoppp.vtop.data.CalendarDayEvent
 import dev.vtoppp.vtop.data.GradeHistoryParser
 import dev.vtoppp.vtop.data.MarksParser
 import dev.vtoppp.vtop.data.ProfileParser
@@ -74,6 +76,8 @@ class HomeViewModel(
             UserDatabase.loadGradeHistory(authorizedId)
             UserDatabase.loadMarks(authorizedId)
 
+            UserDatabase.loadCalendarEvents()
+
             // 1. Fetch Profile & Cumulative Grade History from StudentGradeHistory
             // This endpoint contains the student's real name (MAYANK KUSHWAHA), degree, school, CGPA, and course grades
             try {
@@ -113,6 +117,32 @@ class HomeViewModel(
                 val p = ProfileParser.parse(html, authorizedId)
                 if (p.name != authorizedId && p.name.isNotBlank()) {
                     UserDatabase.saveProfile(p)
+                }
+            }
+
+            // 1.5 Sync Academic Calendar for Fall Semester 2026-27
+            val calSemId = "BL20262701"
+            client.postSubAction(
+                "getDateForSemesterPreview",
+                mapOf("semSubId" to calSemId, "paramReturnId" to "getDateForSemesterPreview"),
+            ).onSuccess { dateHtml ->
+                var monthDates = AcademicCalendarParser.extractMonthDates(dateHtml)
+                if (monthDates.isEmpty()) {
+                    monthDates = listOf("01-JUN-2026", "01-JUL-2026", "01-AUG-2026", "01-SEP-2026", "01-OCT-2026", "01-NOV-2026")
+                }
+                val allEvents = mutableListOf<CalendarDayEvent>()
+                for (mDate in monthDates) {
+                    client.postSubAction(
+                        "processViewCalendar",
+                        mapOf("semSubId" to calSemId, "classGroupId" to "COMB", "calDate" to mDate),
+                    ).onSuccess { mHtml ->
+                        val parsed = AcademicCalendarParser.parse(mHtml, mDate)
+                        allEvents.addAll(parsed)
+                    }
+                    delay(80)
+                }
+                if (allEvents.isNotEmpty()) {
+                    UserDatabase.saveCalendarEvents(calSemId, allEvents)
                 }
             }
 
