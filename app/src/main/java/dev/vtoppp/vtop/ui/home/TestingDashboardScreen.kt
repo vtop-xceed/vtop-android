@@ -84,6 +84,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -608,23 +609,40 @@ fun TestingDashboardScreen(
             }
         }
 
-        // Floating nav bar with 4 icons
-        FloatingDashboardNavBar(
-            selectedTab = selectedNavTab,
-            onTabSelected = { tab ->
-                selectedNavTab = tab
-                when (tab) {
-                    0 -> scope.launch { listState.animateScrollToItem(0) }
-                    1 -> showCalendarDialog = true
-                    2 -> scope.launch { listState.animateScrollToItem(3) }
-                    3 -> showAccountDialog = true
-                }
-            },
+        // Sticky floating bottom navigation bar
+        // ponytail: sticky bottom container with soft gradient scrim prevents navbar from floating adrift
+        Box(
             modifier = Modifier
+                .fillMaxWidth()
                 .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp),
-        )
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                            MaterialTheme.colorScheme.surface,
+                        ),
+                    ),
+                )
+                .padding(bottom = 12.dp, top = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            FloatingDashboardNavBar(
+                selectedTab = selectedNavTab,
+                onTabSelected = { tab ->
+                    selectedNavTab = tab
+                    when (tab) {
+                        0 -> scope.launch { listState.animateScrollToItem(0) }
+                        1 -> {
+                            scope.launch { listState.animateScrollToItem(4) }
+                            showCalendarDialog = true
+                        }
+                        2 -> scope.launch { listState.animateScrollToItem(3) }
+                        3 -> showAccountDialog = true
+                    }
+                },
+            )
+        }
     }
 
     // Account & Theme Color Picker Dialog
@@ -1758,7 +1776,7 @@ private fun FloatingDashboardNavBar(
         ) {
             val items = listOf(
                 Pair(R.drawable.ic_home, "Home"),
-                Pair(R.drawable.ic_school, "Classes"),
+                Pair(R.drawable.ic_calendar, "Academic Calendar"),
                 Pair(R.drawable.ic_grade, "Attendance"),
                 Pair(R.drawable.ic_person, "Profile"),
             )

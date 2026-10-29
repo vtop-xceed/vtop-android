@@ -353,7 +353,9 @@ private fun Root(
                 val lastSectionTitle by homeVm.lastSectionTitle.collectAsStateWithLifecycle()
                 val staleNotice by homeVm.staleNotice.collectAsStateWithLifecycle()
                 Box(
-                    modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = innerPadding.calculateBottomPadding()),
                 ) {
                     HomeScreen(
                         state = state,
@@ -395,7 +397,9 @@ private fun Root(
                 }
 
                 Box(
-                    modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = innerPadding.calculateBottomPadding()),
                 ) {
                     LoginScreen(
                         state = if (errorDismissed) LoginUiState.Idle else state,
