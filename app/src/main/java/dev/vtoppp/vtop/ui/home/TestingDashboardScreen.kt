@@ -75,8 +75,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.data.CalendarDayEvent
 import dev.vtoppp.vtop.data.ClassScheduleItem
 import dev.vtoppp.vtop.data.DaySchedule
 import dev.vtoppp.vtop.data.PillKind
@@ -112,7 +114,9 @@ fun TestingDashboardScreen(
     userProfile: UserProfile? = null,
 ) {
     var showAccountDialog by remember { mutableStateOf(false) }
+    var showCalendarDialog by remember { mutableStateOf(false) }
     val liveProfile = userProfile ?: UserDatabase.profileFlow.collectAsState().value
+    val liveCalendarEvents by UserDatabase.calendarEventsFlow.collectAsState()
 
     val storedTimetable by UserDatabase.timetableFlow.collectAsState()
     val scheduleDays = remember(storedTimetable) {
@@ -318,6 +322,14 @@ fun TestingDashboardScreen(
                         },
                     )
                 }
+
+                // Academic Calendar Section
+                item {
+                    AcademicCalendarSection(
+                        events = liveCalendarEvents,
+                        onOpenCalendar = { showCalendarDialog = true },
+                    )
+                }
             }
         }
 
@@ -328,7 +340,7 @@ fun TestingDashboardScreen(
                 selectedNavTab = tab
                 when (tab) {
                     0 -> scope.launch { listState.animateScrollToItem(0) }
-                    1 -> scope.launch { listState.animateScrollToItem(1) }
+                    1 -> showCalendarDialog = true
                     2 -> scope.launch { listState.animateScrollToItem(3) }
                     3 -> showAccountDialog = true
                 }
@@ -498,6 +510,13 @@ fun TestingDashboardScreen(
                 }
             }
         }
+    }
+
+    if (showCalendarDialog) {
+        AcademicCalendarDialog(
+            events = liveCalendarEvents,
+            onDismiss = { showCalendarDialog = false },
+        )
     }
 }
 
@@ -1379,4 +1398,415 @@ private fun defaultMockScheduleDays(): List<DaySchedule> = listOf(
         ),
     ),
 )
+
+/**
+ * Academic Calendar Section on Dashboard:
+ * Shows a compact snapshot of semester events (upcoming holidays, exams, instructional days).
+ * Tapping "View All ↗" opens the full semester calendar dialog.
+ */
+@Composable
+private fun AcademicCalendarSection(
+    events: List<CalendarDayEvent>,
+    onOpenCalendar: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { onOpenCalendar() },
+            ) {
+                Text(
+                    text = "Academic Calendar",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "↗",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            if (events.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.clickable { onOpenCalendar() },
+                ) {
+                    Text(
+                        text = "${events.size} days",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        if (events.isEmpty()) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenCalendar() },
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Calendar syncing in background... Tap to preview.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        } else {
+            val highlighted = remember(events) {
+                val nonInstructional = events.filter { it.isExam || it.isHoliday }
+                if (nonInstructional.isNotEmpty()) nonInstructional.take(8) else events.take(8)
+            }
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                items(highlighted) { event ->
+                    CalendarEventCard(event = event, onClick = onOpenCalendar)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarEventCard(
+    event: CalendarDayEvent,
+    onClick: () -> Unit,
+) {
+    val (badgeBg, badgeFg) = when {
+        event.isHoliday -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+        event.isExam -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+        event.isInstructional -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerHigh to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = Modifier
+            .width(160.dp)
+            .clickable { onClick() },
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = badgeBg,
+                ) {
+                    Text(
+                        text = event.eventCategory,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = badgeFg,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+                Text(
+                    text = event.date.takeLast(5),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = event.title.ifBlank { event.subtitle.ifBlank { "Instructional Day" } },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (event.subtitle.isNotBlank() && event.title != event.subtitle) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = event.subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Full Semester Academic Calendar Dialog modal.
+ * Lets student browse months (Jun-Nov) and filter by event category.
+ */
+@Composable
+private fun AcademicCalendarDialog(
+    events: List<CalendarDayEvent>,
+    onDismiss: () -> Unit,
+) {
+    val months = remember(events) {
+        events.map { it.monthYear }.distinct().filter { it.isNotBlank() }
+    }
+    val currentMonthKey = remember {
+        java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.US).format(java.util.Date()).uppercase()
+    }
+    val defaultMonth = remember(months) {
+        months.firstOrNull { it.equals(currentMonthKey, ignoreCase = true) }
+            ?: months.lastOrNull { it.isNotBlank() } ?: ""
+    }
+    var selectedMonth by rememberSaveable(months) {
+        mutableStateOf(defaultMonth)
+    }
+    var filterCategory by rememberSaveable { mutableStateOf("ALL") }
+
+    val filteredEvents = remember(events, selectedMonth, filterCategory) {
+        var list = events
+        if (selectedMonth.isNotBlank()) {
+            list = list.filter { it.monthYear.equals(selectedMonth, ignoreCase = true) }
+        }
+        when (filterCategory) {
+            "EXAMS" -> list.filter { it.isExam }
+            "HOLIDAYS" -> list.filter { it.isHoliday }
+            "INSTRUCTIONAL" -> list.filter { it.isInstructional }
+            else -> list
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .fillMaxHeight(0.85f),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Academic Calendar",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "Fall Semester 2026-27",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                    Surface(
+                        onClick = onDismiss,
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "✕",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // Month selection chips
+                if (months.isNotEmpty()) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        items(months) { m ->
+                            val isSelected = m.equals(selectedMonth, ignoreCase = true)
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.clickable { selectedMonth = m },
+                            ) {
+                                Text(
+                                    text = m,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+
+                // Category filter chips
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    val categories = listOf("ALL" to "All", "EXAMS" to "Exams", "HOLIDAYS" to "Holidays", "INSTRUCTIONAL" to "Classes")
+                    for ((key, label) in categories) {
+                        val isSelected = filterCategory == key
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.clickable { filterCategory = key },
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // Events list
+                if (filteredEvents.isEmpty()) {
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = if (events.isEmpty()) "No calendar records cached yet." else "No events match filter.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(filteredEvents) { event ->
+                            CalendarDayRow(event = event)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarDayRow(event: CalendarDayEvent) {
+    val (pillBg, pillFg) = when {
+        event.isHoliday -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+        event.isExam -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+        event.isInstructional -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerHigh to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.width(44.dp),
+            ) {
+                Text(
+                    text = event.dayNumber.toString().padStart(2, '0'),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = event.dayOfWeek.take(3),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = event.title.ifBlank { event.subtitle.ifBlank { "Instructional Day" } },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (event.subtitle.isNotBlank() && event.subtitle != event.title) {
+                    Text(
+                        text = event.subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = pillBg,
+            ) {
+                Text(
+                    text = event.eventCategory,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = pillFg,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
 

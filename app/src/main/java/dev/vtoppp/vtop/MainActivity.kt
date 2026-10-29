@@ -131,6 +131,9 @@ private fun Root(
 
     // App Lock: if saved credentials exist, user must unlock using fingerprint scan or lockscreen PIN
     var isUnlocked by rememberSaveable { mutableStateOf(!vault.hasCredentials) }
+    if (!vault.hasCredentials && !isUnlocked) {
+        isUnlocked = true
+    }
     var isAuthenticating by remember { mutableStateOf(false) }
     var isBackgrounded by remember { mutableStateOf(false) }
     var backgroundedAt by remember { mutableStateOf(0L) }
