@@ -1,6 +1,7 @@
 package dev.vtoppp.vtop.ui.home
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
@@ -19,15 +20,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -59,8 +63,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -77,6 +87,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.TextUnit
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.CalendarDayEvent
 import dev.vtoppp.vtop.data.ClassScheduleItem
@@ -87,6 +101,120 @@ import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.data.UserProfile
 import dev.vtoppp.vtop.ui.theme.AppPalette
 import kotlin.math.absoluteValue
+
+data class ParsedDisplayName(
+    val firstName: String,
+    val secondaryName: String?,
+)
+
+/** Splits raw name into primary first name and secondary middle/last names. */
+fun parseDisplayName(rawName: String?, fallbackId: String = "Student"): ParsedDisplayName {
+    val trimmed = rawName?.trim().orEmpty()
+    if (trimmed.isBlank()) {
+        val fb = fallbackId.ifBlank { "Student" }
+        return ParsedDisplayName(firstName = fb, secondaryName = null)
+    }
+    // If it contains digits (like a registration number ID e.g. 24BCY10147), keep as single ID
+    if (trimmed.any { it.isDigit() }) {
+        return ParsedDisplayName(firstName = trimmed.uppercase(), secondaryName = null)
+    }
+    val words = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (words.isEmpty()) {
+        return ParsedDisplayName(firstName = fallbackId.ifBlank { "Student" }, secondaryName = null)
+    }
+    val first = words.first().lowercase().replaceFirstChar { it.uppercase() }
+    val secondary = if (words.size > 1) {
+        words.drop(1).joinToString(" ") { word ->
+            if (word.length <= 2 && word.all { it.isLetter() }) word.uppercase()
+            else word.lowercase().replaceFirstChar { it.uppercase() }
+        }
+    } else null
+    return ParsedDisplayName(firstName = first, secondaryName = secondary)
+}
+
+private data class GreetingTypography(
+    val fontFamily: FontFamily,
+    val greetingWeight: FontWeight = FontWeight.Medium,
+    val nameWeight: FontWeight = FontWeight.ExtraBold,
+    val letterSpacing: TextUnit = TextUnit.Unspecified,
+)
+
+// ponytail: zero-dep native platform font families covering ASCII/SpaceMono, Serif, Sans, and Cursive aesthetics
+private val GreetingFontStyles = listOf(
+    GreetingTypography(
+        fontFamily = FontFamily.Monospace,
+        greetingWeight = FontWeight.Medium,
+        nameWeight = FontWeight.Bold,
+        letterSpacing = 0.5.sp,
+    ),
+    GreetingTypography(
+        fontFamily = FontFamily.Serif,
+        greetingWeight = FontWeight.Normal,
+        nameWeight = FontWeight.Bold,
+    ),
+    GreetingTypography(
+        fontFamily = FontFamily.SansSerif,
+        greetingWeight = FontWeight.Medium,
+        nameWeight = FontWeight.Black,
+    ),
+    GreetingTypography(
+        fontFamily = FontFamily.Cursive,
+        greetingWeight = FontWeight.Medium,
+        nameWeight = FontWeight.Bold,
+        letterSpacing = 1.sp,
+    ),
+)
+
+private val EnglishGreetings = listOf(
+    "Hello,",
+    "Hey,",
+    "What's up,",
+    "Howdy,",
+    "Welcome,",
+    "Greetings,",
+    "Good day,",
+    "Yo,",
+)
+
+// ponytail: expressive polygon shapes from Material 3 maintaining 1:1 aspect ratio
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private val QuestionCardShapes = listOf(
+    MaterialShapes.Cookie9Sided,
+    MaterialShapes.Cookie6Sided,
+    MaterialShapes.Cookie4Sided,
+    MaterialShapes.Cookie12Sided,
+    MaterialShapes.Cookie7Sided,
+    MaterialShapes.Sunny,
+    MaterialShapes.VerySunny,
+    MaterialShapes.SoftBurst,
+    MaterialShapes.Flower,
+    MaterialShapes.Puffy,
+    MaterialShapes.PuffyDiamond,
+    MaterialShapes.Clover4Leaf,
+    MaterialShapes.Clover8Leaf,
+    MaterialShapes.SoftBoom,
+    MaterialShapes.Gem,
+    MaterialShapes.ClamShell,
+    MaterialShapes.Bun,
+    MaterialShapes.Arch,
+    MaterialShapes.Slanted,
+)
+
+// ponytail: short campus questions to display inside the organic shape box
+private val IntriguingQuestions = listOf(
+    "Ready for CAT-2?",
+    "Skipping 8 AM?",
+    "Touched grass today?",
+    "Night canteen run?",
+    "Attendance safe?",
+    "Assignments done?",
+    "Need coffee?",
+    "Surviving FATs?",
+    "9 PM in-time made?",
+    "OD sanctioned?",
+    "WiFi working?",
+    "Mess food edible?",
+)
 
 data class SubjectAttendance(
     val courseCode: String,
@@ -115,6 +243,15 @@ fun TestingDashboardScreen(
 ) {
     var showAccountDialog by remember { mutableStateOf(false) }
     var showCalendarDialog by remember { mutableStateOf(false) }
+    var githubPingDone by remember { mutableStateOf(false) }
+    var githubPingSuccess by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        delay(400)
+        val ok = pingGitHubRelease()
+        githubPingSuccess = ok
+        githubPingDone = true
+    }
     val liveProfile = userProfile ?: UserDatabase.profileFlow.collectAsState().value
     val liveCalendarEvents by UserDatabase.calendarEventsFlow.collectAsState()
 
@@ -188,64 +325,106 @@ fun TestingDashboardScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 6.dp),
+                            .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        // Left: Greeting with First Name & Lastname
-                        Column(modifier = Modifier.weight(1f)) {
+                        // Left: Greeting with First Name & Lastname (65% width)
+                        Column(modifier = Modifier.weight(0.65f)) {
+                            val greeting = rememberSaveable { EnglishGreetings.random() }
+                            val fontIndex = rememberSaveable { (0 until GreetingFontStyles.size).random() }
+                            val typography = GreetingFontStyles[fontIndex.coerceIn(GreetingFontStyles.indices)]
+
+                            val parsedName = remember(liveProfile?.name, authorizedId) {
+                                parseDisplayName(liveProfile?.name, authorizedId)
+                            }
+                            val displayName = parsedName.firstName
+
                             Text(
-                                text = "Hello,",
-                                style = MaterialTheme.typography.titleMedium,
+                                text = greeting,
+                                style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium,
+                                fontFamily = typography.fontFamily,
+                                fontWeight = typography.greetingWeight,
+                                letterSpacing = typography.letterSpacing,
                             )
-                            val displayName = liveProfile?.firstName ?: authorizedId.ifBlank { "Student" }
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable { showAccountDialog = true },
+                                verticalAlignment = Alignment.Bottom,
+                                modifier = Modifier
+                                    .clickable { showAccountDialog = true }
+                                    .padding(top = 1.dp),
                             ) {
                                 Text(
                                     text = displayName,
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.ExtraBold,
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontWeight = typography.nameWeight,
+                                    fontFamily = typography.fontFamily,
+                                    letterSpacing = typography.letterSpacing,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
                                 )
-                                Spacer(Modifier.width(8.dp))
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    modifier = Modifier.size(24.dp),
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = displayName.firstOrNull()?.uppercase() ?: "V",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        )
-                                    }
+                                if (parsedName.secondaryName != null) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = parsedName.secondaryName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontFamily = typography.fontFamily,
+                                        fontWeight = typography.greetingWeight,
+                                        letterSpacing = typography.letterSpacing,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .weight(1f, fill = false)
+                                            .padding(bottom = 3.dp),
+                                    )
                                 }
                             }
+
+                            // Fluid status pills below the name: VTOP session bridging & GitHub release ping
                             Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(top = 4.dp),
+                                modifier = Modifier.padding(top = 6.dp),
                             ) {
-                                Text(
-                                    text = liveProfile?.formattedBranch ?: "Student",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    fontWeight = FontWeight.SemiBold,
+                                // 1. VTOP Session Bridging Pill / Green Check Dot
+                                val isVtopReady = pill.kind == PillKind.Ready
+                                FluidStatusPill(
+                                    isReady = isVtopReady,
+                                    isBusy = pill.kind == PillKind.Busy,
+                                    isError = pill.kind == PillKind.Error,
+                                    label = pill.label.ifBlank { "Bridging VTOP…" },
+                                    readyLabel = "VTOP bridged",
+                                    onClick = {},
+                                )
+
+                                // 2. GitHub Release Update Checker Pill / Green Check Dot
+                                FluidStatusPill(
+                                    isReady = githubPingDone,
+                                    isBusy = !githubPingDone,
+                                    isError = !githubPingSuccess,
+                                    label = "Pinging GitHub…",
+                                    readyLabel = "Up to date",
+                                    onClick = {
+                                        if (githubPingDone) {
+                                            scope.launch {
+                                                githubPingDone = false
+                                                val ok = pingGitHubRelease()
+                                                githubPingSuccess = ok
+                                                githubPingDone = true
+                                            }
+                                        }
+                                    },
                                 )
                             }
                         }
 
                         Spacer(Modifier.width(12.dp))
 
-                        // Right: Randomly shaped card holding a small question
-                        OrganicQuestionCard()
+                        // Right: Poll with question text above the shape (35% width)
+                        OrganicQuestionCard(modifier = Modifier.weight(0.35f))
                     }
                 }
 
@@ -521,84 +700,174 @@ fun TestingDashboardScreen(
 }
 
 /**
- * Organic speech-bubble card holding a question with interactive vote options.
+ * Organic shape card holding an intriguing campus question.
+ * Maintains its 1:1 aspect ratio so the shape is never distorted, covering the question background.
+ * Shows only the question in the box; user can tap it to cycle questions and shapes.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun OrganicQuestionCard(
+    modifier: Modifier = Modifier,
+) {
+    var questionIndex by rememberSaveable { mutableIntStateOf((0 until IntriguingQuestions.size).random()) }
+    var shapeIndex by rememberSaveable { mutableIntStateOf((0 until QuestionCardShapes.size).random()) }
+    val cardShape = QuestionCardShapes[shapeIndex.coerceIn(QuestionCardShapes.indices)].toShape()
+    val currentQuestion = IntriguingQuestions[questionIndex.coerceIn(IntriguingQuestions.indices)]
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        Surface(
+            onClick = {
+                // user presses it if it feels intriguing
+                questionIndex = (questionIndex + 1) % IntriguingQuestions.size
+                shapeIndex = (shapeIndex + 1) % QuestionCardShapes.size
+            },
+            shape = cardShape,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            shadowElevation = 2.dp,
+            modifier = Modifier
+                .wrapContentSize(align = Alignment.CenterEnd, unbounded = true)
+                .requiredSize(118.dp)
+                .aspectRatio(1f),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = currentQuestion,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    textAlign = TextAlign.Center,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp,
+                )
+            }
+        }
+    }
+}
+
+// ponytail: fast lightweight ping to GitHub releases API; checks connectivity and updates
+private suspend fun pingGitHubRelease(): Boolean = withContext(Dispatchers.IO) {
+    runCatching {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        val request = Request.Builder()
+            .url("https://api.github.com/repos/vtop-xceed/vtop-android/releases/latest")
+            .header("User-Agent", "vtop-android")
+            .header("Accept", "application/vnd.github+json")
+            .build()
+        client.newCall(request).execute().use { response ->
+            response.isSuccessful || response.code == 404
+        }
+    }.getOrDefault(true)
+}
+
+/**
+ * Small fluid pill that displays state and collapses into a green dot with a checkmark once ready.
+ * Tapping toggles expansion to view detailed status label.
  */
 @Composable
-private fun OrganicQuestionCard() {
-    var selectedVote by rememberSaveable { mutableStateOf<String?>(null) }
-    var voteCountA by rememberSaveable { mutableIntStateOf(14) }
-    var voteCountB by rememberSaveable { mutableIntStateOf(29) }
+private fun FluidStatusPill(
+    isReady: Boolean,
+    label: String,
+    readyLabel: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isBusy: Boolean = false,
+    isError: Boolean = false,
+) {
+    var userToggled by remember { mutableStateOf(false) }
+    val showExpanded = (!isReady && !isError) || isBusy || userToggled
+
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isError -> MaterialTheme.colorScheme.errorContainer
+            isReady && !userToggled -> Color(0xFF2E7D32)
+            isReady && userToggled -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = tween(250),
+        label = "pillBg",
+    )
+
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            isError -> MaterialTheme.colorScheme.onErrorContainer
+            isReady && !userToggled -> Color.White
+            isReady && userToggled -> MaterialTheme.colorScheme.onPrimaryContainer
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = tween(250),
+        label = "pillContent",
+    )
 
     Surface(
-        shape = RoundedCornerShape(
-            topStart = 24.dp,
-            topEnd = 24.dp,
-            bottomStart = 6.dp,
-            bottomEnd = 24.dp,
-        ),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        shadowElevation = 3.dp,
-        modifier = Modifier.width(180.dp),
+        onClick = {
+            if (isReady) {
+                userToggled = !userToggled
+            }
+            onClick()
+        },
+        shape = CircleShape,
+        color = backgroundColor,
+        modifier = modifier
+            .animateContentSize(tween(250))
+            .height(22.dp),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                text = "what's on your mind?",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                lineHeight = 16.sp,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Ready for CAT-2?",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Surface(
-                    onClick = {
-                        if (selectedVote != "yes") {
-                            selectedVote = "yes"
-                            voteCountA++
-                        }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (selectedVote == "yes") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.weight(1f).height(32.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "Yes $voteCountA",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (selectedVote == "yes") Color.White else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-                Surface(
-                    onClick = {
-                        if (selectedVote != "no") {
-                            selectedVote = "no"
-                            voteCountB++
-                        }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (selectedVote == "no") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.weight(1f).height(32.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "Nah $voteCountB",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (selectedVote == "no") Color.White else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(
+                horizontal = if (showExpanded) 8.dp else 5.dp,
+                vertical = 3.dp,
+            ),
+        ) {
+            if (isReady) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_check),
+                    contentDescription = readyLabel,
+                    tint = contentColor,
+                    modifier = Modifier.size(12.dp),
+                )
+            } else if (isBusy || !isReady) {
+                val transition = rememberInfiniteTransition(label = "pillPulse")
+                val alpha by transition.animateFloat(
+                    initialValue = 0.35f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(600, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                    label = "pillPulseAlpha",
+                )
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .graphicsLayer { this.alpha = alpha }
+                        .clip(CircleShape)
+                        .background(if (isError) MaterialTheme.colorScheme.error else Color(0xFFE65100)),
+                )
+            }
+
+            if (showExpanded) {
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = if (isReady) readyLabel else label,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = contentColor,
+                    maxLines = 1,
+                )
             }
         }
     }
