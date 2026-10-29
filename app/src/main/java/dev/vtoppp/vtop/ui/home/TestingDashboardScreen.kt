@@ -1154,13 +1154,13 @@ private fun AttendanceSection(
     val coroutineScope = rememberCoroutineScope()
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         // Attendance Header with arrow ↗ as in sketch
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1230,34 +1230,73 @@ private fun AttendanceSection(
 
         Spacer(Modifier.height(10.dp))
 
-        // Horizontal Pager for Subject Cycle
+        // Horizontal Pager with Card Deck Layering (matching Timeline carousel effect)
         HorizontalPager(
             state = pagerState,
-            pageSpacing = 10.dp,
+            contentPadding = PaddingValues(horizontal = 40.dp),
+            beyondViewportPageCount = 1,
+            pageSpacing = (-6).dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(116.dp),
+                .height(124.dp),
         ) { pageIndex ->
             val subject = subjects[pageIndex]
             val isWarning = subject.percentage in 75..79
             val isDanger = subject.percentage < 75
 
+            // Calculate offset for card deck layering
+            val pageOffset = ((pagerState.currentPage - pageIndex) +
+                pagerState.currentPageOffsetFraction).absoluteValue
+            val isCenter = pageOffset < 0.5f
+
+            val scale by animateFloatAsState(
+                targetValue = (1f - (pageOffset * 0.08f)).coerceIn(0.92f, 1f),
+                label = "attendanceCardScale",
+            )
+            val alpha by animateFloatAsState(
+                targetValue = (1f - (pageOffset * 0.60f)).coerceIn(0.40f, 1f),
+                label = "attendanceCardAlpha",
+            )
+            val elevation by animateDpAsState(
+                targetValue = if (isCenter) 10.dp else 1.dp,
+                label = "attendanceCardElevation",
+            )
+            val blurRadius = (8.dp * pageOffset).coerceIn(0.dp, 8.dp)
+            val pivotX = when {
+                pageIndex < pagerState.currentPage -> 0.95f
+                pageIndex > pagerState.currentPage -> 0.05f
+                else -> 0.5f
+            }
+
             Card(
                 onClick = onOpenAttendance,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(1f - pageOffset)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        this.alpha = alpha
+                        transformOrigin = TransformOrigin(pivotX, 0.5f)
+                    }
+                    .blur(radius = blurRadius),
                 shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    containerColor = if (isCenter) {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainer
+                    },
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = elevation),
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
                     when {
                         isDanger -> MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
                         isWarning -> Color(0xFFFFA000).copy(alpha = 0.45f)
-                        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isCenter) 0.35f else 0.15f)
                     },
                 ),
-                modifier = Modifier.fillMaxSize(),
             ) {
                 Row(
                     modifier = Modifier
