@@ -275,7 +275,7 @@ internal fun CourseRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (components.isNotEmpty()) {
+                if (components.isNotEmpty() && !expanded) {
                     WeightageChips(components = components, grade = grade.grade)
                 }
                 if (hasComponents) {
@@ -352,7 +352,7 @@ internal fun MarksOnlyRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (components.isNotEmpty()) {
+                if (components.isNotEmpty() && !expanded) {
                     WeightageChips(components = components, grade = grade)
                 }
                 Icon(
