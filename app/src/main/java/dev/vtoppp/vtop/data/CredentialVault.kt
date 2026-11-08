@@ -2,29 +2,13 @@ package dev.vtoppp.vtop.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyPermanentlyInvalidatedException
-import android.security.keystore.KeyProperties
-import android.util.Base64
-import androidx.biometric.BiometricManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import java.security.GeneralSecurityException
-import java.security.InvalidAlgorithmParameterException
 import java.security.KeyStore
-import javax.crypto.AEADBadTagException
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Credential storage. Two modes:
- *  - gated (default when the device has an authenticator): the password is sealed
- *    with a Keystore key that requires biometric/device-credential confirmation
- *    per use; unlock happens through BiometricPrompt with a CryptoObject;
- *  - fallback (no authenticator available): password lives in
- *    EncryptedSharedPreferences only, readable without user auth.
+ * Credential storage. The password lives in EncryptedSharedPreferences, gated
+ * at the UI level by the app lock, and readable without per-use user auth.
  *
  * Failures never crash the app: bootstrap failures no longer destroy the
  * storage — vT-vault-update-hardening: transient open trouble at cold start
@@ -62,23 +46,7 @@ class CredentialVault(
 
     private val prefs: SharedPreferences
 
-    var canGate: Boolean
-        private set
-
     init {
-        // Gated mode seals the password with a per-use Keystore cipher and needs
-        // a Crypto-based prompt, which Android only allows for Class 3 (strong)
-        // biometrics. Devices whose only authenticator is Class 2 (e.g. face
-        // unlock on some ColorOS/OnePlus builds) must NOT gate: prompting with
-        // a CryptoObject there throws IllegalArgumentException and crashes.
-        // vT-gate-refusal: the Manager's verdict alone is not proof — ColorOS
-        // on this OnePlus reports BIOMETRIC_SUCCESS for BIOMETRIC_STRONG yet
-        // refuses every CryptoObject prompt at runtime, so a persisted refusal
-        // marker (set when a save first sees the refusal) forces the ungated
-        // tier for the rest of the device's life with this app.
-        val managerAllowsGate = BiometricManager.from(appContext).canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG,
-        ) == BiometricManager.BIOMETRIC_SUCCESS
         // vT-vault-update-hardening: the seam keeps JVM tests on plain prefs;
         // production runs the guarded bootstrap and stamps health from its
         // outcome instead of assuming every degraded boot is LostCredentials.
@@ -108,11 +76,7 @@ class CredentialVault(
             recoverFallbackCredentialsInto(boot.prefs, plainPrefs(), AppLog::d)
             boot.prefs
         }
-        canGate = managerAllowsGate && !prefs.getBoolean(KEY_GATE_BROKEN, false)
     }
-
-    val isGated: Boolean
-        get() = prefs.getBoolean(KEY_GATED, false)
 
     val hasCredentials: Boolean
         get() = prefs.contains(KEY_USER)
@@ -182,14 +146,11 @@ class CredentialVault(
     private fun plainPrefs(): SharedPreferences =
         appContext.getSharedPreferences(PREFS_FALLBACK_NAME, Context.MODE_PRIVATE)
     internal companion object {
-        const val KEY_ALIAS = "vtop_creds_gated"
         const val KEY_USER = "vtop_user"
         const val KEY_PASS = "vtop_pass"
         const val KEY_BLOB = "vtop_pass_blob"
         const val KEY_IV = "vtop_pass_iv"
         const val KEY_GATED = "vtop_gated"
-        const val KEY_GATE_BROKEN = "vtop_gate_broken"
-        const val TRANSFORM = "AES/GCM/NoPadding"
         const val PREFS_NAME = "vtop_creds"
         const val PREFS_FALLBACK_NAME = "vtop_creds_fallback"
         const val NOTICE_LOST = "Your saved account was lost during startup — sign in again; you may be asked to re-save your password."

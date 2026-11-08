@@ -80,18 +80,23 @@ class SessionStore(
         false
     }
 
-    /** Guarded bootstrap: one delete + rebuild cycle before falling back to plain prefs. */
-    private fun bootstrapStorage(): SharedPreferences = try {
-        encryptedPrefs()
-    } catch (base: Exception) {
-        AppLog.d("session-store: vtop_session unreadable (${base.javaClass.simpleName}) — deleting storage, recreating once")
-        resetStorage()
-        try {
-            encryptedPrefs()
-        } catch (retry: Exception) {
-            AppLog.d("session-store: reset-recreate failed (${retry.javaClass.simpleName}) — last-resort plain prefs")
-            plainPrefs()
-        }
+    /** Guarded bootstrap shared with [CredentialVault]: retries, then falls back or resets only when the master key is provably gone. */
+    private fun bootstrapStorage(): SharedPreferences =
+        guardedBootstrap(
+            openEncrypted = ::encryptedPrefs,
+            fallbackPrefs = ::plainPrefs,
+            masterKeyPresent = ::keystoreHasMasterKey,
+            resetStorage = { resetStorage() },
+            sleep = { Thread.sleep(it) },
+            log = AppLog::d,
+        ).prefs
+
+    private fun keystoreHasMasterKey(): Boolean = try {
+        java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            .containsAlias(MASTER_KEY_ALIAS)
+    } catch (e: Exception) {
+        AppLog.d("session-store: master-key presence check failed (${e.javaClass.simpleName})")
+        true
     }
 
     private fun encryptedPrefs(): SharedPreferences = EncryptedSharedPreferences.create(

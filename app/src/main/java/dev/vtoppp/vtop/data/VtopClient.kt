@@ -248,23 +248,6 @@ class VtopClient(
     /** Captcha embedded as data URI inside the login page HTML (Jira flavor). */
     private val DATA_URI = Regex("""data:image/jpeg;base64,([A-Za-z0-9+/=]+)""")
 
-    // swal({title: "...", text: "..."}) variants; messages may be URL-encoded.
-    private val SWAL_TEXT = Regex(
-        """swal\s*\(\s*\{[\s\S]{0,500}?\b(?:title|text|html)\s*:\s*["']([^"']{3,200})["']""",
-        RegexOption.IGNORE_CASE,
-    )
-    private val SWAL_SIMPLE = Regex("""swal\s*\(\s*["']([^"']{3,200})["']""")
-
-    private val credentialPhrases = listOf(
-        "invalid credentials", "invalid credential", "incorrect credentials",
-        "invalid userid", "invalid user id", "invalid username", "invalid login id",
-        "incorrect userid", "incorrect user id", "incorrect username",
-        "wrong userid", "wrong user id", "wrong username",
-        "invalid password", "incorrect password", "wrong password",
-        "authentication failed", "login failed", "account is locked",
-        "user id or password", "userid or password",
-    )
-
     // ---------------------------------------------------------------- prewarm
 
     /**

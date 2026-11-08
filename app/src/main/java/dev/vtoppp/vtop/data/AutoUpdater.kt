@@ -232,9 +232,8 @@ class AutoUpdater(context: Context) {
     private fun apkFileFor(release: ReleaseInfo): File =
         File(File(appContext.cacheDir, "updates"), release.version + ".apk")
 
-    private fun currentVersion(): String = appContext.getString(appContext.applicationInfo.labelRes).let {
+    private fun currentVersion(): String =
         appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: ""
-    }
 
     private fun getUserAgent(): String = "vtop-android/" + currentVersion()
 
