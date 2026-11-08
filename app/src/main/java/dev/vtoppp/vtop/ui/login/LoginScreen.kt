@@ -17,7 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -31,6 +30,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -53,6 +53,7 @@ import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.AppLog
 import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.WarmState
+import dev.vtoppp.vtop.ui.theme.StatusColors
 
 @Composable
 fun LoginScreen(
@@ -68,7 +69,7 @@ fun LoginScreen(
     onErrorEdit: () -> Unit,
 ) {
     var username by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var typingNew by rememberSaveable { mutableStateOf(false) }
     var showForm by rememberSaveable { mutableStateOf(!haveSavedCredentials) }
 
@@ -271,7 +272,7 @@ private fun WarmStatusLine(warm: WarmState) {
     val (text, dotColor) = when (warm) {
         is WarmState.Idle -> return
         is WarmState.Working -> warm.step to MaterialTheme.colorScheme.primary
-        is WarmState.CaptchaReady -> "Connection ready · Instant sign-in" to Color(0xFF146C2E)
+        is WarmState.CaptchaReady -> "Connection ready · Instant sign-in" to StatusColors.Success
         is WarmState.Failed -> warm.message to MaterialTheme.colorScheme.error
     }
 

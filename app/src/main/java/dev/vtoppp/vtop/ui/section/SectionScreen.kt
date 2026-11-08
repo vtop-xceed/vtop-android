@@ -60,38 +60,34 @@ fun SectionScreen(
     val context = LocalContext.current
 
     /**
-     * Target = the newest authoritative html: the [html] parameter after a
-     * fresh fetch, or a DOM snapshot the hidden WebView scraped on its own.
+     * Target = the newest authoritative html: the [html] parameter after a * fresh fetch, or a DOM snapshot the hidden WebView scraped on its own.
      * Conflated state: snapshots landing while a parse runs are replace-
-     * through, and identical targets are parsed only once (T17.3 skip).
+     * through, and identical targets are parsed only once skip).
      */
     val targetHtml = remember { MutableStateFlow(html) }
     var blocks by remember { mutableStateOf(emptyList<SectionBlock>()) }
 
     val host = remember { HiddenSectionHost(context, cookies) }
-    // Cookie copy is cheap; keeps the next open() re-apply current (T17.2).
+    // Cookie copy is cheap; keeps the next open() re-apply current.
     host.updateCookies(cookies)
     host.onSnapshot = { snapshot -> targetHtml.value = snapshot }
 
     // jsoup parse is ALWAYS off the main thread; stale targets are dropped.
     LaunchedEffect(host) {
-        targetHtml
-            .filter { it.isNotBlank() }
-            .distinctUntilChanged()
-            .collectLatest { target ->
+        targetHtml.filter { it.isNotBlank() }.distinctUntilChanged().collectLatest { target ->
                 val parsed = SectionParser.parseOffMain(target)
                 if (targetHtml.value == target) blocks = parsed
             }
     }
 
     // The PARAM html is authority on arrival: open re-loads with the fresh
-    // fragment and (T17.2) re-applies the current session cookies.
+    // fragment and re-applies the current session cookies.
     LaunchedEffect(html) {
         targetHtml.value = html
         host.open(html)
     }
 
-    // Host lifetime is decoupled from html (T17.1): SWR refresh and snapshot
+    // Host lifetime is decoupled from html: SWR refresh and snapshot
     // updates re-open the live host instead of destroying it, so section
     // buttons keep working after refresh.
     DisposableEffect(Unit) {
@@ -291,15 +287,11 @@ private fun TableView(block: SectionBlock.Table) {
         ),
     ) {
         Column(
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(vertical = 4.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 4.dp),
         ) {
             if (block.headers.isNotEmpty()) {
                 Row(
-                    modifier = Modifier
-                        .width(totalWidth)
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.width(totalWidth).background(MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     for (index in 0 until columnCount) {
                         Text(

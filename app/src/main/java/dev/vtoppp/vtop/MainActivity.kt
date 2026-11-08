@@ -37,6 +37,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -62,7 +63,6 @@ import dev.vtoppp.vtop.ui.theme.ThemePreferences
 import dev.vtoppp.vtop.ui.theme.VtopTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import javax.crypto.Cipher
 import kotlin.coroutines.resume
 
 /** FragmentActivity so BiometricPrompt works while the UI stays Compose. */
@@ -80,14 +80,40 @@ class MainActivity : FragmentActivity() {
         AppLog.init(this)
         SessionCache.init(this)
         UserDatabase.init(this)
-        UserDatabase.exportDatabase(this)
-        UserDatabase.exportHtmlState(this)
+        // Debug exports to /sdcard/Download; keep them off the main thread so the
+        // first Compose frame (lock screen) is not blocked behind file I/O.
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            UserDatabase.exportDatabase(this@MainActivity)
+            UserDatabase.exportHtmlState(this@MainActivity)
+        }
         AppLog.d("app: onCreate")
         setContent {
             var currentPalette by remember {
                 mutableStateOf(ThemePreferences.getPalette(this))
             }
-            VtopTheme(palette = currentPalette) {
+            var themeMode by remember {
+                mutableStateOf(ThemePreferences.getThemeMode(this))
+            }
+            var blurEnabled by remember {
+                mutableStateOf(ThemePreferences.getBlurEnabled(this))
+            }
+            var lockEnabled by remember {
+                mutableStateOf(ThemePreferences.getLockEnabled(this))
+            }
+            val isDark = when (themeMode) {
+                dev.vtoppp.vtop.ui.theme.ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+                dev.vtoppp.vtop.ui.theme.ThemeMode.LIGHT -> false
+                else -> true
+            }
+            val decorView = window.decorView
+            val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, decorView)
+            LaunchedEffect(isDark) {
+                insetsController.isAppearanceLightStatusBars = !isDark
+                window.statusBarColor = android.graphics.Color.TRANSPARENT
+                window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            }
+
+            VtopTheme(palette = currentPalette, themeMode = themeMode, blurEnabled = blurEnabled) {
                 Root(
                     vault = vault,
                     autoCaptcha = autoCaptcha,
@@ -97,6 +123,21 @@ class MainActivity : FragmentActivity() {
                         currentPalette = newPalette
                         ThemePreferences.setPalette(this, newPalette)
                     },
+                    themeMode = themeMode,
+                    onThemeModeChange = { mode ->
+                        themeMode = mode
+                        ThemePreferences.setThemeMode(this, mode)
+                    },
+                    blurEnabled = blurEnabled,
+                    onBlurEnabledChange = { enabled ->
+                        blurEnabled = enabled
+                        ThemePreferences.setBlurEnabled(this, enabled)
+                    },
+                    lockEnabled = lockEnabled,
+                    onLockEnabledChange = { enabled ->
+                        lockEnabled = enabled
+                        ThemePreferences.setLockEnabled(this, enabled)
+                    },
                 )
             }
         }
@@ -104,8 +145,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
-        UserDatabase.exportDatabase(this)
-        UserDatabase.exportHtmlState(this)
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            UserDatabase.exportDatabase(this@MainActivity)
+            UserDatabase.exportHtmlState(this@MainActivity)
+        }
     }
 }
 
@@ -119,6 +162,12 @@ private fun Root(
     sessionStore: SessionStore,
     currentPalette: AppPalette,
     onPaletteChange: (AppPalette) -> Unit,
+    themeMode: dev.vtoppp.vtop.ui.theme.ThemeMode,
+    onThemeModeChange: (dev.vtoppp.vtop.ui.theme.ThemeMode) -> Unit,
+    blurEnabled: Boolean,
+    onBlurEnabledChange: (Boolean) -> Unit,
+    lockEnabled: Boolean,
+    onLockEnabledChange: (Boolean) -> Unit,
 ) {
     val activity = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -130,9 +179,9 @@ private fun Root(
     }
 
     // App Lock: if saved credentials exist, user must unlock using fingerprint scan or lockscreen PIN
-    var isUnlocked by rememberSaveable { mutableStateOf(!vault.hasCredentials) }
-    if (!vault.hasCredentials && !isUnlocked) {
-        isUnlocked = true
+    var isUnlocked by rememberSaveable { mutableStateOf(!vault.hasCredentials || !ThemePreferences.getLockEnabled(activity)) }
+    LaunchedEffect(vault.hasCredentials, lockEnabled) {
+        if (!vault.hasCredentials || !lockEnabled) isUnlocked = true
     }
     var isAuthenticating by remember { mutableStateOf(false) }
     var isBackgrounded by remember { mutableStateOf(false) }
@@ -140,7 +189,10 @@ private fun Root(
 
     val loginState by loginVm.state.collectAsStateWithLifecycle()
     val warm by loginVm.warm.collectAsStateWithLifecycle()
-    // T15 fix: the warm give-up must be visible to composition even when no
+    // Offline entry: a fresh seeded snapshot carries the id the Room/SQLite
+    // caches are keyed under, so the cached dashboard can open without net.
+    val cachedOfflineId = remember { sessionStore.loadFresh()?.authorizedId }
+    // fix: the warm give-up must be visible to composition even when no
     // NEW LoginUiState arrives (a stale Failure already occupies _state).
     val warmGaveUp by loginVm.warmGaveUp.collectAsStateWithLifecycle()
 
@@ -149,6 +201,7 @@ private fun Root(
     // Self-update gate: silent startup ping (opt-out remembered), then the
     // popup drives download with a loading animation and the final Update tap.
     val updater = remember { AutoUpdater(activity.applicationContext) }
+    var autoUpdateEnabled by remember { mutableStateOf(updater.autoCheckEnabled) }
     LaunchedEffect(Unit) { updater.autoCheck() }
 
     // Once user signs in with user ID and password, securely save credentials and grant access
@@ -175,8 +228,8 @@ private fun Root(
             when (event) {
                 Lifecycle.Event.ON_START -> {
                     loginVm.setForeground(true)
-                    // If returning after being away in background, lock the app
-                    if (vault.hasCredentials && isBackgrounded && System.currentTimeMillis() - backgroundedAt > 2000L) {
+                    // If returning after being away in background, lock the app (respect disabled lock toggle)
+                    if (vault.hasCredentials && lockEnabled && isBackgrounded && System.currentTimeMillis() - backgroundedAt > 2000L) {
                         isUnlocked = false
                     }
                     isBackgrounded = false
@@ -259,8 +312,17 @@ private fun Root(
         var autoNetworkFailures by rememberSaveable { mutableStateOf(0) }
         LaunchedEffect(loginState, warmGaveUp) {
             val s = loginState
-            if (s is LoginUiState.Failure && !loginVm.hasLiveSession()) {
-                if (s.error is VtopError.Network) {
+            if (s is LoginUiState.Failure && !loginVm.hasLiveSession() && authorizedId == null) {
+                if (s.error is VtopError.Network || s.error is VtopError.Unknown) {
+                    // Offline: open the app against the cache instead of the login wall;
+                    // the bridge keeps retrying in the background and flips the pill.
+                    val offlineId = cachedOfflineId
+                    if (offlineId != null) {
+                        AppLog.d("offline: opening cached app with seeded identity")
+                        authorizedId = offlineId
+                        phase = BootPhase.Auto
+                        return@LaunchedEffect
+                    }
                     autoNetworkFailures++
                     if (autoNetworkFailures >= 2 || warmGaveUp) phase = BootPhase.Login
                 } else {
@@ -352,10 +414,9 @@ private fun Root(
                 val state by homeVm.state.collectAsStateWithLifecycle()
                 val lastSectionTitle by homeVm.lastSectionTitle.collectAsStateWithLifecycle()
                 val staleNotice by homeVm.staleNotice.collectAsStateWithLifecycle()
+                val marksNotice by homeVm.marksNotice.collectAsStateWithLifecycle()
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = innerPadding.calculateBottomPadding()),
+                    modifier = Modifier.fillMaxSize().padding(bottom = innerPadding.calculateBottomPadding()),
                 ) {
                     HomeScreen(
                         state = state,
@@ -368,6 +429,21 @@ private fun Root(
                         onStaleNoticeShown = { homeVm.consumeStaleNotice() },
                         onCheckUpdate = { updater.check(force = true) },
                         onLockApp = { isUnlocked = false },
+                        themeMode = themeMode,
+                        onThemeModeChange = onThemeModeChange,
+                        blurEnabled = blurEnabled,
+                        onBlurEnabledChange = onBlurEnabledChange,
+                        lockEnabled = lockEnabled,
+                        onLockEnabledChange = onLockEnabledChange,
+                        autoUpdateEnabled = autoUpdateEnabled,
+                        onAutoUpdateEnabledChange = { enabled ->
+                            autoUpdateEnabled = enabled
+                            updater.autoCheckEnabled = enabled
+                        },
+                        onBridgeRetry = { loginVm.rebridge() },
+                        onRefresh = { homeVm.refreshMarksAndGrades() },
+                        marksNotice = marksNotice,
+                        onMarksNoticeShown = { homeVm.consumeMarksNotice() },
                         onSignOut = {
                             vault.clear()
                             sessionStore.clear()
@@ -397,9 +473,7 @@ private fun Root(
                 }
 
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = innerPadding.calculateBottomPadding()),
+                    modifier = Modifier.fillMaxSize().padding(bottom = innerPadding.calculateBottomPadding()),
                 ) {
                     LoginScreen(
                         state = if (errorDismissed) LoginUiState.Idle else state,
@@ -498,11 +572,7 @@ private suspend fun FragmentActivity.promptDeviceAuth(
     )
     cont.invokeOnCancellation { prompt.cancelAuthentication() }
 
-    val info = BiometricPrompt.PromptInfo.Builder()
-        .setTitle(title)
-        .setSubtitle(subtitle)
-        .setAllowedAuthenticators(authenticators)
-        .build()
+    val info = BiometricPrompt.PromptInfo.Builder().setTitle(title).setSubtitle(subtitle).setAllowedAuthenticators(authenticators).build()
 
     try {
         prompt.authenticate(info)

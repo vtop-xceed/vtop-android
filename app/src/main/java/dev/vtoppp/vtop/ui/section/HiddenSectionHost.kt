@@ -32,9 +32,8 @@ class HiddenSectionHost(
 
     /**
      * Session cookies posted by in-section XHRs. Copied from the latest
-     * [SectionScreen] argument on every recomposition (T17.2) and applied to
-     * the system CookieManager by every [open], so a mid-view re-auth with a
-     * rotated `JSESSIONID` never leaves the hidden WebView posting the
+     * [SectionScreen] argument on every recomposition and applied to
+     * the system CookieManager by every [open], so a mid-view re-auth with a * rotated `JSESSIONID` never leaves the hidden WebView posting the
      * login-page version.
      */
     private var cookies: List<Pair<String, String>> = cookies

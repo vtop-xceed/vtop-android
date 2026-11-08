@@ -15,6 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
+enum class ThemeMode { SYSTEM, DARK, AMOLED, LIGHT }
+
 enum class AppPalette(val displayName: String, val seedColor: Color) {
     Dynamic("System", Color(0xFF4285F4)),
     GoogleBlue("Blue", Color(0xFF0B57D0)),
@@ -26,6 +28,30 @@ enum class AppPalette(val displayName: String, val seedColor: Color) {
 object ThemePreferences {
     private const val PREFS_NAME = "vtop_theme_prefs"
     private const val KEY_PALETTE = "selected_palette"
+    private const val KEY_THEME_MODE = "theme_mode"
+    private const val KEY_BLUR = "blur_enabled"
+    private const val KEY_LOCK_ENABLED = "lock_enabled"
+
+    fun getThemeMode(context: Context): ThemeMode =
+        runCatching { ThemeMode.valueOf(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_THEME_MODE, ThemeMode.DARK.name) ?: ThemeMode.DARK.name) }.getOrDefault(ThemeMode.DARK)
+
+    fun setThemeMode(context: Context, mode: ThemeMode) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_THEME_MODE, mode.name).apply()
+    }
+
+    fun getBlurEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_BLUR, true)
+
+    fun setBlurEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(KEY_BLUR, enabled).apply()
+    }
+
+    fun getLockEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_LOCK_ENABLED, true)
+
+    fun setLockEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(KEY_LOCK_ENABLED, enabled).apply()
+    }
 
     fun getPalette(context: Context): AppPalette {
         val name = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -238,15 +264,40 @@ private val DarkCoralColors = darkColorScheme(
     outlineVariant = Color(0xFF53433F),
 )
 
+val LocalBlurEnabled = androidx.compose.runtime.compositionLocalOf { true }
+
+// Ponytail: true-black surfaces for OLED panels; dynamic/static hues kept
+private fun ColorScheme.amoledSurface(): ColorScheme = copy(
+    surface = Color.Black,
+    background = Color.Black,
+    surfaceContainerLowest = Color(0xFF050505),
+    surfaceContainerLow = Color(0xFF090909),
+    surfaceContainer = Color(0xFF0D0D0D),
+    surfaceContainerHigh = Color(0xFF131313),
+    surfaceContainerHighest = Color(0xFF1B1B1B),
+    surfaceVariant = Color(0xFF232323),
+    onSurface = Color.White,
+    onSurfaceVariant = Color(0xFFB5B5B5),
+    outline = Color(0xFF6E6E6E),
+    outlineVariant = Color(0xFF2C2C2C),
+)
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VtopTheme(
     palette: AppPalette = AppPalette.Dynamic,
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    themeMode: ThemeMode = ThemeMode.DARK,
+    blurEnabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    val amoled = themeMode == ThemeMode.AMOLED
+    val darkTheme = when (themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.DARK, ThemeMode.AMOLED -> true
+        ThemeMode.LIGHT -> false
+    }
     val context = LocalContext.current
-    val colorScheme: ColorScheme = when (palette) {
+    val base: ColorScheme = when (palette) {
         AppPalette.Dynamic -> {
             if (Build.VERSION.SDK_INT >= 31) {
                 if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -259,10 +310,13 @@ fun VtopTheme(
         AppPalette.Violet -> if (darkTheme) DarkVioletColors else LightVioletColors
         AppPalette.Coral -> if (darkTheme) DarkCoralColors else LightCoralColors
     }
+    val colorScheme: ColorScheme = if (amoled) base.amoledSurface() else base
 
-    MaterialExpressiveTheme(
-        colorScheme = colorScheme,
-        motionScheme = MotionScheme.expressive(),
-        content = content,
-    )
+    androidx.compose.runtime.CompositionLocalProvider(LocalBlurEnabled provides blurEnabled) {
+        MaterialExpressiveTheme(
+            colorScheme = colorScheme,
+            motionScheme = MotionScheme.expressive(),
+            content = content,
+        )
+    }
 }

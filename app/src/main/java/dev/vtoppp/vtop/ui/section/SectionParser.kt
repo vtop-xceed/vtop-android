@@ -52,7 +52,7 @@ object SectionParser {
 
     /**
      * Same output as [parse], with the jsoup walk moved off the main thread
-     * (T17.3): snapshot scraping can emit every ~250 ms during JS activity.
+     *: snapshot scraping can emit every ~250 ms during JS activity.
      */
     suspend fun parseOffMain(html: String): List<SectionBlock> =
         withContext(Dispatchers.Default) { parse(html) }
@@ -248,15 +248,9 @@ object SectionParser {
             ?.map(::cellText)
             ?: emptyList()
 
-        val dataRows = rows.asSequence()
-            .filter { it !== headerRow }
-            .map { row ->
-                row.children()
-                    .filter { it.normalName() == "td" || it.normalName() == "th" }
-                    .map(::cellText)
-            }
-            .filter { row -> row.any { it.isNotEmpty() } }
-            .toList()
+        val dataRows = rows.asSequence().filter { it !== headerRow }.map { row ->
+                row.children().filter { it.normalName() == "td" || it.normalName() == "th" }.map(::cellText)
+            }.filter { row -> row.any { it.isNotEmpty() } }.toList()
 
         if (headers.all { it.isEmpty() } && dataRows.isEmpty()) return null
         return SectionBlock.Table(headers, dataRows)

@@ -27,7 +27,7 @@ sealed interface LoginUiState {
 }
 
 /**
- * Credentials pending a biometric save (T16). Passwords never reach
+ * Credentials pending a biometric save. Passwords never reach
  * SavedStateHandle — only the remembered-flag and username survive death.
  */
 enum class SavedKeys { LAST_REMEMBER, LAST_USERNAME, PENDING_SAVE_USER }
@@ -83,7 +83,7 @@ class LoginViewModel(
     /** True when the client still holds a live VTOP session. */
     fun hasLiveSession(): Boolean = client.hasSession
 
-    /** T13.4 lifecycle gate: the warm loop only runs while the app is foregrounded. */
+    /** lifecycle gate: the warm loop only runs while the app is foregrounded. */
     private val foregrounded = MutableStateFlow(true)
 
     /** Wired from the Activity's ON_START/ON_STOP in MainActivity. */
@@ -91,12 +91,11 @@ class LoginViewModel(
         foregrounded.value = value
     }
 
-    /** T13.3: warm failures allowed per foreground resume before the loop goes quiet. */
+    /**: warm failures allowed per foreground resume before the loop goes quiet. */
     private companion object {
-        const val MAX_WARM_FAILURES_PER_FOREGROUND = 5
-    }
+        const val MAX_WARM_FAILURES_PER_FOREGROUND = 5 }
 
-    /** T15 fix: true once the warm loop exhausted its per-foreground failure budget
+    /** fix: true once the warm loop exhausted its per-foreground failure budget
      *  (5 aggregation-worth of network failures already happened; one give-up is
      *  enough evidence for the Auto phase to escape instead of a frozen splash).
      *  StateFlow-ed because Compose must see the transition even when no NEW
@@ -107,7 +106,7 @@ class LoginViewModel(
     private var lastUsername: String? = null
 
     init {
-        // T16.4: a process death between "login succeeded (remember me)" and
+        //: a process death between "login succeeded (remember me)" and
         // "save completed" recovers here — the remembered FACT (username only,
         // never the password) re-stages the pending save; a password-less pair
         // makes saveSecurely skip with an explicit notice instead of storing
@@ -123,16 +122,14 @@ class LoginViewModel(
     }
 
     init {
-        // Warm the session at launch, bounded (T13): at most
+        // Warm the session at launch, bounded: at most
         // [MAX_WARM_FAILURES_PER_FOREGROUND] warm failures per foreground
-        // resume; no prewarm while a manual login is Loading (wait for a
-        // terminal state instead of delay(500)+prewarm fighting it); a
-        // Working warm chain is awaited rather than abandoned; the whole
+        // resume; no prewarm while a manual login is Loading (wait for a // terminal state instead of delay(500)+prewarm fighting it); a // Working warm chain is awaited rather than abandoned; the whole
         // loop pauses while the app is backgrounded. Pacing (10s) stays
         // inside the client.
         viewModelScope.launch(Dispatchers.IO) {
             var failures = 0
-            while (true) {
+                while (true) {
                 if (!foregrounded.value) {
                     foregrounded.first { it }
                     failures = 0 // fresh failure budget on every foreground resume
@@ -152,7 +149,7 @@ class LoginViewModel(
                     warmNow is WarmState.Failed -> {
                         failures++
                         if (failures > MAX_WARM_FAILURES_PER_FOREGROUND) {
-                            // T15 fix: going quiet silently left the splash up with
+                            // fix: going quiet silently left the splash up with
                             // no LoginUiState.Failure, so the Auto-phase escape in
                             // MainActivity could never fire. Surface the give-up.
                             AppLog.d("warm: gave up after $failures failures")
@@ -167,7 +164,7 @@ class LoginViewModel(
                         }
                         val waitMs = backoffMs(failures)
                         AppLog.d("warm: retry $failures in ${waitMs / 1000}s")
-                        client.announceWarm("Retrying VTOP connection in ${waitMs / 1000}s…")
+                        client.announceWarm("Retrying VTOP connection ($failures/$MAX_WARM_FAILURES_PER_FOREGROUND) in ${waitMs / 1000}s…")
                         delay(waitMs)
                     }
                     // WarmState.Idle AND the phantom Working("Retrying in …s") left
@@ -214,7 +211,7 @@ class LoginViewModel(
                         val unchanged = vault.username == username && vault.password == password
                         if (rememberCredentials && !unchanged) {
                             pendingRemember = username to password
-                            // T16.4: only the username survives death —
+                            //: only the username survives death —
                             // passwords are excluded from SavedStateHandle.
                             savedStateHandle?.set(SavedKeys.PENDING_SAVE_USER.name, username)
                         }
@@ -235,6 +232,20 @@ class LoginViewModel(
                     },
                 )
             }
+        }
+    }
+
+    /** Tapping the session pill forces a full re-bridge from saved creds; live pill stages show while it runs. */
+    fun rebridge() {
+        val user = vault.username
+        val pass = vault.password
+        if (user.isNullOrBlank() || pass.isNullOrBlank()) {
+            AppLog.d("rebridge: no saved credentials")
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            client.invalidateSession()
+            submit(user, pass, false)
         }
     }
 
