@@ -69,9 +69,22 @@ data class AttendanceEntry(
     val courseType: String = "",
     val slot: String = "",
     val facultyName: String = "",
+    val courseId: String = "",
+    val courseTypeA: String = "",
     val attendedClasses: Int = 0,
     val totalClasses: Int = 0,
     val attendancePercentage: Double = 0.0,
+    val updatedAtMs: Long = System.currentTimeMillis(),
+)
+
+data class AttendanceSession(
+    val id: Long = 0,
+    val regNo: String,
+    val semesterSubId: String,
+    val courseCode: String,
+    val date: String,
+    val slot: String,
+    val status: String,
     val updatedAtMs: Long = System.currentTimeMillis(),
 )
 
@@ -101,6 +114,8 @@ data class ClassScheduleItem(
     val activeSlot: String = "",
     val isOngoing: Boolean = false,
     val isClosest: Boolean = false,
+    val date: java.time.LocalDate? = null,
+    val attendanceStatus: String? = null,
 )
 
 data class DaySchedule(

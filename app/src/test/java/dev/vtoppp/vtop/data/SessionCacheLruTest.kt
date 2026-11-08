@@ -46,8 +46,8 @@ class SessionCacheLruTest {
     }
 
     @Test
-    fun pruneKeepsOnlyThe24NewestEntries() {
-        val endpoints = (1..30).map { "sec$it" }
+    fun pruneKeepsOnlyThe128NewestEntries() {
+        val endpoints = (1..130).map { "sec$it" }
         endpoints.forEach { SessionCache.save(it, "<html>$it</html>") }
 
         // Distinct, ordered mtimes so prune's newest-wins is well-defined.
@@ -57,9 +57,9 @@ class SessionCacheLruTest {
             f.setLastModified(1_700_000_000_000L + index)
         }
 
-        // Oldest six are gone; the 24 newest survive.
-        for (i in 1..6) assertNull("sec$i should be pruned", SessionCache.load("sec$i"))
-        for (i in 7..30) {
+        // Oldest two are gone; the 128 newest survive.
+        for (i in 1..2) assertNull("sec$i should be pruned", SessionCache.load("sec$i"))
+        for (i in 3..130) {
             val loaded = SessionCache.load("sec$i")
             assertEquals("<html>sec$i</html>", loaded?.first)
         }

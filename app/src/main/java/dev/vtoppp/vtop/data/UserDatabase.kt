@@ -7,9 +7,6 @@ import android.database.sqlite.SQLiteOpenHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -163,6 +160,23 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
                 """.trimIndent(),
             )
         }
+        if (oldVersion < 9) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS attendance_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    reg_no TEXT NOT NULL,
+                    semester_sub_id TEXT NOT NULL,
+                    course_code TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    slot TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    updated_at_ms INTEGER NOT NULL,
+                    UNIQUE(reg_no, semester_sub_id, course_code, date, slot)
+                );
+                """.trimIndent(),
+            )
+        }
         if (oldVersion < 5) {
             db.execSQL(
                 """
@@ -188,6 +202,21 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
     }
 
     private fun createAcademicTables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS attendance_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reg_no TEXT NOT NULL,
+                semester_sub_id TEXT NOT NULL,
+                course_code TEXT NOT NULL,
+                date TEXT NOT NULL,
+                slot TEXT NOT NULL,
+                status TEXT NOT NULL,
+                updated_at_ms INTEGER NOT NULL,
+                UNIQUE(reg_no, semester_sub_id, course_code, date, slot)
+            );
+            """.trimIndent(),
+        )
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS semester_results (
@@ -279,7 +308,7 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
 
     companion object {
         const val DB_NAME = "vtop_user_data.db"
-        const val DB_VERSION = 8
+        const val DB_VERSION = 9
     }
 }
 
@@ -303,6 +332,9 @@ object UserDatabase {
     private val _semesterResultsFlow = MutableStateFlow<List<SemesterResult>>(emptyList())
     val semesterResultsFlow: StateFlow<List<SemesterResult>> = _semesterResultsFlow.asStateFlow()
 
+    private val _attendanceSessionsFlow = MutableStateFlow<List<AttendanceSession>>(emptyList())
+    val attendanceSessionsFlow: StateFlow<List<AttendanceSession>> = _attendanceSessionsFlow.asStateFlow()
+
     private val _attendanceFlow = MutableStateFlow<List<AttendanceEntry>>(emptyList())
     val attendanceFlow: StateFlow<List<AttendanceEntry>> = _attendanceFlow.asStateFlow()
 
@@ -325,14 +357,6 @@ object UserDatabase {
         }
     }
 
-    // Ponytail: debug-only dumps to shared storage; never writes in release builds
-    fun autoExport() {
-        if (!dev.vtoppp.vtop.BuildConfig.DEBUG) return
-        val ctx = appContext ?: return
-        exportDatabase(ctx)
-        exportHtmlState(ctx)
-    }
-
     fun saveProfile(profile: UserProfile) {
         val db = helper?.writableDatabase ?: return
         val cv = ContentValues().apply {
@@ -348,7 +372,6 @@ object UserDatabase {
         }
         db.insertWithOnConflict("user_profile", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
         _profileFlow.value = profile
-        autoExport()
     }
 
     fun loadProfile(regNo: String): UserProfile? {
@@ -402,7 +425,6 @@ object UserDatabase {
         } finally {
             db.endTransaction()
         }
-        autoExport()
     }
 
     fun loadSemesters(regNo: String): List<SemesterAttended> {
@@ -464,7 +486,6 @@ object UserDatabase {
         if (latestSem == null || semId == latestSem) {
             _attendanceFlow.value = entries
         }
-        autoExport()
     }
 
     fun loadAttendance(regNo: String, semesterSubId: String? = null): List<AttendanceEntry> {
@@ -534,7 +555,6 @@ object UserDatabase {
         if (latestSem == null || semId == latestSem) {
             _timetableFlow.value = entries
         }
-        autoExport()
     }
 
     fun loadTimetable(regNo: String, semesterSubId: String? = null): List<TimetableEntry> {
@@ -585,6 +605,7 @@ object UserDatabase {
      */
     fun buildScheduleDays(
         entries: List<TimetableEntry>,
+        sessions: List<AttendanceSession> = emptyList(),
         referenceDate: LocalDate = LocalDate.now(),
         referenceTime: LocalTime = LocalTime.now(),
     ): List<DaySchedule> {
@@ -627,6 +648,8 @@ object UserDatabase {
                         activeSlot = entry.activeSlot,
                         isOngoing = isOngoing,
                         isClosest = false,
+                        date = date,
+                        attendanceStatus = lookupSessionStatus(date, entry.courseCode, entry.slots, sessions),
                     )
                 }.toMutableList()
 
@@ -644,6 +667,23 @@ object UserDatabase {
             days.add(DaySchedule(dayName = dayName, dateLabel = dateLabel, classes = dayClasses))
         }
         return days
+    }
+
+    private fun lookupSessionStatus(
+        date: LocalDate,
+        courseCode: String,
+        slots: List<String>,
+        sessions: List<AttendanceSession>,
+    ): String? {
+        val dateIso = date.toString()
+        val matches = sessions.filter { it.courseCode.equals(courseCode, ignoreCase = true) && it.date == dateIso }
+        if (matches.isEmpty()) {
+            return if (!date.isAfter(LocalDate.now())) "Not marked" else null
+        }
+        for (slot in slots) {
+            matches.firstOrNull { it.slot.equals(slot, ignoreCase = true) }?.let { return it.status }
+        }
+        return null
     }
 
     fun parseTime(str: String): LocalTime? {
@@ -710,7 +750,6 @@ object UserDatabase {
         } finally {
             db.endTransaction()
         }
-        autoExport()
     }
 
     fun loadGradeHistory(regNo: String): Pair<AcademicSummary?, List<GradeHistoryEntry>> {
@@ -791,7 +830,6 @@ object UserDatabase {
         } finally {
             db.endTransaction()
         }
-        autoExport()
     }
 
     fun loadMarks(regNo: String, semesterSubId: String? = null): List<MarkEntry> {
@@ -842,7 +880,69 @@ object UserDatabase {
         } finally {
             db.endTransaction()
         }
-        autoExport()
+    }
+
+    fun saveAttendanceSessions(regNo: String, semesterSubId: String, sessions: List<AttendanceSession>) {
+        if (sessions.isEmpty()) return
+        val db = helper?.writableDatabase ?: return
+        db.beginTransaction()
+        try {
+            val courses = sessions.map { it.courseCode }.distinct()
+            for (course in courses) {
+                db.delete(
+                    "attendance_sessions",
+                    "reg_no = ? AND semester_sub_id = ? AND course_code = ?",
+                    arrayOf(regNo, semesterSubId, course),
+                )
+            }
+            for (s in sessions) {
+                val cv = ContentValues().apply {
+                    put("reg_no", s.regNo)
+                    put("semester_sub_id", s.semesterSubId)
+                    put("course_code", s.courseCode)
+                    put("date", s.date)
+                    put("slot", s.slot)
+                    put("status", s.status)
+                    put("updated_at_ms", s.updatedAtMs)
+                }
+                db.insertWithOnConflict("attendance_sessions", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            db.setTransactionSuccessful()
+            _attendanceSessionsFlow.value = loadAttendanceSessions(regNo)
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun loadAttendanceSessions(regNo: String): List<AttendanceSession> {
+        val db = helper?.readableDatabase ?: return emptyList()
+        val list = mutableListOf<AttendanceSession>()
+        db.query(
+            "attendance_sessions",
+            null,
+            "reg_no = ?",
+            arrayOf(regNo),
+            null,
+            null,
+            "date ASC, slot ASC",
+        ).use { c ->
+            while (c.moveToNext()) {
+                list.add(
+                    AttendanceSession(
+                        id = c.getLong(c.getColumnIndexOrThrow("id")),
+                        regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
+                        semesterSubId = c.getString(c.getColumnIndexOrThrow("semester_sub_id")),
+                        courseCode = c.getString(c.getColumnIndexOrThrow("course_code")),
+                        date = c.getString(c.getColumnIndexOrThrow("date")),
+                        slot = c.getString(c.getColumnIndexOrThrow("slot")),
+                        status = c.getString(c.getColumnIndexOrThrow("status")),
+                        updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
+                    )
+                )
+            }
+        }
+        _attendanceSessionsFlow.value = list
+        return list
     }
 
     fun loadSemesterResults(regNo: String): List<SemesterResult> {
@@ -892,7 +992,6 @@ object UserDatabase {
         } finally {
             db.endTransaction()
         }
-        autoExport()
     }
 
     fun loadCalendarEvents(semesterSubId: String? = null): List<CalendarDayEvent> {
@@ -925,284 +1024,4 @@ object UserDatabase {
         return list
     }
 
-    /**
-     * Copies the active SQLite database to /sdcard/Download/ for easy ADB access.
-     */
-    fun exportDatabase(context: Context): File? {
-        if (!dev.vtoppp.vtop.BuildConfig.DEBUG) return null
-        val dbFile = context.getDatabasePath(UserDatabaseHelper.DB_NAME)
-        if (!dbFile.exists()) return null
-        return try {
-            // ponytail: best-effort debug dump; flush WAL first so the copy reflects committed state
-            helper?.writableDatabase?.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null)?.use { it.moveToNext() }
-            val targets = listOf(
-                File("/sdcard/Download/${UserDatabaseHelper.DB_NAME}"),
-                File(context.getExternalFilesDir(null), UserDatabaseHelper.DB_NAME),
-            )
-            for (target in targets) {
-                target.parentFile?.mkdirs()
-                FileInputStream(dbFile).use { input ->
-                    FileOutputStream(target).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-            }
-            try {
-                val cacheDir = File(context.filesDir, "section-cache")
-                if (cacheDir.exists()) {
-                    val outDir = File("/sdcard/Download/section_cache")
-                    outDir.mkdirs()
-                    cacheDir.listFiles()?.forEach { file ->
-                        file.copyTo(File(outDir, file.name), overwrite = true)
-                    }
-                }
-                val logFile = File(context.filesDir, "vtop-debug.log")
-                if (logFile.exists()) {
-                    logFile.copyTo(File("/sdcard/Download/vtop-debug.log"), overwrite = true)
-                }
-            } catch (_: Exception) {}
-            targets.firstOrNull { it.exists() }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    /**
-     * Generates a clean, standalone HTML file displaying the complete contents of all SQLite tables,
-     * including per-semester breakdowns for timetable, attendance, marks, and grades.
-     */
-    fun exportHtmlState(context: Context): File? {
-        if (!dev.vtoppp.vtop.BuildConfig.DEBUG) return null
-        val db = helper?.readableDatabase ?: return null
-        val html = buildString {
-            append("<!DOCTYPE html><html><head><meta charset='UTF-8'><title>VTOP Database State</title>")
-            append("<style>")
-            append("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0F172A; color: #F1F5F9; margin: 0; padding: 24px; }")
-            append("h1 { color: #38BDF8; margin-bottom: 4px; font-size: 26px; }")
-            append(".meta { color: #94A3B8; font-size: 14px; margin-bottom: 24px; }")
-            append(".card { background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 20px; margin-bottom: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }")
-            append(".sem-card { background: #1E293B; border-left: 4px solid #38BDF8; border-radius: 12px; padding: 20px; margin-bottom: 28px; box-shadow: 0 6px 10px -2px rgba(0,0,0,0.4); }")
-            append("h2 { color: #F8FAFC; font-size: 18px; margin-top: 0; margin-bottom: 14px; border-bottom: 1px solid #334155; padding-bottom: 8px; }")
-            append("h3 { color: #38BDF8; font-size: 15px; margin-top: 18px; margin-bottom: 8px; }")
-            append("table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 12px; }")
-            append("th { text-align: left; padding: 8px 12px; background: #0F172A; color: #94A3B8; font-weight: 600; }")
-            append("td { padding: 8px 12px; border-bottom: 1px solid #334155; }")
-            append("tr:hover { background: #273549; }")
-            append(".pill { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 600; font-size: 12px; }")
-            append(".pill-grade { background: #6D28D9; color: #EDE9FE; }")
-            append(".pill-green { background: #065F46; color: #D1FAE5; }")
-            append(".pill-red { background: #991B1B; color: #FEE2E2; }")
-            append(".pill-sem { background: #0284C7; color: #E0F2FE; padding: 3px 10px; border-radius: 8px; font-size: 14px; font-weight: bold; }")
-            append(".empty { color: #64748B; font-style: italic; padding: 8px 0; }")
-            append("</style></head><body>")
-
-            append("<h1>VTOP Local Database Inspector</h1>")
-            append("<div class='meta'>Generated from phone database (${UserDatabaseHelper.DB_NAME}) &bull; DB Version ${UserDatabaseHelper.DB_VERSION} &bull; Generated: ${java.util.Date()}</div>")
-
-            // 1. User Profile
-            append("<div class='card'><h2>1. User Profile (user_profile)</h2>")
-            db.rawQuery("SELECT * FROM user_profile", null).use { c ->
-                if (c.moveToFirst()) {
-                    append("<table><thead><tr>")
-                    for (name in c.columnNames) append("<th>$name</th>")
-                    append("</tr></thead><tbody><tr>")
-                    for (i in 0 until c.columnCount) append("<td>${c.getString(i) ?: ""}</td>")
-                    append("</tr></tbody></table>")
-                } else {
-                    append("<div class='empty'>No profile cached yet</div>")
-                }
-            }
-            append("</div>")
-
-            // 2. Academic Summary
-            append("<div class='card'><h2>2. Academic Summary (academic_summary)</h2>")
-            db.rawQuery("SELECT * FROM academic_summary", null).use { c ->
-                if (c.moveToFirst()) {
-                    append("<table><thead><tr>")
-                    for (name in c.columnNames) append("<th>$name</th>")
-                    append("</tr></thead><tbody><tr>")
-                    for (i in 0 until c.columnCount) append("<td>${c.getString(i) ?: ""}</td>")
-                    append("</tr></tbody></table>")
-                } else {
-                    append("<div class='empty'>No academic summary cached yet</div>")
-                }
-            }
-            append("</div>")
-
-            // 3. Semesters Attended
-            val semestersList = mutableListOf<Pair<String, String>>()
-            append("<div class='card'><h2>3. Semesters Attended (semesters_attended)</h2>")
-            db.rawQuery("SELECT semester_sub_id, semester_name FROM semesters_attended ORDER BY semester_sub_id DESC", null).use { c ->
-                if (c.count > 0) {
-                    append("<table><thead><tr><th>Semester Sub ID</th><th>Semester Name</th></tr></thead><tbody>")
-                    while (c.moveToNext()) {
-                        val subId = c.getString(0)
-                        val sName = c.getString(1)
-                        semestersList.add(subId to sName)
-                        append("<tr><td><span class='pill pill-sem'>$subId</span></td><td>$sName</td></tr>")
-                    }
-                    append("</tbody></table>")
-                } else {
-                    append("<div class='empty'>No semesters attended recorded yet</div>")
-                }
-            }
-            append("</div>")
-
-            // If semestersList is empty, discover from distinct semester_sub_id across tables
-            if (semestersList.isEmpty()) {
-                val foundSemIds = mutableSetOf<String>()
-                listOf("timetable_classes", "student_attendance", "student_marks").forEach { tbl ->
-                    try {
-                        db.rawQuery("SELECT DISTINCT semester_sub_id FROM $tbl WHERE semester_sub_id != ''", null).use { c ->
-                            while (c.moveToNext()) foundSemIds.add(c.getString(0))
-                        }
-                    } catch (_: Exception) {}
-                }
-                foundSemIds.sortedDescending().forEach { semId ->
-                    semestersList.add(semId to semId)
-                }
-            }
-
-            // 4. Cumulative Grade History
-            append("<div class='card'><h2>4. Cumulative Grade History (grade_history)</h2>")
-            db.rawQuery("SELECT * FROM grade_history ORDER BY course_code ASC", null).use { c ->
-                if (c.count > 0) {
-                    append("<table><thead><tr>")
-                    for (name in c.columnNames) append("<th>$name</th>")
-                    append("</tr></thead><tbody>")
-                    while (c.moveToNext()) {
-                        append("<tr>")
-                        for (i in 0 until c.columnCount) {
-                            val v = c.getString(i) ?: ""
-                            if (c.getColumnName(i) == "grade") {
-                                append("<td><span class='pill pill-grade'>$v</span></td>")
-                            } else {
-                                append("<td>$v</td>")
-                            }
-                        }
-                        append("</tr>")
-                    }
-                    append("</tbody></table>")
-                } else {
-                    append("<div class='empty'>No grade history cached yet</div>")
-                }
-            }
-            append("</div>")
-
-            // 5. Per-Semester Breakdown: Timetable, Attendance, Marks, Grades
-            append("<h2>5. Per-Semester Breakdown</h2>")
-            for ((semId, semName) in semestersList) {
-                append("<div class='sem-card'>")
-                append("<h2>Semester: <span class='pill pill-sem'>$semId</span> - $semName</h2>")
-
-                // Timetable for semester
-                append("<h3>Timetable</h3>")
-                db.rawQuery("SELECT day_of_week, start_time, end_time, room_block, room_number, course_code, course_title, slots, active_slot FROM timetable_classes WHERE semester_sub_id = ? ORDER BY day_of_week ASC, start_time ASC", arrayOf(semId)).use { c ->
-                    if (c.count > 0) {
-                        append("<table><thead><tr>")
-                        for (name in c.columnNames) append("<th>$name</th>")
-                        append("</tr></thead><tbody>")
-                        while (c.moveToNext()) {
-                            append("<tr>")
-                            for (i in 0 until c.columnCount) append("<td>${c.getString(i) ?: ""}</td>")
-                            append("</tr>")
-                        }
-                        append("</tbody></table>")
-                    } else {
-                        append("<div class='empty'>No timetable classes for $semId</div>")
-                    }
-                }
-
-                // Attendance for semester
-                append("<h3>Attendance</h3>")
-                db.rawQuery("SELECT course_code, course_title, course_type, slot, attended_classes, total_classes, attendance_percentage FROM student_attendance WHERE semester_sub_id = ? ORDER BY course_code ASC", arrayOf(semId)).use { c ->
-                    if (c.count > 0) {
-                        append("<table><thead><tr><th>Course Code</th><th>Course Title</th><th>Type</th><th>Slot</th><th>Attended</th><th>Total</th><th>Attendance %</th></tr></thead><tbody>")
-                        while (c.moveToNext()) {
-                            val code = c.getString(0)
-                            val title = c.getString(1)
-                            val type = c.getString(2) ?: ""
-                            val slot = c.getString(3) ?: ""
-                            val att = c.getInt(4)
-                            val tot = c.getInt(5)
-                            val pct = c.getDouble(6)
-                            val pillClass = if (pct >= 75.0) "pill-green" else "pill-red"
-                            append("<tr><td><b>$code</b></td><td>$title</td><td>$type</td><td>$slot</td><td>$att</td><td>$tot</td><td><span class='pill $pillClass'>$pct%</span></td></tr>")
-                        }
-                        append("</tbody></table>")
-                    } else {
-                        append("<div class='empty'>No attendance records for $semId</div>")
-                    }
-                }
-
-                // Marks for semester
-                append("<h3>Marks</h3>")
-                db.rawQuery("SELECT course_code, course_title, component_name, max_marks, weightage_percent, scored_marks, scored_percentage FROM student_marks WHERE semester_sub_id = ? ORDER BY course_code ASC, component_name ASC", arrayOf(semId)).use { c ->
-                    if (c.count > 0) {
-                        append("<table><thead><tr><th>Course Code</th><th>Course Title</th><th>Component</th><th>Max Marks</th><th>Weightage %</th><th>Scored</th><th>%</th></tr></thead><tbody>")
-                        while (c.moveToNext()) {
-                            append("<tr>")
-                            append("<td><b>${c.getString(0)}</b></td>")
-                            append("<td>${c.getString(1)}</td>")
-                            append("<td>${c.getString(2)}</td>")
-                            append("<td>${c.getDouble(3)}</td>")
-                            append("<td>${c.getDouble(4)}%</td>")
-                            append("<td><b>${c.getDouble(5)}</b></td>")
-                            append("<td>${c.getDouble(6)}%</td>")
-                            append("</tr>")
-                        }
-                        append("</tbody></table>")
-                    } else {
-                        append("<div class='empty'>No marks records for $semId</div>")
-                    }
-                }
-
-                append("</div>") // sem-card
-            }
-
-            // 6. Academic Calendar
-            append("<div class='card'><h2>6. Academic Calendar (academic_calendar)</h2>")
-            db.rawQuery("SELECT date, day_of_week, title, subtitle, event_category, is_holiday, is_instructional, is_exam FROM academic_calendar ORDER BY date ASC", null).use { c ->
-                if (c.count > 0) {
-                    append("<table><thead><tr><th>Date</th><th>Day</th><th>Event Title</th><th>Details</th><th>Category</th></tr></thead><tbody>")
-                    while (c.moveToNext()) {
-                        val d = c.getString(0)
-                        val dow = c.getString(1)
-                        val title = c.getString(2)
-                        val sub = c.getString(3) ?: ""
-                        val cat = c.getString(4)
-                        val isHol = c.getInt(5) == 1
-                        val isExam = c.getInt(7) == 1
-                        val pillClass = when {
-                            isHol -> "pill-red"
-                            isExam -> "pill-grade"
-                            cat == "INSTRUCTIONAL" -> "pill-green"
-                            else -> "pill-sem"
-                        }
-                        append("<tr><td><b>$d</b></td><td>$dow</td><td>$title</td><td>$sub</td><td><span class='pill $pillClass'>$cat</span></td></tr>")
-                    }
-                    append("</tbody></table>")
-                } else {
-                    append("<div class='empty'>No academic calendar records cached yet</div>")
-                }
-            }
-            append("</div>")
-
-            append("</body></html>")
-        }
-
-        return try {
-            val targets = listOf(
-                File("/sdcard/Download/vtop_db_state.html"),
-                File(context.getExternalFilesDir(null), "vtop_db_state.html"),
-            )
-            for (target in targets) {
-                target.parentFile?.mkdirs()
-                target.writeText(html)
-            }
-            targets.firstOrNull { it.exists() }
-        } catch (_: Exception) {
-            null
-        }
-    }
 }

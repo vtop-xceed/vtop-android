@@ -42,6 +42,23 @@ object AttendanceParser {
             val slotMatch = Regex("""\b([A-Z]\d{1,2}(?:\+[A-Z]\d{1,2})*)\b""").find(rowText)
             val slot = slotMatch?.groupValues?.get(1).orEmpty()
 
+            var courseId = ""
+            var courseTypeA = ""
+            val raw = row.html()
+            val callIdx = raw.indexOf("callStudentAttendanceDetailDisplay")
+            if (callIdx >= 0) {
+                val endIdx = raw.indexOf(");", callIdx)
+                val call = raw.substring(callIdx, if (endIdx > 0) endIdx else (callIdx + 160))
+                val tokens = Regex("""&#39;|'|,""")
+                    .split(call)
+                    .map { it.trim() }
+                    .filter { it.matches(Regex("""[A-Za-z0-9_\-]+""")) }
+                if (tokens.size >= 2) {
+                    courseId = tokens[tokens.size - 2]
+                    courseTypeA = tokens[tokens.size - 1]
+                }
+            }
+
             // Find faculty
             val facultyCell = cells.firstOrNull { cell ->
                 val t = cell.text()
@@ -85,6 +102,8 @@ object AttendanceParser {
                     courseType = courseType,
                     slot = slot,
                     facultyName = facultyName,
+                    courseId = courseId,
+                    courseTypeA = courseTypeA,
                     attendedClasses = attended,
                     totalClasses = total,
                     attendancePercentage = percent,

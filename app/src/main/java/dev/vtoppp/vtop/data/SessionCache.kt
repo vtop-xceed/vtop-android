@@ -14,7 +14,7 @@ object SessionCache {
     private var root: File? = null
 
     /** Newest-wins LRU cap; VTOP traffic is bounded so this rarely engages. */
-    private const val MAX_ENTRIES = 24
+    private const val MAX_ENTRIES = 128
 
     fun init(context: Context) {
         init(File(context.filesDir, "section-cache").apply { mkdirs() })

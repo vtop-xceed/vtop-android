@@ -8,6 +8,7 @@ import dev.vtoppp.vtop.data.AttendanceParser
 import dev.vtoppp.vtop.data.CalendarDayEvent
 import dev.vtoppp.vtop.data.GradeHistoryParser
 import dev.vtoppp.vtop.data.MarksParser
+import dev.vtoppp.vtop.data.AttendanceDetailParser
 import dev.vtoppp.vtop.data.ProfileParser
 import dev.vtoppp.vtop.data.ResultPageParser
 import dev.vtoppp.vtop.data.SemesterAttended
@@ -80,6 +81,7 @@ class HomeViewModel(
                 UserDatabase.loadProfile(authorizedId)
                 UserDatabase.loadTimetable(authorizedId)
                 UserDatabase.loadAttendance(authorizedId)
+                UserDatabase.loadAttendanceSessions(authorizedId)
                 UserDatabase.loadGradeHistory(authorizedId)
                 UserDatabase.loadMarks(authorizedId)
                 UserDatabase.loadSemesterResults(authorizedId)
@@ -214,6 +216,25 @@ class HomeViewModel(
                         if (attEntries.isNotEmpty()) {
                             UserDatabase.saveAttendance(authorizedId, attEntries)
                         }
+                        for (entry in attEntries) {
+                            if (entry.courseId.isBlank()) continue
+                            client.postSubAction(
+                                "processViewAttendanceDetail",
+                                mapOf(
+                                    "semesterSubId" to semId,
+                                    "registerNumber" to authorizedId,
+                                    "courseId" to entry.courseId,
+                                    "courseType" to entry.courseTypeA.ifBlank { "LT" },
+                                ),
+                            ).onSuccess { detailHtml ->
+                                SessionCache.save("processViewAttendanceDetail_${semId}_${entry.courseId}", detailHtml)
+                                val parsed = AttendanceDetailParser.parse(detailHtml, authorizedId, semId, entry.courseCode)
+                                if (parsed.isNotEmpty()) {
+                                    UserDatabase.saveAttendanceSessions(authorizedId, semId, parsed)
+                                }
+                            }
+                            delay(120)
+                        }
                     }
                     delay(120)
 
@@ -243,9 +264,6 @@ class HomeViewModel(
                     }
                     delay(120)
                 }
-
-                // Export to phone /sdcard/Download/ for immediate verification (debug only)
-                UserDatabase.autoExport()
             } catch (t: Throwable) {
                 AppLog.d("syncAllData failed: ${t.javaClass.simpleName}")
                 _marksNotice.value = "Sync failed — showing cached copy"
