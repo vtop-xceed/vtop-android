@@ -1,0 +1,11 @@
+Bundled OFL fonts (SIL Open Font License 1.1), pulled from https://github.com/google/fonts (directory ofl/<family>/):
+
+- Archivo Black, Archivo Black Regular — ofl/archivoblack/ArchivoBlack-Regular.ttf
+- Pacifico, Pacifico Regular — ofl/pacifico/Pacifico-Regular.ttf
+- DM Serif Display, DM Serif Display Regular — ofl/dmserifdisplay/DMSerifDisplay-Regular.ttf
+- Dancing Script, Dancing Script Regular — ofl/dancingscript/DancingScript[wght].ttf
+- Rubik Mono One — ofl/rubikmonoone/RubikMonoOne-Regular.ttf
+- Young Serif — ofl/youngserif/YoungSerif-Regular.ttf
+
+License: https://openfontlicense.org — full license text at https://scripts.sil.org/cms/scripts/page.php?site_id=nrsi&id=OFL
+Fonts are redistributed under the OFL as standalone font files; Reserved Font Names of original authors remain intact.

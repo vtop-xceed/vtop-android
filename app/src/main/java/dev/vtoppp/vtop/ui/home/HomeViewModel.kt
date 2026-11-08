@@ -3,6 +3,7 @@ package dev.vtoppp.vtop.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.vtoppp.vtop.data.AcademicCalendarParser
+import dev.vtoppp.vtop.data.AppLog
 import dev.vtoppp.vtop.data.AttendanceParser
 import dev.vtoppp.vtop.data.CalendarDayEvent
 import dev.vtoppp.vtop.data.GradeHistoryParser
@@ -62,12 +63,15 @@ class HomeViewModel(
     private var openJob: Job? = null
     private var openGeneration = 0
     private var lastItem: MenuItem? = null
+    private val syncInProgress = java.util.concurrent.atomic.AtomicBoolean(false)
 
     init {
         syncAllData()
     }
 
     fun syncAllData() {
+        // Ponytail: single active sync; init and manual refresh share one lock
+        if (!syncInProgress.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.IO) {
             UserDatabase.setSyncing(true)
             try {
@@ -239,10 +243,73 @@ class HomeViewModel(
                     delay(120)
                 }
 
-                // Export to phone /sdcard/Download/ for immediate verification
+                // Export to phone /sdcard/Download/ for immediate verification (debug only)
                 UserDatabase.autoExport()
+            } catch (t: Throwable) {
+                AppLog.d("syncAllData failed: ${t.javaClass.simpleName}")
+                _marksNotice.value = "Sync failed — showing cached copy"
             } finally {
                 UserDatabase.setSyncing(false)
+                syncInProgress.set(false)
+            }
+        }
+    }
+
+    /**
+     * Marks & Grades refresh: grades page + per-semester marks, nothing else.
+     * Records honest success/failure into [marksNotice] (cached data shown otherwise).
+     */
+    fun refreshMarksAndGrades() {
+        if (!syncInProgress.compareAndSet(false, true)) return
+        UserDatabase.setSyncing(true)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                UserDatabase.loadGradeHistory(authorizedId)
+                UserDatabase.loadMarks(authorizedId)
+                client.fetchSection("examinations/examGradeView/StudentGradeHistory").onSuccess { html ->
+                    SessionCache.save("examinations/examGradeView/StudentGradeHistory", html)
+                    val p = ProfileParser.parse(html, authorizedId)
+                    if (p.name != authorizedId && p.name.isNotBlank()) {
+                        UserDatabase.saveProfile(p)
+                    }
+                    val (summary, grades) = GradeHistoryParser.parse(html, authorizedId)
+                    if (grades.isNotEmpty() || summary != null) {
+                        UserDatabase.saveGradeHistory(authorizedId, summary, grades)
+                    }
+                }
+                var attended = UserDatabase.loadSemesters(authorizedId).map { it.semesterSubId to it.semesterName }
+                if (attended.isEmpty()) {
+                    delay(80)
+                    client.fetchSection("examinations/StudentMarkView").onSuccess { html ->
+                        SessionCache.save("examinations/StudentMarkView", html)
+                        attended = MarksParser.extractSemesters(html)
+                    }
+                }
+                for ((semId, _) in attended) {
+                    client.postSubAction(
+                        "examinations/doStudentMarkView",
+                        mapOf("semesterSubId" to semId),
+                    ).onSuccess { marksHtml ->
+                        val marksEntries = MarksParser.parse(marksHtml, authorizedId, semId)
+                        if (marksEntries.isNotEmpty()) {
+                            SessionCache.save("examinations/doStudentMarkView_$semId", marksHtml)
+                            UserDatabase.saveMarks(authorizedId, marksEntries)
+                        }
+                    }
+                    delay(120)
+                }
+                val (_, gradesAfter) = UserDatabase.loadGradeHistory(authorizedId)
+                if (gradesAfter.isEmpty() && UserDatabase.loadMarks(authorizedId).isEmpty()) {
+                    _marksNotice.value = "VTOP unreachable — no data cached yet"
+                } else {
+                    _marksNotice.value = null
+                }
+            } catch (t: Throwable) {
+                AppLog.d("refreshMarksAndGrades failed: ${t.javaClass.simpleName}")
+                _marksNotice.value = "Couldn't sync — showing cached copy"
+            } finally {
+                UserDatabase.setSyncing(false)
+                syncInProgress.set(false)
             }
         }
     }
@@ -253,7 +320,7 @@ class HomeViewModel(
         lastItem = item
         _lastSectionTitle.value = item.label
 
-        // T18.5: Loading goes out first from the main thread; the disk read
+        //: Loading goes out first from the main thread; the disk read
         // (SessionCache.load) joins the IO coroutine instead of blocking here.
         _state.value = HomeUiState.Loading
 
@@ -306,8 +373,7 @@ class HomeViewModel(
                     onFailure = { e -> refreshFailure(e, item) },
                 )
             } catch (e: CancellationException) {
-                throw e
-            } catch (t: Throwable) {
+                throw e } catch (t: Throwable) {
                 refreshFailure(t, item)
             }
             // null = the on-screen cached copy stays (refresh failed).
@@ -336,7 +402,7 @@ class HomeViewModel(
     }
 
     fun backToMenu() {
-        // T14: a stale fetch must neither replace the Menu with a Failure card
+        //: a stale fetch must neither replace the Menu with a Failure card
         // nor teleport the user back into the section they left — the in-flight
         // job is cancelled and its outcome generation becomes invalid.
         openJob?.cancel()
@@ -349,8 +415,16 @@ class HomeViewModel(
     private val _staleNotice = MutableStateFlow<String?>(null)
     val staleNotice: StateFlow<String?> = _staleNotice.asStateFlow()
 
+    /** Marks & Grades refresh outcome; rendered as an inline banner on the page. */
+    private val _marksNotice = MutableStateFlow<String?>(null)
+    val marksNotice: StateFlow<String?> = _marksNotice.asStateFlow()
+
     fun consumeStaleNotice() {
         _staleNotice.value = null
+    }
+
+    fun consumeMarksNotice() {
+        _marksNotice.value = null
     }
 
     private fun failureMessage(error: VtopError) = when (error) {

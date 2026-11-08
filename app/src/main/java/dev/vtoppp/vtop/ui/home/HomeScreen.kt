@@ -50,6 +50,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import dev.vtoppp.vtop.ui.theme.AppPalette
+import dev.vtoppp.vtop.ui.theme.Motion
+import dev.vtoppp.vtop.ui.theme.StatusColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -92,8 +94,20 @@ fun HomeScreen(
     onCheckUpdate: () -> Unit = {},
     onLockApp: () -> Unit = {},
     onSignOut: () -> Unit = {},
+    onBridgeRetry: () -> Unit = {},
+    onRefresh: () -> Unit = {},
+    marksNotice: String? = null,
+    onMarksNoticeShown: () -> Unit = {},
     currentPalette: AppPalette = AppPalette.Dynamic,
     onPaletteChange: (AppPalette) -> Unit = {},
+    themeMode: dev.vtoppp.vtop.ui.theme.ThemeMode = dev.vtoppp.vtop.ui.theme.ThemeMode.DARK,
+    onThemeModeChange: (dev.vtoppp.vtop.ui.theme.ThemeMode) -> Unit = {},
+    blurEnabled: Boolean = true,
+    onBlurEnabledChange: (Boolean) -> Unit = {},
+    lockEnabled: Boolean = true,
+    onLockEnabledChange: (Boolean) -> Unit = {},
+    autoUpdateEnabled: Boolean = true,
+    onAutoUpdateEnabledChange: (Boolean) -> Unit = {},
 ) {
     val ready = state as? HomeUiState.Ready
     var showAccountDialog by remember { mutableStateOf(false) }
@@ -108,14 +122,26 @@ fun HomeScreen(
             onCheckUpdate = onCheckUpdate,
             onLockApp = onLockApp,
             onSignOut = onSignOut,
+            onBridgeRetry = onBridgeRetry,
+            onRefresh = onRefresh,
+            marksNotice = marksNotice,
+            onMarksNoticeShown = onMarksNoticeShown,
             currentPalette = currentPalette,
             onPaletteChange = onPaletteChange,
+            themeMode = themeMode,
+            onThemeModeChange = onThemeModeChange,
+            blurEnabled = blurEnabled,
+            onBlurEnabledChange = onBlurEnabledChange,
+            lockEnabled = lockEnabled,
+            onLockEnabledChange = onLockEnabledChange,
+            autoUpdateEnabled = autoUpdateEnabled,
+            onAutoUpdateEnabledChange = onAutoUpdateEnabledChange,
             sections = ready.sections,
         )
         return
     }
 
-    // T18.1: system back inside a section view returns to the menu instead of
+    //: system back inside a section view returns to the menu instead of
     // exiting the app mid-fetch.
     BackHandler(
         enabled = state is HomeUiState.SectionReady || state is HomeUiState.Loading || state is HomeUiState.Failure,
@@ -134,10 +160,7 @@ fun HomeScreen(
                         modifier = Modifier.padding(vertical = 4.dp),
                     ) {
                         Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
+                            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(
                                     androidx.compose.ui.graphics.Brush.linearGradient(
                                         listOf(
                                             MaterialTheme.colorScheme.primary,
@@ -160,7 +183,7 @@ fun HomeScreen(
                                 Text(
                                     text = "VTOP",
                                     style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold,
+                                    fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     letterSpacing = 0.5.sp,
                                 )
@@ -248,9 +271,7 @@ fun HomeScreen(
                         onClick = { showTestingDashboard = true },
                         shape = RoundedCornerShape(20.dp),
                         color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier
-                            .height(36.dp)
-                            .padding(end = 4.dp),
+                        modifier = Modifier.height(36.dp).padding(end = 4.dp),
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -273,9 +294,7 @@ fun HomeScreen(
                         1.dp,
                         MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                     ),
-                    modifier = Modifier
-                        .height(36.dp)
-                        .padding(end = if (ready != null) 4.dp else 12.dp),
+                    modifier = Modifier.height(36.dp).padding(end = if (ready != null) 4.dp else 12.dp),
                     tonalElevation = 2.dp,
                 ) {
                     Row(
@@ -306,9 +325,7 @@ fun HomeScreen(
                             2.dp,
                             MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
                         ),
-                        modifier = Modifier
-                            .padding(end = 12.dp, start = 4.dp)
-                            .size(38.dp),
+                        modifier = Modifier.padding(end = 12.dp, start = 4.dp).size(38.dp),
                         shadowElevation = 2.dp,
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -326,148 +343,26 @@ fun HomeScreen(
 
         // Google Account profile popup dialog
         if (showAccountDialog && ready != null) {
-            Dialog(onDismissRequest = { showAccountDialog = false }) {
-                Card(
-                    shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        androidx.compose.material3.Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(64.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    ready.authorizedId.firstOrNull()?.uppercase() ?: "V",
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(14.dp))
-                        Text(
-                            ready.authorizedId,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            "Student Account · Signed in",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(18.dp))
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_palette),
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        text = "Theme Accent",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                                Spacer(Modifier.height(10.dp))
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    AppPalette.entries.forEach { p ->
-                                        val isSelected = currentPalette == p
-                                        Surface(
-                                            onClick = { onPaletteChange(p) },
-                                            shape = CircleShape,
-                                            color = p.seedColor,
-                                            modifier = Modifier.size(if (isSelected) 36.dp else 30.dp),
-                                            border = if (isSelected) androidx.compose.foundation.BorderStroke(
-                                                2.dp,
-                                                MaterialTheme.colorScheme.onSurface,
-                                            ) else null,
-                                            shadowElevation = if (isSelected) 3.dp else 0.dp,
-                                        ) {
-                                            if (isSelected) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.ic_check),
-                                                        contentDescription = "Selected",
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(16.dp),
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(20.dp))
-                        OutlinedButton(
-                            onClick = {
-                                showAccountDialog = false
-                                onLockApp()
-                            },
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = RoundedCornerShape(24.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_lock),
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Lock App (Test Lock Screen)")
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Button(
-                            onClick = {
-                                showAccountDialog = false
-                                onSignOut()
-                            },
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = RoundedCornerShape(24.dp),
-                        ) {
-                            Text("Sign Out (Test Login Screen)")
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(
-                            onClick = { showAccountDialog = false },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Close")
-                        }
-                    }
-                }
-            }
+            AccountDialog(
+                initial = ready.authorizedId.firstOrNull()?.uppercase() ?: "V",
+                title = ready.authorizedId,
+                subtitle = "Student Account · Signed in",
+                currentPalette = currentPalette,
+                onPaletteChange = onPaletteChange,
+                onLockApp = {
+                    showAccountDialog = false
+                    onLockApp()
+                },
+                onSignOut = {
+                    showAccountDialog = false
+                    onSignOut()
+                },
+                onDismiss = { showAccountDialog = false },
+            )
         }
 
         if (staleNotice != null) {
-            // T18.2: the notice is READ here, not consumed the same frame it
+            //: the notice is READ here, not consumed the same frame it
             // appears — it stays ~5s so the reason (offline, re-authing) is
             // actually perceivable, then auto-dismisses.
             LaunchedEffect(staleNotice) {
@@ -484,18 +379,15 @@ fun HomeScreen(
             }
         AnimatedVisibility(
             visible = bannerText != null,
-            enter = fadeIn(tween(200)) + expandVertically(tween(200)),
-            exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+            enter = Motion.BannerEnter,
+            exit = Motion.BannerExit,
         ) {
             Text(
                 text = bannerText.orEmpty(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                 textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.secondaryContainer)
-                    .padding(vertical = 6.dp, horizontal = 16.dp),
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(vertical = 6.dp, horizontal = 16.dp),
             )
         }
 
@@ -538,46 +430,19 @@ private fun SessionPill(pill: PillState) {
             MaterialTheme.colorScheme.onErrorContainer
     }
     val dotColor = when (pill.kind) {
-        PillKind.Ready -> Color(0xFF2E7D32)
-        PillKind.Busy -> Color(0xFFB26A00)
+        PillKind.Ready -> StatusColors.Success
+        PillKind.Busy -> StatusColors.Warning
         PillKind.Error -> MaterialTheme.colorScheme.error
     }
     Row(
-        modifier = Modifier
-            .padding(end = 8.dp)
-            .clip(RoundedCornerShape(50))
-            .background(container)
-            .padding(horizontal = 10.dp, vertical = 5.dp)
+        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(50)).background(container).padding(horizontal = 10.dp, vertical = 5.dp)
             // Smooth the width jumps as labels change mid-flight.
-            .animateContentSize(tween(180)),
+            .animateContentSize(tween(Motion.Content)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
     // Pulsing dot: animation runs below the recomposition layer via
     // graphicsLayer; the branch only recomposes when the state kind changes.
-    Box(
-        modifier = if (pill.pulse) {
-            val transition = rememberInfiniteTransition(label = "pillDot")
-            val alpha by transition.animateFloat(
-                initialValue = PULSE_ALPHA_MIN,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(PULSE_MS, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "pillDotAlpha",
-            )
-            Modifier
-                .size(8.dp)
-                .graphicsLayer { this.alpha = alpha }
-                .clip(CircleShape)
-                .background(dotColor)
-        } else {
-            Modifier
-                .size(8.dp)
-                 .clip(CircleShape)
-                 .background(dotColor)
-        },
-    )
+    PulseDot(pulse = pill.pulse, color = dotColor, size = 8.dp)
     Spacer(Modifier.width(6.dp))
     Text(
         pill.label,
@@ -589,40 +454,15 @@ private fun SessionPill(pill: PillState) {
     }
 }
 
-private const val PULSE_MS = 700
-private const val PULSE_ALPHA_MIN = 0.3f
 
 @Composable
 private fun HeaderStatusDot(pill: PillState) {
     val dotColor = when (pill.kind) {
-        PillKind.Ready -> Color(0xFF2E7D32)
-        PillKind.Busy -> Color(0xFFE65100)
+        PillKind.Ready -> StatusColors.Success
+        PillKind.Busy -> StatusColors.Warning
         PillKind.Error -> MaterialTheme.colorScheme.error
     }
-    Box(
-        modifier = if (pill.pulse) {
-            val transition = rememberInfiniteTransition(label = "headerDot")
-            val alpha by transition.animateFloat(
-                initialValue = PULSE_ALPHA_MIN,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(PULSE_MS, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "headerDotAlpha",
-            )
-            Modifier
-                .size(7.dp)
-                .graphicsLayer { this.alpha = alpha }
-                .clip(CircleShape)
-                .background(dotColor)
-        } else {
-            Modifier
-                .size(7.dp)
-                .clip(CircleShape)
-                .background(dotColor)
-        },
-    )
+    PulseDot(pulse = pill.pulse, color = dotColor, size = 7.dp)
 }
 
 @Composable
@@ -631,9 +471,7 @@ private fun FailureContent(
     onRetry: () -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -645,9 +483,7 @@ private fun FailureContent(
             ),
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
+                modifier = Modifier.fillMaxWidth().padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -728,9 +564,7 @@ private fun MenuList(
         // Horizontal Pager: swipe left and right between category pages
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier
-                .fillMaxSize()
-                .weight(1f),
+            modifier = Modifier.fillMaxSize().weight(1f),
         ) { pageIndex ->
             val (sectionName, items) = sections[pageIndex]
 
@@ -744,9 +578,7 @@ private fun MenuList(
             ) {
                 item(key = "header-$sectionName") {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
