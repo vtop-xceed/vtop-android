@@ -44,7 +44,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
@@ -54,9 +53,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlurEffect
-import androidx.compose.ui.graphics.TileMode
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -205,15 +204,16 @@ private fun MarksSemesterSection(
         picks.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
     }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
-    val density = androidx.compose.ui.platform.LocalDensity.current.density
-    val blurEnabled = dev.vtoppp.vtop.ui.theme.LocalBlurEnabled.current
+    val edgeFadeWidth = 20.dp
+    val edgeFadeBg = MaterialTheme.colorScheme.surface
 
-    LazyRow(
-        state = listState,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        LazyRow(
+            state = listState,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
         itemsIndexed(picks, key = { _, it -> it.id }) { index, sem ->
             val isSelected = sem.id == selected.id
             val selectedCardColor by animateColorAsState(
@@ -221,32 +221,10 @@ private fun MarksSemesterSection(
                 animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
                 label = "semCard",
             )
-            val edgeFade by remember(listState, index) {
-                derivedStateOf {
-                    val viewport = listState.layoutInfo.viewportSize.width.toFloat()
-                    val itemPx = 132f * density
-                    val stepPx = itemPx + 10f * density
-                    val contentPadPx = 20f * density
-                    val scrolledPx = listState.firstVisibleItemIndex * stepPx + listState.firstVisibleItemScrollOffset
-                    val pos = contentPadPx + index * stepPx - scrolledPx
-                    val band = 96f * density
-                    val visibleStart = pos.coerceAtLeast(0f)
-                    val visibleEnd = (pos + itemPx).coerceAtMost(viewport)
-                    val hidden = (itemPx - (visibleEnd - visibleStart)).coerceAtLeast(0f)
-                    (1f - hidden / band).coerceIn(0f, 1f)
-                }
-            }
             Surface(
                 onClick = { selectedId = sem.id },
                 shape = RoundedCornerShape(16.dp),
                 color = selectedCardColor,
-                modifier = Modifier.graphicsLayer {
-                    alpha = 0.4f + 0.6f * edgeFade
-                    if (android.os.Build.VERSION.SDK_INT >= 31 && blurEnabled && edgeFade < 0.999f) {
-                        val r = (1f - edgeFade) * 8f * density
-                        renderEffect = BlurEffect(r, r, TileMode.Clamp)
-                    }
-                },
             ) {
                 Column(
                     modifier = Modifier
@@ -284,6 +262,32 @@ private fun MarksSemesterSection(
                 }
             }
         }
+        }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .drawBehind {
+                    val edgePx = edgeFadeWidth.toPx()
+                    drawRect(
+                        brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            colors = listOf(edgeFadeBg, edgeFadeBg.copy(alpha = 0f)),
+                            startX = 0f,
+                            endX = edgePx,
+                        ),
+                        topLeft = Offset.Zero,
+                        size = Size(edgePx, size.height),
+                    )
+                    drawRect(
+                        brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            colors = listOf(edgeFadeBg.copy(alpha = 0f), edgeFadeBg),
+                            startX = size.width - edgePx,
+                            endX = size.width,
+                        ),
+                        topLeft = Offset(size.width - edgePx, 0f),
+                        size = Size(edgePx, size.height),
+                    )
+                },
+        )
     }
 
     Spacer(Modifier.height(8.dp))
