@@ -39,11 +39,16 @@ android {
         applicationId = "dev.vtoppp.vtop"
         minSdk = 26
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.3.1"
+        versionCode = 20
+        versionName = "0.3.2"
     }
 
     buildTypes {
+        debug {
+            // Side-by-side with the release app: CI owns the release signature,
+            // so the local debug build installs under .debug instead of colliding.
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = false
             // ponytail: nothing to strip with isMinifyEnabled=false; add shrinking rules when it turns on
