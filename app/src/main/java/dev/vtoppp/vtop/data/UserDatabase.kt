@@ -13,160 +13,6 @@ import java.io.FileOutputStream
 import java.time.LocalDate
 import java.time.LocalTime
 
-data class UserProfile(
-    val regNo: String,
-    val name: String,
-    val programme: String = "",
-    val branch: String = "",
-    val school: String = "",
-    val email: String = "",
-    val mobile: String = "",
-    val photoUrl: String = "",
-    val updatedAtMs: Long = System.currentTimeMillis(),
-) {
-    /** Convenient formatted degree/branch label for the dashboard header (e.g. "B.Tech CSE"). */
-    val formattedBranch: String
-        get() {
-            if (branch.isBlank() && programme.isBlank()) return "Student"
-            // ponytail: simple branch abbreviation mapping for common VIT programmes
-            val prog = when {
-                programme.contains("Bachelor of Technology", ignoreCase = true) ||
-                    programme.contains("B.Tech", ignoreCase = true) -> "B.Tech"
-                programme.contains("Master of Technology", ignoreCase = true) ||
-                    programme.contains("M.Tech", ignoreCase = true) -> "M.Tech"
-                programme.contains("Bachelor of Science", ignoreCase = true) ||
-                    programme.contains("B.Sc", ignoreCase = true) -> "B.Sc"
-                programme.contains("Master of Computer Applications", ignoreCase = true) ||
-                    programme.contains("MCA", ignoreCase = true) -> "MCA"
-                else -> programme.split(" ").firstOrNull().orEmpty()
-            }
-            val br = when {
-                branch.contains("Computer Science", ignoreCase = true) -> "CSE"
-                branch.contains("Electronics and Communication", ignoreCase = true) -> "ECE"
-                branch.contains("Mechanical", ignoreCase = true) -> "MECH"
-                branch.contains("Electrical", ignoreCase = true) -> "EEE"
-                branch.contains("Information Technology", ignoreCase = true) -> "IT"
-                branch.isNotBlank() -> branch
-                else -> ""
-            }
-            return listOf(prog, br).filter { it.isNotBlank() }
-                .joinToString(" ")
-                .ifBlank { branch.ifBlank { programme } }
-        }
-
-    /** First name or display name for greeting. */
-    val firstName: String
-        get() {
-            val trimmed = name.trim()
-            if (trimmed.isBlank()) return regNo
-            // If it's a registration number / ID (contains digits, e.g. 24BCY10147), keep uppercase ID
-            if (trimmed.any { it.isDigit() }) return trimmed.uppercase()
-            val firstWord = trimmed.split(" ").firstOrNull { it.isNotBlank() } ?: trimmed
-            return firstWord.lowercase().replaceFirstChar { it.uppercase() }
-        }
-}
-
-data class SemesterAttended(
-    val regNo: String,
-    val semesterSubId: String,
-    val semesterName: String,
-    val updatedAtMs: Long = System.currentTimeMillis(),
-)
-
-data class AttendanceEntry(
-    val id: Long = 0,
-    val regNo: String,
-    val semesterSubId: String,
-    val courseCode: String,
-    val courseTitle: String,
-    val courseType: String = "",
-    val slot: String = "",
-    val facultyName: String = "",
-    val attendedClasses: Int = 0,
-    val totalClasses: Int = 0,
-    val attendancePercentage: Double = 0.0,
-    val updatedAtMs: Long = System.currentTimeMillis(),
-)
-
-data class TimetableEntry(
-    val regNo: String,
-    val semesterSubId: String = "",
-    val dayOfWeek: Int, // 1 = Monday, 2 = Tuesday, ..., 7 = Sunday
-    val startTime: String,
-    val endTime: String,
-    val roomBlock: String,
-    val roomNumber: String,
-    val courseCode: String,
-    val courseTitle: String,
-    val slots: List<String> = emptyList(),
-    val activeSlot: String = "",
-    val updatedAtMs: Long = System.currentTimeMillis(),
-)
-
-data class ClassScheduleItem(
-    val startTime: String,
-    val endTime: String,
-    val roomBlock: String,
-    val roomNumber: String,
-    val courseCode: String,
-    val title: String,
-    val slots: List<String> = emptyList(),
-    val activeSlot: String = "",
-    val isOngoing: Boolean = false,
-    val isClosest: Boolean = false,
-)
-
-data class DaySchedule(
-    val dayName: String,
-    val dateLabel: String,
-    val classes: List<ClassScheduleItem>,
-)
-
-data class GradeHistoryEntry(
-    val regNo: String,
-    val semesterSubId: String = "",
-    val courseCode: String,
-    val courseTitle: String,
-    val courseType: String = "",
-    val credits: Double = 0.0,
-    val grade: String = "",
-    val examMonth: String = "",
-    val courseDistribution: String = "",
-    val updatedAtMs: Long = System.currentTimeMillis(),
-)
-
-data class AcademicSummary(
-    val regNo: String,
-    val cgpa: Double = 0.0,
-    val creditsEarned: Double = 0.0,
-    val creditsRegistered: Double = 0.0,
-    val sCount: Int = 0,
-    val aCount: Int = 0,
-    val bCount: Int = 0,
-    val cCount: Int = 0,
-    val dCount: Int = 0,
-    val eCount: Int = 0,
-    val fCount: Int = 0,
-    val updatedAtMs: Long = System.currentTimeMillis(),
-)
-
-data class MarkEntry(
-    val id: Long = 0,
-    val regNo: String,
-    val semesterSubId: String,
-    val courseCode: String,
-    val courseTitle: String,
-    val courseType: String = "",
-    val facultyName: String = "",
-    val slot: String = "",
-    val componentName: String,
-    val maxMarks: Double = 0.0,
-    val weightagePercent: Double = 0.0,
-    val scoredMarks: Double = 0.0,
-    val scoredPercentage: Double = 0.0,
-    val updatedAtMs: Long = System.currentTimeMillis(),
-)
-
 class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -293,6 +139,17 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
                 """.trimIndent(),
             )
         }
+        if (oldVersion < 6) {
+            // v6: per-semester economics for the Cumulative table
+            runCatching {
+                db.execSQL("ALTER TABLE grade_history ADD COLUMN semester_sub_id TEXT NOT NULL DEFAULT ''")
+            }
+        }
+        if (oldVersion < 7) {
+            runCatching {
+                db.execSQL("ALTER TABLE academic_summary ADD COLUMN curriculum_credits REAL NOT NULL DEFAULT 0.0")
+            }
+        }
         if (oldVersion < 5) {
             db.execSQL(
                 """
@@ -362,6 +219,7 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
                 cgpa REAL NOT NULL DEFAULT 0.0,
                 credits_earned REAL NOT NULL DEFAULT 0.0,
                 credits_registered REAL NOT NULL DEFAULT 0.0,
+                curriculum_credits REAL NOT NULL DEFAULT 0.0,
                 s_count INTEGER NOT NULL DEFAULT 0,
                 a_count INTEGER NOT NULL DEFAULT 0,
                 b_count INTEGER NOT NULL DEFAULT 0,
@@ -397,7 +255,7 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
 
     companion object {
         const val DB_NAME = "vtop_user_data.db"
-        const val DB_VERSION = 5
+        const val DB_VERSION = 7
     }
 }
 
@@ -440,7 +298,9 @@ object UserDatabase {
         }
     }
 
+    // Ponytail: debug-only dumps to shared storage; never writes in release builds
     fun autoExport() {
+        if (!dev.vtoppp.vtop.BuildConfig.DEBUG) return
         val ctx = appContext ?: return
         exportDatabase(ctx)
         exportHtmlState(ctx)
@@ -787,6 +647,7 @@ object UserDatabase {
                     put("cgpa", summary.cgpa)
                     put("credits_earned", summary.creditsEarned)
                     put("credits_registered", summary.creditsRegistered)
+                put("curriculum_credits", summary.curriculumCredits)
                     put("s_count", summary.sCount)
                     put("a_count", summary.aCount)
                     put("b_count", summary.bCount)
@@ -836,6 +697,7 @@ object UserDatabase {
                     cgpa = c.getDouble(c.getColumnIndexOrThrow("cgpa")),
                     creditsEarned = c.getDouble(c.getColumnIndexOrThrow("credits_earned")),
                     creditsRegistered = c.getDouble(c.getColumnIndexOrThrow("credits_registered")),
+                    curriculumCredits = c.getDouble(c.getColumnIndexOrThrow("curriculum_credits")),
                     sCount = c.getInt(c.getColumnIndexOrThrow("s_count")),
                     aCount = c.getInt(c.getColumnIndexOrThrow("a_count")),
                     bCount = c.getInt(c.getColumnIndexOrThrow("b_count")),
@@ -897,7 +759,8 @@ object UserDatabase {
                 db.insert("student_marks", null, cv)
             }
             db.setTransactionSuccessful()
-            _marksFlow.value = marks
+            // ponytail: merging is fiddly across semesters; reload everything after each save so cached siblings stay visible
+            _marksFlow.value = loadMarks(regNo)
         } finally {
             db.endTransaction()
         }
@@ -1001,9 +864,12 @@ object UserDatabase {
      * Copies the active SQLite database to /sdcard/Download/ for easy ADB access.
      */
     fun exportDatabase(context: Context): File? {
+        if (!dev.vtoppp.vtop.BuildConfig.DEBUG) return null
         val dbFile = context.getDatabasePath(UserDatabaseHelper.DB_NAME)
         if (!dbFile.exists()) return null
         return try {
+            // ponytail: best-effort debug dump; flush WAL first so the copy reflects committed state
+            helper?.writableDatabase?.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null)?.use { it.moveToNext() }
             val targets = listOf(
                 File("/sdcard/Download/${UserDatabaseHelper.DB_NAME}"),
                 File(context.getExternalFilesDir(null), UserDatabaseHelper.DB_NAME),
@@ -1041,6 +907,7 @@ object UserDatabase {
      * including per-semester breakdowns for timetable, attendance, marks, and grades.
      */
     fun exportHtmlState(context: Context): File? {
+        if (!dev.vtoppp.vtop.BuildConfig.DEBUG) return null
         val db = helper?.readableDatabase ?: return null
         val html = buildString {
             append("<!DOCTYPE html><html><head><meta charset='UTF-8'><title>VTOP Database State</title>")

@@ -20,7 +20,7 @@ object SessionCache {
         init(File(context.filesDir, "section-cache").apply { mkdirs() })
     }
 
-    /** T19 seam: direct root injection for pure-JVM tests. */
+    /** seam: direct root injection for pure-JVM tests. */
     fun init(root: File) {
         this.root = root.also { it.mkdirs() }
     }
@@ -47,9 +47,7 @@ object SessionCache {
     /** Drops the oldest save-times beyond [MAX_ENTRIES] (mtime doubles as saved-at). */
     private fun prune() {
         val files = root?.listFiles { f -> f.isFile && f.name.endsWith(".html") } ?: return
-        files.sortedByDescending { it.lastModified() }
-            .drop(MAX_ENTRIES)
-            .forEach { it.delete() }
+        files.sortedByDescending { it.lastModified() }.drop(MAX_ENTRIES).forEach { it.delete() }
     }
 
     /** Cached HTML and its saved-at epoch ms, or null when nothing cached. */

@@ -14,14 +14,7 @@ data class PillState(
  * Maps the client's warm-up narration to the top-bar status pill. VtopClient
  * drives `_warm` through every phase (prelogin, captcha solve, signing,
  * re-auth after expiry), so this single mapping covers all flows.
- */
-fun pillOf(warm: WarmState): PillState = pillOf(warm, hasSession = true)
-
-/**
- * T18.3 invariant: "session ready" must mean an actual live session —
- * WarmState.Idle after a clearWarm can also mean a dead one, so the pill must
- * consult [hasSession] before claiming readiness. The default keeps the
- * old single-argument call sites legible in tests.
+ * "Session ready" is only claimed when the client confirms a live session.
  */
 fun pillOf(warm: WarmState, hasSession: Boolean): PillState = when (warm) {
     is WarmState.Failed -> PillState(PillKind.Error, warm.message)

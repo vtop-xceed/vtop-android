@@ -17,7 +17,7 @@ class LoginVmFactory(
     private val autoCaptcha: AutoCaptchaClient,
     private val sessionStore: SessionStore? = null,
 ) : ViewModelProvider.Factory {
-    // T16.4: SavedStateHandle must come from the CreationExtras the owning
+    //: SavedStateHandle must come from the CreationExtras the owning
     // ViewModelStore supplies; falling back to a fresh handle keeps direct
     // constructions (tests) compile-safe without persistence.
     @Suppress("UNCHECKED_CAST")

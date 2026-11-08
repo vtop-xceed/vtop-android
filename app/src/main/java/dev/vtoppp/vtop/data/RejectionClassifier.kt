@@ -1,13 +1,13 @@
 package dev.vtoppp.vtop.data
 
 /**
- * T20.2: the swal-object form must surface EVERY field, not just `title:` —
+ *: the swal-object form must surface EVERY field, not just `title:` —
  * a non-overlapping first match previously swallowed `text:`/`html:` keys and
- * missed real `swal({title:"Care!", text:"Invalid ..."})` rejections.
+ * missed real `swal({title:"Care!", text:"Invalid..."})` rejections.
  */
 object RejectionClassifier {
 
-    /** Body head of `swal({ ... })`; capped to keep regexes bounded. */
+    /** Body head of `swal({... })`; capped to keep regexes bounded. */
     private val SWAL_OBJECT = Regex("""swal\s*\(\s*\{[^}]{0,500}""")
 
     /** Any message-bearing field inside a captured swal object body. */
@@ -34,9 +34,7 @@ object RejectionClassifier {
     fun messages(page: String): List<String> {
         val out = ArrayList<String>()
         SWAL_OBJECT.findAll(page).forEach { objectMatch ->
-            SWAL_FIELD.findAll(objectMatch.value)
-                .map { it.groupValues[1] }
-                .forEach { collect(out, it) }
+            SWAL_FIELD.findAll(objectMatch.value).map { it.groupValues[1] }.forEach { collect(out, it) }
         }
         SWAL_SIMPLE.findAll(page).forEach { collect(out, it.groupValues[1]) }
         SPAN_DANGER.findAll(page).forEach { collect(out, it.groupValues[1]) }
@@ -59,7 +57,6 @@ object RejectionClassifier {
         out += try {
             java.net.URLDecoder.decode(t.replace('+', ' '), "UTF-8")
         } catch (_: Exception) {
-            t
-        }
+            t }
     }
 }

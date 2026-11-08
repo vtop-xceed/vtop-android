@@ -1,9 +1,6 @@
 package dev.vtoppp.vtop.data
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -30,7 +27,7 @@ sealed interface WarmState {
 }
 
 /**
- * T19 seam: anything that turns captcha JPEG bytes into candidate text —
+ * seam: anything that turns captcha JPEG bytes into candidate text —
  * prod is [AutoCaptchaClient] (captop HTTP solver); tests inject fakes so the
  * login ladder is exercised with zero network.
  */
@@ -39,14 +36,10 @@ fun interface CaptchaSolver {
 }
 
 class AutoCaptchaClient(
-    /** T19 seam: solver endpoint; MockWebServer URL in tests. */
+    /** seam: solver endpoint; MockWebServer URL in tests. */
     private val solveUrl: String = CAPTOP_SOLVE,
-    /** T19 seam: transport; defaults to the production captop client. */
-    http: OkHttpClient = OkHttpClient.Builder()
-        .dns(sharedDnsWithDohFallback)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(40, TimeUnit.SECONDS)
-        .build(),
+    /** seam: transport; defaults to the production captop client. */
+    http: OkHttpClient = OkHttpClient.Builder().dns(sharedDnsWithDohFallback).connectTimeout(15, TimeUnit.SECONDS).readTimeout(40, TimeUnit.SECONDS).build(),
 ) : CaptchaSolver, AutoCloseable {
     private val http = http
 

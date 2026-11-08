@@ -15,15 +15,11 @@ private const val BASE = "https://vtop.vitbhopal.ac.in"
 
 /** Never more than one login POST per 10s (VTOP locks hammering accounts). */
 private const val LOGIN_PACE_MS = 10_000L
-private const val MAX_LOGIN_ATTEMPTS = 3
-
-/** VTOP captcha answers go stale within a couple of minutes. */
+private const val MAX_LOGIN_ATTEMPTS = 3 /** VTOP captcha answers go stale within a couple of minutes. */
 private const val CAPTCHA_MAX_AGE_MS = 60_000L
 
-/** T13.2: wall-time bound on the whole captcha chase = [CAPTCHA_MAX_AGE_MS]; attempts cap. */
-private const val CAPTCHA_ROLL_ATTEMPTS = 3
-
-/** [clearSession] keeps these across resets (WAF cookie must survive). */
+/**: wall-time bound on the whole captcha chase = [CAPTCHA_MAX_AGE_MS]; attempts cap. */
+private const val CAPTCHA_ROLL_ATTEMPTS = 3 /** [clearSession] keeps these across resets (WAF cookie must survive). */
 private val PROTECTED_COOKIES = setOf("cookiesession1")
 
 /** VTOP answers an "Unidentified OS or Browser" error page to other UAs. */
@@ -54,9 +50,9 @@ private const val BROWSER_UA =
  * exists anywhere anymore, so OEM resource managers cannot interpose.
  */
 class VtopClient(
-    /** T19 seam: captcha solver; prod = captop [AutoCaptchaClient]. */
+    /** seam: captcha solver; prod = captop [AutoCaptchaClient]. */
     private val autoCaptcha: CaptchaSolver,
-    /** Monotonic clock seam (ms); prod = System.nanoTime (see plan T12.3). */
+    /** Monotonic clock seam (ms); prod = System.nanoTime (see plan. */
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 },
     private val credentialsProvider: () -> Pair<String, String>? = { null },
     /**
@@ -64,12 +60,15 @@ class VtopClient(
      * [prewarm] and written at session establishment; null = feature off.
      */
     private val sessionStore: SessionStore? = null,
-    /** T19 seam: transport injection; null = the Gamma-proven OkHttp stack. */
+    /** seam: transport injection; null = the Gamma-proven OkHttp stack. */
     private val transportOverride: HttpTransport? = null,
 ) : AutoCloseable {
 
     private val _warm = MutableStateFlow<WarmState>(WarmState.Idle)
     val warm: StateFlow<WarmState> = _warm.asStateFlow()
+
+    /** True when a persisted snapshot seeded a full session this boot and it has not been network-validated yet. */
+    private var seedValidationPending = false
 
     var authorizedId: String? = null
         private set
@@ -91,9 +90,7 @@ class VtopClient(
     private var lastLoginPostAt = 0L
 
     private val sessionLock = Mutex()
-    private var sessionGeneration = 0
-
-    /**
+    private var sessionGeneration = 0 /**
      * Cookie store stapled into the transport jar (name → value,
      * replace-on-set). The portal's WAF cookie (`cookiesession1` — issued
      * rarely and never re-issued once the portal has seen a session from this
@@ -116,6 +113,21 @@ class VtopClient(
     private fun clearSession() {
         for (name in cookies.keys) {
             if (name !in PROTECTED_COOKIES) cookies.remove(name)
+        }
+    }
+
+    /**
+     * Drops every session marker so the next login() runs the full captcha
+     * chain instead of the short-circuit. Protected WAF cookies are
+     * kept — they prove the client, not the user — so the server still
+     * considers this client known while validating it fresh.
+     */
+    suspend fun invalidateSession() {
+        sessionLock.withLock {
+            clearSession()
+            csrf = null
+            authorizedId = null
+            warmCsrf = null
         }
     }
 
@@ -277,6 +289,11 @@ class VtopClient(
         cookies.putAll(snap.cookies)
         if (snap.csrf != null && snap.csrf.isNotBlank()) csrf = snap.csrf
         authorizedId = snap.authorizedId
+        // A fully-seeded snapshot (csrf + id present) is locally
+        // indistinguishable from a live session, so it must earn one
+        // network proof before being trusted (an offline launch otherwise
+        // shows "bridged" forever).
+        if (csrf != null && authorizedId != null) seedValidationPending = true
         AppLog.d("prewarm: seeded persisted session snapshot")
     }
 
@@ -286,12 +303,32 @@ class VtopClient(
      */
     suspend fun prewarm() {
         sessionLock.withLock {
-            // Never clobber a live session; hasSession can flip while we wait on the lock.
-            if (hasSession) {
-                _warm.value = WarmState.CaptchaReady
-                return
+            if (!hasSession) {
+                seedFromPersistedSession()
             }
-            seedFromPersistedSession()
+            if (hasSession && seedValidationPending) {
+                // Prove the restored session once instead of trusting it
+                // blindly; failure drops the seeded markers so the normal
+                // (honestly failing) login chain runs.
+                _warm.value = WarmState.Working("Checking session…")
+                val live = withContext(Dispatchers.IO) {
+                    validateSeededSession()
+                }
+                seedValidationPending = false
+                if (live) {
+                    _warm.value = WarmState.CaptchaReady
+                    AppLog.d("prewarm: seeded session validated live")
+                    return@withLock
+                }
+                AppLog.d("prewarm: seeded session dead; running full login chain")
+                clearSession()
+                authorizedId = null
+                csrf = null
+            } else if (hasSession) {
+                // Seed validation already happened this boot; the seed is known-live.
+                _warm.value = WarmState.CaptchaReady
+                return@withLock
+            }
             withContext(Dispatchers.IO) {
                 try {
                     prepareCaptcha()
@@ -301,6 +338,16 @@ class VtopClient(
                 }
             }
         }
+    }
+
+    /** One dashboard round-trip to prove a restored session is alive server-side. */
+    private suspend fun validateSeededSession(): Boolean = runCatching {
+        val body = get("content", referer = BASE).second
+        if (looksLikeLoginPage(body)) return@runCatching false
+        deriveFromDashboard(body) != null
+    }.getOrElse {
+        AppLog.d("prewarm: seeded session validation failed (${it::class.simpleName})")
+        false
     }
 
     private suspend fun prepareCaptcha() {
@@ -317,9 +364,9 @@ class VtopClient(
         }
         // Landing here means the session is NOT live server-side: the splash
         // is the login form (any seeded snapshot bounced straight back), or
-        // the dashboard did not carry an authorizedID. PROV-T15: the seeded
+        // the dashboard did not carry an authorizedID. PROV-: the seeded
         // markers must be dropped, or hasSession stays true from the snapshot
-        // alone and authenticate()'s T15.3 short-circuit skips the POST
+        // alone and authenticate()'s short-circuit skips the POST
         // forever while every section 404s (OnePlus 13R, 2026-10-28:
         // "seeded persisted session snapshot" → "live session already
         // established; POST skipped" → sections 404).
@@ -362,7 +409,7 @@ class VtopClient(
      * page HTML with the captcha embedded as a data:image/jpeg;base64 URI;
      * some installs return the raw JPEG. Both handled.
      *
-     * T13.2: the whole chase is wall-time bounded ([CAPTCHA_MAX_AGE_MS]) and
+     *: the whole chase is wall-time bounded ([CAPTCHA_MAX_AGE_MS]) and
      * capped at [CAPTCHA_ROLL_ATTEMPTS] attempts, so a tarpit cannot lock the
      * sessionLock for minutes.
      */
@@ -407,26 +454,24 @@ class VtopClient(
                     val res = authenticate(username.uppercase(), password)
                     sessionCredentials = username to password
                     sessionGeneration++
-                    // The T15.3 restored-session short-circuit returns without
+                    // The restored-session short-circuit returns without
                     // touching _warm; without this reset the pill sits pulsing
                     // "Signing in…" forever on that success path (observed on
                     // 2026-10-27). Idle + live session = Ready pill.
                     clearWarm()
                     res
                 } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    // T13.4: a dead manual login must not leave warm wedged in
+                    throw e } catch (e: Exception) {
+                    //: a dead manual login must not leave warm wedged in
                     // Working, or the prewarm waiter would wait forever.
                     clearWarm()
-                    throw e
-                }
+                    throw e }
             }
         }
 
     /** Paced captcha chain; returns LoginResult or throws VtopError. */
     private suspend fun authenticate(username: String, password: String): LoginResult {
-        // T15.3: an already-established live session (restored from the
+        //: an already-established live session (restored from the
         // encrypted snapshot and validated by prepareCaptcha's content GET)
         // IS the requested login outcome — re-running the POST with a missing
         // warmCsrf can only throw "no csrf" and discard a perfectly good
@@ -464,7 +509,7 @@ class VtopClient(
             // Server bounced to its failure redirect; the error page itself
             // carries the real rejection text ("Invalid LoginId/Password",
             // "Invalid Captcha"), so classify that instead of guessing from
-            // the empty body. T13.1: fetched ONCE, shared by both classifiers.
+            // the empty body.: fetched ONCE, shared by both classifiers.
             val rejectPage = get("login/error", referer = "$BASE/vtop/login").second
             AppLog.dump("rejection-$attempt", rejectPage)
             val reason = RejectionClassifier.messages(rejectPage).firstOrNull()
@@ -581,10 +626,8 @@ class VtopClient(
     /** authorizedID + csrfValue + label from dashboard HTML; establishes hasSession. */
     private fun deriveFromDashboard(html: String): LoginResult? {
         if (!html.contains("page-wrapper")) return null
-        val authId = Regex("""name="authorizedID"[\s\S]{0,120}?value="([^"]+)"""")
-            .find(html)?.groupValues?.get(1)
-            ?: Regex("""id="authorizedIDX"[\s\S]{0,120}?value="([^"]+)"""")
-                .find(html)?.groupValues?.get(1)
+        val authId = Regex("""name="authorizedID"[\s\S]{0,120}?value="([^"]+)"""").find(html)?.groupValues?.get(1)
+            ?: Regex("""id="authorizedIDX"[\s\S]{0,120}?value="([^"]+)"""").find(html)?.groupValues?.get(1)
             ?: return null
         authorizedId = authId
         csrf = Regex("""var csrfValue = "([^"]+)"""").find(html)?.groupValues?.get(1)
@@ -695,8 +738,7 @@ class VtopClient(
                 authenticate(creds.first.uppercase(), creds.second)
                 sessionGeneration++
             } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
+                throw e } catch (e: Exception) {
                 AppLog.d("session: re-auth failed: ${e.javaClass.simpleName} ${e.message}")
                 _warm.value = WarmState.Failed(warmFailureText(e))
                 throw reauthFailure(e)
@@ -715,7 +757,7 @@ private fun fail(msg: String): Nothing {
     throw IllegalStateException(msg)
 }
 
-/** T11: a VtopError passes through unchanged; only ambiguous failures map to SessionExpired. */
+/**: a VtopError passes through unchanged; only ambiguous failures map to SessionExpired. */
 internal fun reauthFailure(e: Exception): VtopError = e as? VtopError ?: VtopError.SessionExpired
 
 /** Monotonic pacing window: ms to wait before the next login POST (0 = go now). */

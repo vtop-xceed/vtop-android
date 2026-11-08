@@ -27,38 +27,71 @@ class GradeAndMarksParserTest {
                 <table class="table">
                     <tr>
                         <td>1</td>
-                        <td>CSE2005</td>
-                        <td>Operating Systems</td>
-                        <td>Embedded Theory and Lab</td>
-                        <td>A11+B11</td>
+                        <td>BL2026270100446</td>
+                        <td>CSE3015</td>
+                        <td>AWS Cloud Practitioner</td>
+                        <td>Lecture and Tutorial ,practical hours only</td>
+                        <td>CAL</td>
                     </tr>
                     <tr>
-                        <td>Continuous Assessment Test - 1</td>
-                        <td>50.0</td>
-                        <td>15.0</td>
-                        <td>42.5</td>
-                        <td>85.0%</td>
+                        <td>Sl.No.</td>
+                        <td>Mark Title</td>
+                        <td>Max. Mark</td>
+                        <td>Weightage %</td>
+                        <td>Status</td>
+                        <td>Scored Mark</td>
+                        <td>Weightage Mark</td>
+                        <td>Class Average</td>
+                        <td>Mark Posted Strength</td>
+                        <td>Remark</td>
                     </tr>
                     <tr>
-                        <td>Digital Assignment 1</td>
-                        <td>10.0</td>
-                        <td>10.0</td>
-                        <td>10.0</td>
-                        <td>100.0%</td>
+                        <td>1</td>
+                        <td>Continuous Assessment Test – I</td>
+                        <td>50</td>
+                        <td>15</td>
+                        <td>Present</td>
+                        <td>35.0</td>
+                        <td>10.5</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
                     </tr>
                     <tr>
                         <td>2</td>
-                        <td>STS200</td>
-                        <td>Soft Skills</td>
-                        <td>Soft Skill</td>
-                        <td>C11</td>
+                        <td>Continuous Assessment Test – II</td>
+                        <td>50</td>
+                        <td>15</td>
+                        <td>Present</td>
+                        <td>40.0</td>
+                        <td>12</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
                     </tr>
                     <tr>
-                        <td>CAT-1</td>
-                        <td>50.0</td>
-                        <td>20.0</td>
-                        <td>45.0</td>
-                        <td>90.0%</td>
+                        <td>3</td>
+                        <td>Lab Assessment - Viva</td>
+                        <td>5</td>
+                        <td>5</td>
+                        <td>Present</td>
+                        <td>5.0</td>
+                        <td>5</td>
+                        <td></td>
+                        <td></td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td>4</td>
+                        <td>Attendance</td>
+                        <td>5</td>
+                        <td>5</td>
+                        <td>Present</td>
+                        <td>5.0</td>
+                        <td>5</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
                     </tr>
                 </table>
             </div>
@@ -68,17 +101,19 @@ class GradeAndMarksParserTest {
         assertEquals(3, marks.size)
 
         val cat1 = marks[0]
-        assertEquals("CSE2005", cat1.courseCode)
-        assertEquals("Operating Systems", cat1.courseTitle)
-        assertEquals("Continuous Assessment Test - 1", cat1.componentName)
+        assertEquals("CSE3015", cat1.courseCode)
+        assertEquals("AWS Cloud Practitioner", cat1.courseTitle)
+        assertEquals("Continuous Assessment Test – I", cat1.componentName)
         assertEquals(50.0, cat1.maxMarks, 0.01)
         assertEquals(15.0, cat1.weightagePercent, 0.01)
-        assertEquals(42.5, cat1.scoredMarks, 0.01)
+        assertEquals(35.0, cat1.scoredMarks, 0.01)
+        assertEquals(70.0, cat1.scoredPercentage, 0.01)
 
-        val stsCat = marks[2]
-        assertEquals("STS200", stsCat.courseCode)
-        assertEquals("CAT-1", stsCat.componentName)
-        assertEquals(45.0, stsCat.scoredMarks, 0.01)
+        val viva = marks[2]
+        assertEquals("Lab Assessment - Viva", viva.componentName)
+        assertEquals(5.0, viva.maxMarks, 0.01)
+        assertEquals(5.0, viva.scoredMarks, 0.01)
+        assertEquals(100.0, viva.scoredPercentage, 0.01)
     }
 
     @Test
@@ -90,6 +125,13 @@ class GradeAndMarksParserTest {
                         <td>Cumulative Grade Point Average (CGPA) : 8.85</td>
                         <td>Credits Registered : 42.0</td>
                         <td>Credits Earned : 42.0</td>
+                    </tr>
+                </table>
+                <table>
+                    <tr class="fixedContent tableContent">
+                        <td>Total Credits</td>
+                        <td>169.0</td>
+                        <td>98.0</td>
                     </tr>
                 </table>
                 <table class="table">
@@ -145,6 +187,7 @@ class GradeAndMarksParserTest {
         assertNotNull(summary)
         assertEquals(8.85, summary!!.cgpa, 0.01)
         assertEquals(42.0, summary.creditsEarned, 0.01)
+        assertEquals(169.0, summary.curriculumCredits, 0.01)
         assertEquals(1, summary.sCount)
         assertEquals(1, summary.aCount)
         assertEquals(1, summary.bCount)

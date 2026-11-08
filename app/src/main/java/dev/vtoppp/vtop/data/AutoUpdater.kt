@@ -195,10 +195,6 @@ class AutoUpdater(context: Context) {
         state = AutoUpdateState.Idle
     }
 
-    /** True only when the stored build to install is older than the local one. */
-    fun isNewerInstall(release: ReleaseInfo): Boolean =
-        isNewer(release.version, currentVersion())
-
     private fun fetchLatest(): ReleaseInfo? {
         val request = okhttp3.Request.Builder()
             .url(RELEASES_URL)
