@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS pings (
+  day TEXT NOT NULL,
+  h TEXT NOT NULL,
+  version TEXT NOT NULL,
+  PRIMARY KEY (day, h)
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS agg_daily (
+  day TEXT NOT NULL,
+  version TEXT NOT NULL,
+  devices INTEGER NOT NULL,
+  PRIMARY KEY (day, version)
+) WITHOUT ROWID;

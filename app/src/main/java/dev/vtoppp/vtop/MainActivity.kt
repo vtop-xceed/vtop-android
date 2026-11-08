@@ -48,6 +48,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.vtoppp.vtop.data.AppLog
 import dev.vtoppp.vtop.data.AutoCaptchaClient
 import dev.vtoppp.vtop.data.AutoUpdater
+import dev.vtoppp.vtop.data.UsagePing
 import dev.vtoppp.vtop.data.CredentialVault
 import dev.vtoppp.vtop.data.SessionCache
 import dev.vtoppp.vtop.data.SessionStore
@@ -198,6 +199,7 @@ private fun Root(
     val updater = remember { AutoUpdater(activity.applicationContext) }
     var autoUpdateEnabled by remember { mutableStateOf(updater.autoCheckEnabled) }
     LaunchedEffect(Unit) { updater.autoCheck() }
+    LaunchedEffect(Unit) { UsagePing.ping(activity.applicationContext) }
 
     // Once user signs in with user ID and password, securely save credentials and grant access
     LaunchedEffect(Unit) {

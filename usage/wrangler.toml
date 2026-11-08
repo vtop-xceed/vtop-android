@@ -1,0 +1,11 @@
+name = "vtop-usage"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[triggers]
+crons = ["17 3 * * *"] # 03:17 UTC daily: re-roll agg_daily, purge raw rows > 31d
+
+[[d1_databases]]
+binding = "DB"
+database_name = "vtop-usage"
+database_id = "9fe70ab8-47c6-47be-88f1-16ca35056c5a"
