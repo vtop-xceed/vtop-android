@@ -150,6 +150,19 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
                 db.execSQL("ALTER TABLE academic_summary ADD COLUMN curriculum_credits REAL NOT NULL DEFAULT 0.0")
             }
         }
+        if (oldVersion < 8) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS semester_results (
+                    reg_no TEXT NOT NULL,
+                    semester_sub_id TEXT NOT NULL,
+                    gpa REAL,
+                    updated_at_ms INTEGER NOT NULL,
+                    PRIMARY KEY (reg_no, semester_sub_id)
+                );
+                """.trimIndent(),
+            )
+        }
         if (oldVersion < 5) {
             db.execSQL(
                 """
@@ -175,6 +188,17 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
     }
 
     private fun createAcademicTables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS semester_results (
+                reg_no TEXT NOT NULL,
+                semester_sub_id TEXT NOT NULL,
+                gpa REAL,
+                updated_at_ms INTEGER NOT NULL,
+                PRIMARY KEY (reg_no, semester_sub_id)
+            );
+            """.trimIndent(),
+        )
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS academic_calendar (
@@ -255,7 +279,7 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
 
     companion object {
         const val DB_NAME = "vtop_user_data.db"
-        const val DB_VERSION = 7
+        const val DB_VERSION = 8
     }
 }
 
@@ -275,6 +299,9 @@ object UserDatabase {
 
     private val _marksFlow = MutableStateFlow<List<MarkEntry>>(emptyList())
     val marksFlow: StateFlow<List<MarkEntry>> = _marksFlow.asStateFlow()
+
+    private val _semesterResultsFlow = MutableStateFlow<List<SemesterResult>>(emptyList())
+    val semesterResultsFlow: StateFlow<List<SemesterResult>> = _semesterResultsFlow.asStateFlow()
 
     private val _attendanceFlow = MutableStateFlow<List<AttendanceEntry>>(emptyList())
     val attendanceFlow: StateFlow<List<AttendanceEntry>> = _attendanceFlow.asStateFlow()
@@ -796,6 +823,44 @@ object UserDatabase {
             }
         }
         _marksFlow.value = list
+        return list
+    }
+
+    fun saveSemesterResultGpa(regNo: String, semesterSubId: String, gpa: Double) {
+        val db = helper?.writableDatabase ?: return
+        db.beginTransaction()
+        try {
+            val cv = ContentValues().apply {
+                put("reg_no", regNo)
+                put("semester_sub_id", semesterSubId)
+                put("gpa", gpa)
+                put("updated_at_ms", System.currentTimeMillis())
+            }
+            db.insertWithOnConflict("semester_results", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            db.setTransactionSuccessful()
+            _semesterResultsFlow.value = loadSemesterResults(regNo)
+        } finally {
+            db.endTransaction()
+        }
+        autoExport()
+    }
+
+    fun loadSemesterResults(regNo: String): List<SemesterResult> {
+        val db = helper?.readableDatabase ?: return emptyList()
+        val list = mutableListOf<SemesterResult>()
+        db.query("semester_results", null, "reg_no = ?", arrayOf(regNo), null, null, "semester_sub_id ASC").use { c ->
+            while (c.moveToNext()) {
+                list.add(
+                    SemesterResult(
+                        regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
+                        semesterSubId = c.getString(c.getColumnIndexOrThrow("semester_sub_id")),
+                        gpa = c.getDouble(c.getColumnIndexOrThrow("gpa")),
+                        updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
+                    )
+                )
+            }
+        }
+        _semesterResultsFlow.value = list
         return list
     }
 

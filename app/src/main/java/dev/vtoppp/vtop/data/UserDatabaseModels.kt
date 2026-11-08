@@ -138,6 +138,13 @@ data class AcademicSummary(
     val updatedAtMs: Long = System.currentTimeMillis(),
 )
 
+data class SemesterResult(
+    val regNo: String,
+    val semesterSubId: String,
+    val gpa: Double,
+    val updatedAtMs: Long = System.currentTimeMillis(),
+)
+
 data class MarkEntry(
     val id: Long = 0,
     val regNo: String,

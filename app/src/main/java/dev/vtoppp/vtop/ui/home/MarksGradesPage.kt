@@ -204,6 +204,10 @@ private fun MarksSemesterSection(
     val selected = picks.firstOrNull { it.id == selectedId } ?: picks.firstOrNull() ?: return
     val rows = marksBySemester[selected.id].orEmpty()
     val empty = rows.isEmpty()
+    val results by UserDatabase.semesterResultsFlow.collectAsState()
+    val gpas = remember(picks, results) {
+        results.associate { it.semesterSubId to it.gpa }
+    }
     val byCourse = remember(rows) {
         rows.groupBy { it.courseCode }.toList()
             .sortedWith(compareBy({ it.second.firstOrNull()?.courseTitle.orEmpty().lowercase() }, { it.first }))
@@ -259,11 +263,25 @@ private fun MarksSemesterSection(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = if (sem.courses == 0) "Awaiting marks" else "${sem.courses} courses",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = if (sem.courses == 0) "Awaiting marks" else "${sem.courses} courses",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        val gpa = gpas[sem.id]
+                        Text(
+                            text = if (gpa != null) String.format(java.util.Locale.US, "%.2f", gpa) else "--",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

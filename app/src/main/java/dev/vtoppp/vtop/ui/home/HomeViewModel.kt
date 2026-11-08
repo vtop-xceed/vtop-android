@@ -9,6 +9,7 @@ import dev.vtoppp.vtop.data.CalendarDayEvent
 import dev.vtoppp.vtop.data.GradeHistoryParser
 import dev.vtoppp.vtop.data.MarksParser
 import dev.vtoppp.vtop.data.ProfileParser
+import dev.vtoppp.vtop.data.ResultPageParser
 import dev.vtoppp.vtop.data.SemesterAttended
 import dev.vtoppp.vtop.data.SessionCache
 import dev.vtoppp.vtop.data.TimetableParser
@@ -81,7 +82,7 @@ class HomeViewModel(
                 UserDatabase.loadAttendance(authorizedId)
                 UserDatabase.loadGradeHistory(authorizedId)
                 UserDatabase.loadMarks(authorizedId)
-
+                UserDatabase.loadSemesterResults(authorizedId)
                 UserDatabase.loadCalendarEvents()
 
                 // 1. Fetch Profile & Cumulative Grade History from StudentGradeHistory
@@ -266,6 +267,7 @@ class HomeViewModel(
             try {
                 UserDatabase.loadGradeHistory(authorizedId)
                 UserDatabase.loadMarks(authorizedId)
+                UserDatabase.loadSemesterResults(authorizedId)
                 client.fetchSection("examinations/examGradeView/StudentGradeHistory").onSuccess { html ->
                     SessionCache.save("examinations/examGradeView/StudentGradeHistory", html)
                     val p = ProfileParser.parse(html, authorizedId)
@@ -284,6 +286,18 @@ class HomeViewModel(
                         SessionCache.save("examinations/StudentMarkView", html)
                         attended = MarksParser.extractSemesters(html)
                     }
+                }
+                for ((semId, _) in attended) {
+                    client.postSubAction(
+                        "examinations/examGradeView/doStudentGradeView",
+                        mapOf("semesterSubId" to semId),
+                    ).onSuccess { resultHtml ->
+                        SessionCache.save("examinations/doStudentGradeView_$semId", resultHtml)
+                        ResultPageParser.parseGpa(resultHtml)?.let { gpa ->
+                            UserDatabase.saveSemesterResultGpa(authorizedId, semId, gpa)
+                        }
+                    }
+                    delay(120)
                 }
                 for ((semId, _) in attended) {
                     client.postSubAction(
