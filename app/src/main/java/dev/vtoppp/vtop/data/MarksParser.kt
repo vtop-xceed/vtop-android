@@ -80,7 +80,6 @@ object MarksParser {
             // Component row: [Sl.No.?, Mark Title, Max. Mark, Weightage %, Status, Scored Mark, Weightage Mark, ...]
             val componentName = cells.getOrNull(1)?.trim().orEmpty()
             if (componentName.isEmpty()) continue
-            if (componentName.equals("Attendance", ignoreCase = true)) continue // attendance is its own record
             val nums = cells.drop(2).mapNotNull { it.replace("%", "").toDoubleOrNull() }
             if (nums.isEmpty()) continue
 

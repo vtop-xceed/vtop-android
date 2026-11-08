@@ -98,7 +98,7 @@ class GradeAndMarksParserTest {
         """.trimIndent()
 
         val marks = MarksParser.parse(sampleMarksHtml, "24BCY10147", "BL20242501")
-        assertEquals(3, marks.size)
+        assertEquals(4, marks.size)
 
         val cat1 = marks[0]
         assertEquals("CSE3015", cat1.courseCode)
@@ -114,6 +114,12 @@ class GradeAndMarksParserTest {
         assertEquals(5.0, viva.maxMarks, 0.01)
         assertEquals(5.0, viva.scoredMarks, 0.01)
         assertEquals(100.0, viva.scoredPercentage, 0.01)
+
+        val attendance = marks[3]
+        assertEquals("Attendance", attendance.componentName)
+        assertEquals(5.0, attendance.maxMarks, 0.01)
+        assertEquals(5.0, attendance.weightagePercent, 0.01)
+        assertEquals(5.0, attendance.scoredMarks, 0.01)
     }
 
     @Test
