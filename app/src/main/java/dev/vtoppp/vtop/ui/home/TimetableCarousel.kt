@@ -1,21 +1,8 @@
 package dev.vtoppp.vtop.ui.home
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -47,6 +34,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -57,7 +45,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -123,6 +110,7 @@ import kotlin.math.absoluteValue
  * - Active card overshadows both left and right cards in background (zIndex + elevation + scale).
  * - Shows at least 3 sub-cards in view vertically inside the active day card, scrolling cleanly if more.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun DayCarouselSchedule(
     days: List<DaySchedule>,
@@ -130,9 +118,13 @@ internal fun DayCarouselSchedule(
 ) {
     HorizontalPager(
         state = pagerState,
-        contentPadding = PaddingValues(horizontal = 40.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp),
         beyondViewportPageCount = 1,
         pageSpacing = (-6).dp,
+        flingBehavior = PagerDefaults.flingBehavior(
+            pagerState,
+            snapAnimationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .height(352.dp),
@@ -145,10 +137,12 @@ internal fun DayCarouselSchedule(
 
         val scale by animateFloatAsState(
             targetValue = (1f - (pageOffset * 0.08f)).coerceIn(0.92f, 1f),
+            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
             label = "cardScale",
         )
         val alpha by animateFloatAsState(
             targetValue = (1f - (pageOffset * 0.60f)).coerceIn(0.40f, 1f), // Dull background cards
+            animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
             label = "cardAlpha",
         )
         val blurRadius = (8.dp * pageOffset).coerceIn(0.dp, 8.dp) // Blurry background cards
@@ -248,159 +242,160 @@ internal fun FreedomDoodleCard(modifier: Modifier = Modifier) {
  */
 
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ClassSubCard(
     item: ClassScheduleItem,
     modifier: Modifier = Modifier,
 ) {
-    val cardBorder = when {
-        item.isOngoing -> androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.error)
-        item.isClosest -> androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-        else -> androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-    }
+    val effects = MaterialTheme.motionScheme.defaultEffectsSpec<androidx.compose.ui.graphics.Color>()
+    val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.Dp>()
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            item.isOngoing -> MaterialTheme.colorScheme.error
+            item.isClosest -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        },
+        animationSpec = effects,
+        label = "cardBorder",
+    )
+    val borderWidth by animateDpAsState(
+        targetValue = if (item.isOngoing || item.isClosest) 2.dp else 1.dp,
+        animationSpec = spatial,
+        label = "cardBorderWidth",
+    )
+    val cardBorder = BorderStroke(borderWidth, borderColor)
+    val accent by animateColorAsState(
+        targetValue = if (item.isOngoing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+        animationSpec = effects,
+        label = "accent",
+    )
+    val accentContainer by animateColorAsState(
+        targetValue = if (item.isOngoing) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+        animationSpec = effects,
+        label = "accentContainer",
+    )
+    val onAccentContainer by animateColorAsState(
+        targetValue = if (item.isOngoing) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+        animationSpec = effects,
+        label = "onAccentContainer",
+    )
+    val shadowElevation by animateDpAsState(
+        targetValue = if (item.isOngoing) 3.dp else 1.dp,
+        animationSpec = spatial,
+        label = "cardShadow",
+    )
 
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = cardBorder,
         modifier = modifier,
-        shadowElevation = if (item.isOngoing) 3.dp else 1.dp,
+        shadowElevation = shadowElevation,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Left & Center Column: Time, Code + Slots, Title
+            // Left: start/end times, stacked
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(end = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.width(56.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                // Line 1: [time start] - time end (no slot word)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = accentContainer,
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = when {
-                            item.isOngoing -> MaterialTheme.colorScheme.error
-                            item.isClosest -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.primaryContainer
-                        },
-                    ) {
-                        Text(
-                            text = item.startTime,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = when {
-                                item.isOngoing -> MaterialTheme.colorScheme.onError
-                                item.isClosest -> MaterialTheme.colorScheme.onPrimary
-                                else -> MaterialTheme.colorScheme.onPrimaryContainer
-                            },
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                        )
-                    }
                     Text(
-                        text = "-",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = item.startTime,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = item.endTime,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = onAccentContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                     )
                 }
+                Box(
+                    modifier = Modifier
+                        .width(16.dp)
+                        .height(2.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), CircleShape),
+                )
+                Text(
+                    text = item.endTime,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
-                // Line 2: sts200  ( a11 + b11 ) where active slot is highlighted
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text(
-                        text = item.courseCode,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = when {
-                            item.isOngoing -> MaterialTheme.colorScheme.error
-                            item.isClosest -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        letterSpacing = 0.5.sp,
-                    )
+            // Vertical divider between times and info
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(48.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            )
 
-                    if (item.slots.isNotEmpty()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        ) {
-                            Text(
-                                text = "(",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.outline,
-                            )
-                            item.slots.forEachIndexed { index, slotItem ->
-                                val isSelected = slotItem.equals(item.activeSlot, ignoreCase = true)
-                                if (isSelected) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = when {
-                                            item.isOngoing -> MaterialTheme.colorScheme.errorContainer
-                                            item.isClosest -> MaterialTheme.colorScheme.primaryContainer
-                                            else -> MaterialTheme.colorScheme.surfaceContainerHighest
-                                        },
-                                    ) {
-                                        Text(
-                                            text = slotItem,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Black,
-                                            color = when {
-                                                item.isOngoing -> MaterialTheme.colorScheme.onErrorContainer
-                                                item.isClosest -> MaterialTheme.colorScheme.onPrimaryContainer
-                                                else -> MaterialTheme.colorScheme.primary
-                                            },
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                                        )
-                                    }
-                                } else {
+            // Middle: course code + slots, then title
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = item.courseCode,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = accent,
+                    letterSpacing = 0.5.sp,
+                )
+
+                if (item.slots.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        item.slots.forEachIndexed { index, slotItem ->
+                            val isSelected = slotItem.equals(item.activeSlot, ignoreCase = true)
+                            if (isSelected) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = accentContainer,
+                                ) {
                                     Text(
                                         text = slotItem,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        fontWeight = FontWeight.Black,
+                                        color = onAccentContainer,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 0.dp),
                                     )
                                 }
-                                if (index < item.slots.size - 1) {
-                                    Text(
-                                        text = "+",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                                    )
-                                }
+                            } else {
+                                Text(
+                                    text = slotItem,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                )
                             }
-                            Text(
-                                text = ")",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.outline,
-                            )
+                            if (index < item.slots.size - 1) {
+                                Text(
+                                    text = "+",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                )
+                            }
                         }
                     }
                 }
 
-                // Line 3: Title
                 Text(
                     text = item.title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -408,54 +403,27 @@ internal fun ClassSubCard(
                 )
             }
 
-            // Right-hand full side covering the location: Block on top, room number next line
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = when {
-                    item.isOngoing -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
-                    item.isClosest -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                    else -> MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    when {
-                        item.isOngoing -> MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
-                        item.isClosest -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                    },
-                ),
-                modifier = Modifier
-                    .width(72.dp)
-                    .height(76.dp),
+            // Right: class location, block on top of room number
+            Column(
+                modifier = Modifier.width(72.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 4.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        text = item.roomBlock,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = when {
-                            item.isOngoing -> MaterialTheme.colorScheme.error
-                            item.isClosest -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        letterSpacing = 0.5.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = item.roomNumber,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
+                Text(
+                    text = item.roomBlock,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = accent,
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = item.roomNumber,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
         }
     }

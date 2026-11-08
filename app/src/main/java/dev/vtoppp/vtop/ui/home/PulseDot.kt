@@ -1,6 +1,6 @@
 package dev.vtoppp.vtop.ui.home
 
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -35,7 +35,7 @@ internal fun PulseDot(
         initialValue = Motion.PulseMinAlpha,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(Motion.PulseMs, easing = LinearEasing),
+            animation = tween(Motion.PulseMs, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse,
         ),
         label = "pulseDotAlpha",

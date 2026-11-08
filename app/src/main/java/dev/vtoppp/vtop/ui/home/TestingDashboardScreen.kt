@@ -1,17 +1,20 @@
 package dev.vtoppp.vtop.ui.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -21,6 +24,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material3.toPath
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -57,7 +62,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -71,6 +75,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
@@ -97,8 +102,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.zIndex
-import androidx.compose.material3.MaterialShapes
-import androidx.compose.material3.toShape
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.TextUnit
@@ -132,7 +135,6 @@ data class SubjectAttendance(
 fun TestingDashboardScreen(
     authorizedId: String,
     onOpenService: (MenuItem) -> Unit,
-    onSwitchToClassic: () -> Unit = {},
     pill: PillState = PillState(PillKind.Ready, "Connected"),
     onCheckUpdate: () -> Unit = {},
     onLockApp: () -> Unit = {},
@@ -151,7 +153,6 @@ fun TestingDashboardScreen(
     onLockEnabledChange: (Boolean) -> Unit = {},
     autoUpdateEnabled: Boolean = true,
     onAutoUpdateEnabledChange: (Boolean) -> Unit = {},
-    onSignOutClick: () -> Unit = {},
     sections: List<Pair<String, List<MenuItem>>> = emptyList(),
     userProfile: UserProfile? = null,
 ) {
@@ -168,9 +169,9 @@ fun TestingDashboardScreen(
     val liveCalendarEvents by UserDatabase.calendarEventsFlow.collectAsState()
 
     val storedTimetable by UserDatabase.timetableFlow.collectAsState()
-    val scheduleDays = remember(storedTimetable) {
-        val dynamic = UserDatabase.buildScheduleDays(storedTimetable)
-        dynamic
+    val liveSessions by UserDatabase.attendanceSessionsFlow.collectAsState()
+    val scheduleDays = remember(storedTimetable, liveSessions) {
+        UserDatabase.buildScheduleDays(storedTimetable, liveSessions)
     }
 
     val horizontalPagerState = rememberPagerState(
@@ -231,23 +232,33 @@ fun TestingDashboardScreen(
         BackHandler(enabled = selectedNavTab != 0 || showGradesPage) {
             if (showGradesPage) showGradesPage = false else selectedNavTab = 0
         }
-        if (selectedNavTab == 1) {
-            AcademicCalendarPage(events = liveCalendarEvents)
-        } else if (showGradesPage) {
-            GradeListPage(
+        AnimatedContent(
+            targetState = when {
+                selectedNavTab == 1 -> "calendar"
+                showGradesPage -> "grades"
+                selectedNavTab == 2 -> "marks"
+                selectedNavTab == 3 -> "settings"
+                else -> "timeline"
+            },
+            transitionSpec = {
+                fadeIn(tween(Motion.Content)) togetherWith fadeOut(tween(Motion.Quick))
+            },
+            label = "navContent",
+        ) { contentKey ->
+        when (contentKey) {
+            "calendar" -> AcademicCalendarPage(events = liveCalendarEvents, onRefresh = onRefresh)
+            "grades" -> GradeListPage(
                 onBack = { showGradesPage = false },
                 onRefresh = onRefresh,
             )
-        } else if (selectedNavTab == 2) {
-            MarksGradesPage(
+            "marks" -> MarksGradesPage(
                 authorizedId = authorizedId,
                 onOpenGrades = { showGradesPage = true },
                 onRefresh = onRefresh,
                 marksNotice = marksNotice,
                 onMarksNoticeShown = onMarksNoticeShown,
             )
-        } else if (selectedNavTab == 3) {
-            SettingsPage(
+            "settings" -> SettingsPage(
                 authorizedId = authorizedId,
                 userProfile = userProfile,
                 currentPalette = currentPalette,
@@ -263,24 +274,18 @@ fun TestingDashboardScreen(
                 onCheckUpdate = onCheckUpdate,
                 onLockApp = onLockApp,
                 onSignOut = onSignOut,
+                onRefresh = onRefresh,
             )
-        } else {
-        Column(modifier = Modifier.fillMaxSize()) {
+            else -> Column(modifier = Modifier.fillMaxSize()) {
             // Squiggly loading line only appears when processing networks or in transitions
-            AnimatedVisibility(
-                visible = isProcessing,
-                enter = Motion.BannerEnter,
-                exit = Motion.BannerExit,
-            ) {
-                LinearWavyProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                )
-            }
+            SyncingBar(visible = isProcessing)
 
+            androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                state = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState(),
+                isRefreshing = isSyncing,
+                onRefresh = onRefresh,
+                indicator = {},
+            ) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -473,53 +478,61 @@ fun TestingDashboardScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(Modifier.width(10.dp))
+                        val isToday = currentDay.dayName == "Today"
+                        val badgeColor by animateColorAsState(
+                            targetValue = if (isToday) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            animationSpec = tween(Motion.Color),
+                            label = "dayBadge",
+                        )
+                        val badgeContent by animateColorAsState(
+                            targetValue = if (isToday) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                            animationSpec = tween(Motion.Color),
+                            label = "dayBadgeContent",
+                        )
+                        val badgeContentDim by animateColorAsState(
+                            targetValue = if (isToday) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            animationSpec = tween(Motion.Color),
+                            label = "dayBadgeDim",
+                        )
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = if (currentDay.dayName == "Today") {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            },
+                            color = badgeColor,
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                             ) {
                                 Text(
                                     text = currentDay.dayName,
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (currentDay.dayName == "Today") {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface
-                                    },
+                                    color = badgeContent,
                                 )
                                 Text(
                                     text = " · ${currentDay.dateLabel}",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = if (currentDay.dayName == "Today") {
-                                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
+                                    color = badgeContentDim,
                                 )
-                            }
-                        }
-                        if (currentDay.classes.isNotEmpty()) {
-                            Spacer(Modifier.weight(1f))
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.tertiaryContainer,
-                            ) {
-                                Text(
-                                    text = "${currentDay.classes.size}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                )
+                                AnimatedVisibility(
+                                    visible = currentDay.classes.isNotEmpty(),
+                                    enter = fadeIn(tween(Motion.Quick)) + scaleIn(tween(Motion.Content)),
+                                    exit = fadeOut(tween(Motion.Fast)) + scaleOut(tween(Motion.Fast)),
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        modifier = Modifier.padding(start = 12.dp),
+                                    ) {
+                                        Text(
+                                            text = "${currentDay.classes.size}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -551,6 +564,8 @@ fun TestingDashboardScreen(
 
 
             }
+            }
+        }
         }
         }
 
@@ -636,6 +651,14 @@ private fun FloatingDashboardNavBar(
                     targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                     label = "tab_tint_$index",
                 )
+                val iconScale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.15f else 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    label = "tab_icon_$index",
+                )
 
                 Surface(
                     onClick = { onTabSelected(index) },
@@ -654,7 +677,10 @@ private fun FloatingDashboardNavBar(
                             painter = painterResource(iconRes),
                             contentDescription = label,
                             tint = animTint,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(24.dp).graphicsLayer {
+                                scaleX = iconScale
+                                scaleY = iconScale
+                            },
                         )
                     }
                 }
@@ -663,4 +689,262 @@ private fun FloatingDashboardNavBar(
     }
 }
 
+
+// ponytail: fast lightweight ping to GitHub releases API; checks connectivity and updates
+internal suspend fun pingGitHubRelease(): Boolean = withContext(Dispatchers.IO) {
+    runCatching {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        val request = Request.Builder()
+            .url("https://api.github.com/repos/vtop-xceed/vtop-android/releases/latest")
+            .header("User-Agent", "vtop-android")
+            .header("Accept", "application/vnd.github+json")
+            .build()
+        client.newCall(request).execute().use { response ->
+            response.isSuccessful || response.code == 404
+        }
+    }.getOrDefault(true)
+}
+
+/**
+ * Small fluid pill showing bridge status: every ongoing stage stays expanded with its
+ * label; on success or full failure the result label stays visible for 3 seconds,
+ * then collapses to a green or red dot. Tapping the dot re-expands the label for 4s.
+ */
+@Composable
+internal fun FluidStatusPill(
+    isReady: Boolean,
+    label: String,
+    readyLabel: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isBusy: Boolean = false,
+    isError: Boolean = false,
+    readyIcon: Int = R.drawable.ic_check,
+) {
+    var userToggled by remember { mutableStateOf(false) }
+    // Terminal states (ready or failure) keep the result label visible for 3s,
+    // then collapse to a colored dot. Ongoing stages always stay expanded.
+    var terminalVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isReady, isError) {
+        if (isReady || isError) {
+            terminalVisible = true
+            delay(3000L)
+            terminalVisible = false
+        } else {
+            terminalVisible = false
+        }
+    }
+
+    LaunchedEffect(userToggled) {
+        if (userToggled) {
+            delay(4000L)
+            userToggled = false
+        }
+    }
+
+    val showExpanded = (!isReady && !isError) || terminalVisible || userToggled
+
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isError -> MaterialTheme.colorScheme.errorContainer
+            isReady && !userToggled -> StatusColors.Success
+            isReady && userToggled -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = tween(Motion.Color, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)),
+        label = "pillBg",
+    )
+
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            isError -> MaterialTheme.colorScheme.onErrorContainer
+            isReady && !userToggled -> Color.White
+            isReady && userToggled -> MaterialTheme.colorScheme.onPrimaryContainer
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = tween(Motion.Color, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)),
+        label = "pillContent",
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            )
+            .clip(CircleShape)
+            .background(backgroundColor)
+            .clickable(
+                onClickLabel = if (isReady) readyLabel else label,
+            ) {
+                if (isReady || isError) {
+                    userToggled = !userToggled
+                }
+                onClick()
+            },
+    ) {
+        AnimatedContent(
+            targetState = showExpanded,
+            transitionSpec = {
+                fadeIn(tween(Motion.Quick)) + scaleIn(tween(Motion.Quick)) togetherWith
+                    fadeOut(tween(Motion.Fast)) + scaleOut(tween(Motion.Fast))
+            },
+            label = "pillContent",
+        ) { expanded ->
+        if (expanded) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .height(20.dp)
+                    .padding(horizontal = 7.dp, vertical = 2.dp),
+            ) {
+                if (isReady) {
+                    Icon(
+                        painter = painterResource(readyIcon),
+                        contentDescription = readyLabel,
+                        tint = contentColor,
+                        modifier = Modifier.size(10.dp),
+                    )
+                } else if (isBusy || !isReady) {
+                    val transition = rememberInfiniteTransition(label = "pillPulse")
+                    val alpha by transition.animateFloat(
+                        initialValue = Motion.PulseMinAlpha,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(Motion.PulseMs, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "pillPulseAlpha",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .graphicsLayer { this.alpha = alpha }
+                            .clip(CircleShape)
+                            .background(if (isError) MaterialTheme.colorScheme.error else StatusColors.Warning),
+                    )
+                }
+
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = if (isReady) readyLabel else label,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = contentColor,
+                    maxLines = 1,
+                )
+            }
+        } else {
+            // Settled dot: green for ready, red for failure (background is the dot).
+            Box(modifier = Modifier.size(8.dp))
+        }
+        }
+    }
+}
+
+@Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+internal fun OrganicQuestionCard(
+    modifier: Modifier = Modifier,
+) {
+    var questionIndex by remember { mutableIntStateOf(SessionGreeting.questionIndex) }
+    var shapeIndex by remember { mutableIntStateOf(SessionGreeting.shapeIndex) }
+    var previousShapeIndex by remember { mutableIntStateOf(shapeIndex) }
+    val currentQuestion = IntriguingQuestions[questionIndex.coerceIn(IntriguingQuestions.indices)]
+    val morphProgress = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(shapeIndex) {
+        if (shapeIndex == previousShapeIndex) return@LaunchedEffect
+        morphProgress.snapTo(0f)
+        morphProgress.animateTo(
+            1f,
+            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        )
+        previousShapeIndex = shapeIndex
+    }
+    val morph = remember(previousShapeIndex, shapeIndex) {
+        androidx.graphics.shapes.Morph(
+            QuestionCardShapes[previousShapeIndex.coerceIn(QuestionCardShapes.indices)],
+            QuestionCardShapes[shapeIndex.coerceIn(QuestionCardShapes.indices)],
+        )
+    }
+    val rawPath = remember { androidx.compose.ui.graphics.Path() }
+    val shapeColor = MaterialTheme.colorScheme.secondaryContainer
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "questionPress",
+    )
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        Box(
+            modifier = Modifier
+                .wrapContentSize(align = Alignment.CenterEnd, unbounded = true)
+                .requiredSize(118.dp)
+                .aspectRatio(1f)
+                .graphicsLayer {
+                    scaleX = pressScale
+                    scaleY = pressScale
+                }
+                .drawBehind {
+                    rawPath.rewind()
+                    morph.toPath(morphProgress.value, rawPath)
+                    val matrix = androidx.compose.ui.graphics.Matrix()
+                    matrix.scale(size.width, size.height)
+                    rawPath.transform(matrix)
+                    val bounds = rawPath.getBounds()
+                    rawPath.translate(
+                        androidx.compose.ui.geometry.Offset(
+                            size.width / 2f - bounds.center.x,
+                            size.height / 2f - bounds.center.y,
+                        ),
+                    )
+                    drawPath(rawPath, shapeColor)
+                }
+                .clickable(interactionSource = interactionSource, indication = null) {
+                    // user presses it if it feels intriguing
+                    questionIndex = (questionIndex + 1) % IntriguingQuestions.size
+                    shapeIndex = (shapeIndex + 1) % QuestionCardShapes.size
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                AnimatedContent(
+                    targetState = currentQuestion,
+                    transitionSpec = {
+                        (slideInVertically(tween(Motion.Quick)) { it / 3 } + fadeIn(tween(Motion.Quick))) togetherWith
+                            (slideOutVertically(tween(Motion.Fast)) { -it / 3 } + fadeOut(tween(Motion.Fast)))
+                    },
+                    label = "questionText",
+                ) { question ->
+                    Text(
+                        text = question,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        textAlign = TextAlign.Center,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
 

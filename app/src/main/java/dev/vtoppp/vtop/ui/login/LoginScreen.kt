@@ -1,6 +1,12 @@
 package dev.vtoppp.vtop.ui.login
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,6 +60,7 @@ import dev.vtoppp.vtop.data.AppLog
 import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.WarmState
 import dev.vtoppp.vtop.ui.theme.StatusColors
+import dev.vtoppp.vtop.ui.theme.Motion
 
 @Composable
 fun LoginScreen(
@@ -61,7 +68,6 @@ fun LoginScreen(
     warm: WarmState,
     haveSavedCredentials: Boolean,
     savedUsername: String?,
-    gatedVault: Boolean = true,
     onUnlockSaved: () -> Unit,
     onForgetSaved: () -> Unit,
     onSubmit: (username: String, password: String, remember: Boolean) -> Unit,
@@ -82,14 +88,28 @@ fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        when {
-            failure != null -> ErrorCard(
-                error = failure.error,
-                detail = failure.detail,
-                onRetry = onErrorRetry,
-                onEdit = { onErrorEdit(); showForm = true },
-            )
-            !showForm && haveSavedCredentials && !typingNew -> SavedAccountCard(
+        val branch = when {
+            failure != null -> "error"
+            !showForm && haveSavedCredentials && !typingNew -> "saved"
+            else -> "form"
+        }
+        AnimatedContent(
+            targetState = branch,
+            transitionSpec = {
+                fadeIn(tween(Motion.Content)) togetherWith fadeOut(tween(Motion.Quick))
+            },
+            label = "loginBranch",
+        ) { key ->
+        when (key) {
+            "error" -> failure?.let { failure ->
+                ErrorCard(
+                    error = failure.error,
+                    detail = failure.detail,
+                    onRetry = onErrorRetry,
+                    onEdit = { onErrorEdit(); showForm = true },
+                )
+            }
+            "saved" -> SavedAccountCard(
                 savedUsername = savedUsername,
                 onUnlock = onUnlockSaved,
                 onOtherAccount = {
@@ -118,6 +138,7 @@ fun LoginScreen(
                     password = ""
                 },
             )
+        }
         }
     }
 }
@@ -181,7 +202,13 @@ private fun SigninForm(
 
             Spacer(Modifier.height(16.dp))
 
-            WarmStatusLine(warm)
+            AnimatedVisibility(
+                visible = warm !is WarmState.Idle,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                WarmStatusLine(warm)
+            }
 
             Spacer(Modifier.height(20.dp))
 
@@ -234,17 +261,23 @@ private fun SigninForm(
             )
 
             val loading = state as? LoginUiState.Loading
-            if (loading != null) {
-                Spacer(Modifier.height(16.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-                    LoadingIndicator(modifier = Modifier.size(24.dp))
-                    Text(loading.line, style = MaterialTheme.typography.bodyMedium)
+            AnimatedVisibility(
+                visible = loading != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                Column {
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+                        LoadingIndicator(modifier = Modifier.size(24.dp))
+                        Text(loading?.line.orEmpty(), style = MaterialTheme.typography.bodyMedium)
+                    }
+                    ActivityLog()
                 }
-                ActivityLog()
             }
 
             Spacer(Modifier.height(24.dp))

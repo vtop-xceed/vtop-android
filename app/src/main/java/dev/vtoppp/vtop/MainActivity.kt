@@ -7,6 +7,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -37,7 +42,6 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -59,6 +63,7 @@ import dev.vtoppp.vtop.ui.login.LoginScreen
 import dev.vtoppp.vtop.ui.login.LoginUiState
 import dev.vtoppp.vtop.ui.login.LoginViewModel
 import dev.vtoppp.vtop.ui.theme.AppPalette
+import dev.vtoppp.vtop.ui.theme.Motion
 import dev.vtoppp.vtop.ui.theme.ThemePreferences
 import dev.vtoppp.vtop.ui.theme.VtopTheme
 import kotlinx.coroutines.launch
@@ -80,12 +85,6 @@ class MainActivity : FragmentActivity() {
         AppLog.init(this)
         SessionCache.init(this)
         UserDatabase.init(this)
-        // Debug exports to /sdcard/Download; keep them off the main thread so the
-        // first Compose frame (lock screen) is not blocked behind file I/O.
-        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            UserDatabase.exportDatabase(this@MainActivity)
-            UserDatabase.exportHtmlState(this@MainActivity)
-        }
         AppLog.d("app: onCreate")
         setContent {
             var currentPalette by remember {
@@ -145,10 +144,6 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
-        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            UserDatabase.exportDatabase(this@MainActivity)
-            UserDatabase.exportHtmlState(this@MainActivity)
-        }
     }
 }
 
@@ -332,10 +327,24 @@ private fun Root(
         }
     }
 
+    val branch = when {
+        vault.hasCredentials && !isUnlocked -> "lock"
+        phase == BootPhase.Auto && authorizedId == null -> "auto"
+        phase != BootPhase.Login && (phase == BootPhase.Auto || (authorizedId != null && loginVm.hasLiveSession())) -> "home"
+        else -> "login"
+    }
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-        when {
+        AnimatedContent(
+            targetState = branch,
+            transitionSpec = {
+                fadeIn(animationSpec = androidx.compose.animation.core.tween(Motion.Content)) togetherWith
+                    fadeOut(animationSpec = androidx.compose.animation.core.tween(Motion.Quick))
+            },
+            label = "rootBranch",
+        ) { target ->
+        when (target) {
             // App Lock screen: shown when user has saved credentials but app is locked
-            vault.hasCredentials && !isUnlocked -> {
+            "lock" -> {
                 LockScreen(
                     savedUsername = vault.username,
                     banner = vaultBanner,
@@ -377,7 +386,7 @@ private fun Root(
                     modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
                 )
             }
-            phase == BootPhase.Auto && authorizedId == null -> {
+            "auto" -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     androidx.compose.material3.Card(
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
@@ -405,7 +414,7 @@ private fun Root(
                     }
                 }
             }
-            phase != BootPhase.Login && (phase == BootPhase.Auto || (authorizedId != null && loginVm.hasLiveSession())) -> {
+            "home" -> {
                 val id = authorizedId ?: vault.username ?: ""
                 val homeVm: HomeViewModel = viewModel(
                     factory = HomeVmFactory(loginVm.currentClient, id),
@@ -463,13 +472,19 @@ private fun Root(
                 val state by loginVm.state.collectAsStateWithLifecycle()
                 var errorDismissed by remember { mutableStateOf(false) }
 
-                vaultBanner?.let { notice ->
-                    Text(
-                        notice,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                AnimatedVisibility(
+                    visible = vaultBanner != null,
+                    enter = Motion.BannerEnter,
+                    exit = Motion.BannerExit,
+                ) {
+                    vaultBanner?.let { notice ->
+                        Text(
+                            notice,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
 
                 Box(
@@ -480,7 +495,6 @@ private fun Root(
                         warm = warm,
                         haveSavedCredentials = vault.hasCredentials,
                         savedUsername = vault.username,
-                        gatedVault = true,
                         onUnlockSaved = {
                             val fa = activity as? FragmentActivity ?: return@LoginScreen
                             if (loginVm.state.value is LoginUiState.Loading) return@LoginScreen
@@ -519,6 +533,7 @@ private fun Root(
                     )
                 }
             }
+        }
         }
     }
 }

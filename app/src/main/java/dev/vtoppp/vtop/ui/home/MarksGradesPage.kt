@@ -2,13 +2,16 @@
 
 package dev.vtoppp.vtop.ui.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,7 +54,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -120,25 +124,10 @@ fun MarksGradesPage(
         onRefresh = onRefresh,
         modifier = modifier
             .fillMaxSize(),
-        indicator = {
-            AnimatedVisibility(
-                visible = isSyncing,
-                enter = Motion.BannerEnter,
-                exit = Motion.BannerExit,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter),
-            ) {
-                LinearWavyProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                )
-            }
-        },
+        indicator = {},
     ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+    SyncingBar(visible = isSyncing)
     LazyColumn(
         state = rememberLazyListState(),
         modifier = Modifier.fillMaxSize(),
@@ -191,6 +180,7 @@ fun MarksGradesPage(
     }
     }
 }
+}
 
 @Composable
 private fun MarksSemesterSection(
@@ -203,7 +193,6 @@ private fun MarksSemesterSection(
     }
     val selected = picks.firstOrNull { it.id == selectedId } ?: picks.firstOrNull() ?: return
     val rows = marksBySemester[selected.id].orEmpty()
-    val empty = rows.isEmpty()
     val results by UserDatabase.semesterResultsFlow.collectAsState()
     val gpas = remember(picks, results) {
         results.associate { it.semesterSubId to it.gpa }
@@ -217,6 +206,7 @@ private fun MarksSemesterSection(
     }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
     val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val blurEnabled = dev.vtoppp.vtop.ui.theme.LocalBlurEnabled.current
 
     LazyRow(
         state = listState,
@@ -226,6 +216,11 @@ private fun MarksSemesterSection(
     ) {
         itemsIndexed(picks, key = { _, it -> it.id }) { index, sem ->
             val isSelected = sem.id == selected.id
+            val selectedCardColor by animateColorAsState(
+                targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                label = "semCard",
+            )
             val edgeFade by remember(listState, index) {
                 derivedStateOf {
                     val viewport = listState.layoutInfo.viewportSize.width.toFloat()
@@ -244,10 +239,14 @@ private fun MarksSemesterSection(
             Surface(
                 onClick = { selectedId = sem.id },
                 shape = RoundedCornerShape(16.dp),
-                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .graphicsLayer { alpha = 0.4f + 0.6f * edgeFade }
-                    .then(if (dev.vtoppp.vtop.ui.theme.LocalBlurEnabled.current && edgeFade < 0.999f) Modifier.blur(((1f - edgeFade) * 8f).dp) else Modifier),
+                color = selectedCardColor,
+                modifier = Modifier.graphicsLayer {
+                    alpha = 0.4f + 0.6f * edgeFade
+                    if (android.os.Build.VERSION.SDK_INT >= 31 && blurEnabled && edgeFade < 0.999f) {
+                        val r = (1f - edgeFade) * 8f * density
+                        renderEffect = BlurEffect(r, r, TileMode.Clamp)
+                    }
+                },
             ) {
                 Column(
                     modifier = Modifier
@@ -288,6 +287,13 @@ private fun MarksSemesterSection(
     }
 
     Spacer(Modifier.height(8.dp))
+    AnimatedContent(
+        targetState = selected.id,
+        transitionSpec = {
+            fadeIn(tween(Motion.Content)) togetherWith fadeOut(tween(Motion.Quick))
+        },
+        label = "semMarks",
+    ) { _ ->
     if (byCourse.isEmpty()) {
         Column(
             modifier = Modifier
@@ -329,6 +335,7 @@ private fun MarksSemesterSection(
             )
         }
     }
+    }
 }
 
 @Composable
@@ -362,14 +369,18 @@ private fun MarksHeader(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.weight(1f))
-            if (freshness.partial) {
+            AnimatedVisibility(
+                visible = freshness.partial,
+                enter = fadeIn(tween(Motion.Quick)) + scaleIn(tween(Motion.Content)),
+                exit = fadeOut(tween(Motion.Fast)) + scaleOut(tween(Motion.Fast)),
+            ) {
                 Box(
                     modifier = Modifier
                         .size(6.dp)
                         .background(StatusColors.Warning, CircleShape),
                 )
-                Spacer(Modifier.width(6.dp))
             }
+            if (freshness.partial) Spacer(Modifier.width(6.dp))
             Text(
                 text = freshness.label,
                 style = MaterialTheme.typography.labelSmall,
@@ -421,7 +432,8 @@ private fun HeroCard(
     val total = summary?.curriculumCredits?.takeIf { it > 0.0 } ?: registered
     val fCount = summary?.fCount ?: 0
     val ratioTarget = if (total > 0.0) (earned / total).coerceIn(0.0, 1.0).toFloat() else 0f
-    val ratio by animateFloatAsState(targetValue = ratioTarget, animationSpec = tween(800, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "ratio")
+    val ratio by animateFloatAsState(targetValue = ratioTarget, animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(), label = "ratio")
+    val cgpaAnimated by animateFloatAsState(targetValue = cgpa.toFloat(), animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(), label = "cgpa")
 
     Card(
         shape = RoundedCornerShape(20.dp),
@@ -453,7 +465,7 @@ private fun HeroCard(
             }
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
-                    text = String.format(Locale.US, "%.2f", cgpa),
+                    text = String.format(Locale.US, "%.2f", cgpaAnimated),
                     style = MaterialTheme.typography.displayMedium,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -465,7 +477,11 @@ private fun HeroCard(
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
                 Spacer(Modifier.weight(1f))
-                if (fCount > 0) {
+                AnimatedVisibility(
+                    visible = fCount > 0,
+                    enter = fadeIn(tween(Motion.Quick)) + scaleIn(tween(Motion.Content)),
+                    exit = fadeOut(tween(Motion.Fast)) + scaleOut(tween(Motion.Fast)),
+                ) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.errorContainer,

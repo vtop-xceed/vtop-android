@@ -1,5 +1,12 @@
 package dev.vtoppp.vtop.ui.home
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,11 +18,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.ui.theme.Motion
 import androidx.compose.ui.unit.dp
 
 // ponytail: one empty-state shell for every "nothing here yet"; callers pass the copy
@@ -27,18 +40,25 @@ internal fun EmptyState(
     isSyncing: Boolean,
     iconRes: Int = R.drawable.ic_grade,
 ) {
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(top = 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            painter = painterResource(iconRes),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.size(56.dp),
-        )
+        AnimatedVisibility(
+            visible = entered,
+            enter = fadeIn(tween(Motion.Content)) + scaleIn(initialScale = 0.8f, animationSpec = tween(Motion.Content)),
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(56.dp),
+            )
+        }
         Spacer(Modifier.height(16.dp))
         Text(
             text = title,
@@ -54,7 +74,13 @@ internal fun EmptyState(
         )
         Spacer(Modifier.height(16.dp))
         FilledTonalButton(onClick = onRefresh, enabled = !isSyncing) {
-            Text(if (isSyncing) "Syncing…" else "Sync now")
+            AnimatedContent(
+                targetState = isSyncing,
+                transitionSpec = { fadeIn(tween(Motion.Quick)) togetherWith fadeOut(tween(Motion.Fast)) },
+                label = "syncLabel",
+            ) { syncing ->
+                Text(if (syncing) "Syncing…" else "Sync now")
+            }
         }
     }
 }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -31,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -64,6 +66,11 @@ fun GradeListPage(
     }
     val freshness = remember(stamps) { freshnessOf(stamps) }
     var sortByGrade by rememberSaveable { mutableStateOf(false) }
+    val sortIconAngle by animateFloatAsState(
+        targetValue = if (sortByGrade) 180f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "sortIcon",
+    )
     val displayedCourses = remember(courses, sortByGrade) {
         if (sortByGrade) {
             courses.sortedWith(compareBy({ -gradeRank(it.grade) }, { -examEpochDay(it.examMonth) }, { -it.updatedAtMs }))
@@ -121,7 +128,7 @@ fun GradeListPage(
                         painter = painterResource(R.drawable.ic_expand_more),
                         contentDescription = "Toggle sort order",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = sortIconAngle },
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
@@ -134,6 +141,7 @@ fun GradeListPage(
             }
         }
         Spacer(Modifier.height(12.dp))
+        SyncingBar(visible = isSyncing)
 
         if (courses.isEmpty()) {
             EmptyState(
@@ -145,18 +153,27 @@ fun GradeListPage(
             return@Column
         }
 
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            state = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState(),
+            isRefreshing = isSyncing,
+            onRefresh = onRefresh,
+            indicator = {},
+        ) {
         LazyColumn(
             state = rememberLazyListState(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 2.dp),
         ) {
-            itemsIndexed(displayedCourses, key = { i, c -> "$i:${c.examMonth}:${c.courseCode}" }) { i, course ->
-                CourseRow(
-                    grade = course,
-                    components = marksByCourse[course.courseCode].orEmpty(),
-                    stateKey = "$i:${course.examMonth}:${course.courseCode}",
-                )
+            itemsIndexed(displayedCourses, key = { _, c -> c.courseCode }) { _, course ->
+                Box(modifier = Modifier.animateItem()) {
+                    CourseRow(
+                        grade = course,
+                        components = marksByCourse[course.courseCode].orEmpty(),
+                        stateKey = course.courseCode,
+                    )
+                }
             }
+        }
         }
     }
 }

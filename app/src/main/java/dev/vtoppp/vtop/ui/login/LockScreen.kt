@@ -1,5 +1,10 @@
 package dev.vtoppp.vtop.ui.login
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,14 +88,18 @@ fun LockScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                if (!savedUsername.isNullOrBlank()) {
+                AnimatedVisibility(
+                    visible = !savedUsername.isNullOrBlank(),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         modifier = Modifier.padding(vertical = 4.dp),
                     ) {
                         Text(
-                            text = savedUsername,
+                            text = savedUsername.orEmpty(),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -107,14 +116,20 @@ fun LockScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                if (!banner.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = banner,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center,
-                    )
+                AnimatedVisibility(
+                    visible = !banner.isNullOrBlank(),
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    Column {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = banner ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(28.dp))

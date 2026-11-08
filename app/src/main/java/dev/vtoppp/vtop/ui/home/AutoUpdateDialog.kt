@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import dev.vtoppp.vtop.data.AutoUpdateState
 import dev.vtoppp.vtop.data.AutoUpdater
 import dev.vtoppp.vtop.data.ReleaseInfo
+import dev.vtoppp.vtop.ui.theme.Motion
 
 /**
  * The single popup driving the whole update flow:
@@ -100,8 +101,13 @@ fun AutoUpdateDialog(
                     val total = s.total
                     if (total != null && total > 0) {
                         val fraction = (s.received.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                        val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
+                            targetValue = fraction,
+                            animationSpec = androidx.compose.animation.core.tween(Motion.Content),
+                            label = "dlFraction",
+                        )
                         LinearWavyProgressIndicator(
-                            progress = { fraction },
+                            progress = { animatedFraction },
                             modifier = Modifier.fillMaxWidth().height(10.dp),
                         )
                     } else {

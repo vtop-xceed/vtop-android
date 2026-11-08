@@ -1,7 +1,5 @@
 package dev.vtoppp.vtop.ui.home
 
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -96,31 +94,31 @@ internal val EnglishGreetings = listOf(
     "Yo,",
 )
 
-// ponytail: expressive polygon shapes from Material 3 maintaining 1:1 aspect ratio
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+// Material 3 expressive polygon shapes for the organic question card, kept 1:1 aspect ratio
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 internal val QuestionCardShapes = listOf(
-    MaterialShapes.Cookie9Sided,
-    MaterialShapes.Cookie6Sided,
-    MaterialShapes.Cookie4Sided,
-    MaterialShapes.Cookie12Sided,
-    MaterialShapes.Cookie7Sided,
-    MaterialShapes.Sunny,
-    MaterialShapes.VerySunny,
-    MaterialShapes.SoftBurst,
-    MaterialShapes.Flower,
-    MaterialShapes.Puffy,
-    MaterialShapes.PuffyDiamond,
-    MaterialShapes.Clover4Leaf,
-    MaterialShapes.Clover8Leaf,
-    MaterialShapes.SoftBoom,
-    MaterialShapes.Gem,
-    MaterialShapes.ClamShell,
-    MaterialShapes.Bun,
-    MaterialShapes.Arch,
-    MaterialShapes.Slanted,
+    androidx.compose.material3.MaterialShapes.Cookie9Sided,
+    androidx.compose.material3.MaterialShapes.Cookie6Sided,
+    androidx.compose.material3.MaterialShapes.Cookie4Sided,
+    androidx.compose.material3.MaterialShapes.Cookie12Sided,
+    androidx.compose.material3.MaterialShapes.Cookie7Sided,
+    androidx.compose.material3.MaterialShapes.Sunny,
+    androidx.compose.material3.MaterialShapes.VerySunny,
+    androidx.compose.material3.MaterialShapes.SoftBurst,
+    androidx.compose.material3.MaterialShapes.Flower,
+    androidx.compose.material3.MaterialShapes.Puffy,
+    androidx.compose.material3.MaterialShapes.PuffyDiamond,
+    androidx.compose.material3.MaterialShapes.Clover4Leaf,
+    androidx.compose.material3.MaterialShapes.Clover8Leaf,
+    androidx.compose.material3.MaterialShapes.SoftBoom,
+    androidx.compose.material3.MaterialShapes.Gem,
+    androidx.compose.material3.MaterialShapes.ClamShell,
+    androidx.compose.material3.MaterialShapes.Bun,
+    androidx.compose.material3.MaterialShapes.Arch,
+    androidx.compose.material3.MaterialShapes.Slanted,
 )
 
-// ponytail: short campus questions to display inside the organic shape box
+// short campus questions cycled by the question card
 internal val IntriguingQuestions = listOf(
     "Ready for CAT-2?",
     "Skipping 8 AM?",
@@ -134,7 +132,7 @@ internal val IntriguingQuestions = listOf(
     "OD sanctioned?",
 )
 
-// ponytail: one pick per process so the header is stable mid-session and rerolls only on cold start
+// one pick per process so the header is stable mid-session and rerolls only on cold start
 internal object SessionGreeting {
     val greeting: String = EnglishGreetings.random()
     val fontIndex: Int = (0 until GreetingFontStyles.size).random()

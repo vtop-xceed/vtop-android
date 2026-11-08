@@ -1,5 +1,9 @@
 package dev.vtoppp.vtop.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +28,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -57,11 +63,21 @@ internal fun SettingsPage(
     onCheckUpdate: () -> Unit,
     onLockApp: () -> Unit,
     onSignOut: () -> Unit,
+    onRefresh: () -> Unit = {},
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+    val isSyncing by dev.vtoppp.vtop.data.UserDatabase.isSyncingFlow.collectAsState()
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        state = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState(),
+        isRefreshing = isSyncing,
+        onRefresh = onRefresh,
+        indicator = {},
+    ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        SyncingBar(visible = isSyncing)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 10.dp)
             .padding(bottom = 110.dp),
     ) {
@@ -159,10 +175,20 @@ internal fun SettingsPage(
                 ThemeMode.LIGHT to "Light",
             ).forEach { (mode, label) ->
                 val selected = mode == themeMode
+                val chipColor by animateColorAsState(
+                    targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    animationSpec = spring(),
+                    label = "modeChip",
+                )
+                val chipContent by animateColorAsState(
+                    targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    animationSpec = spring(),
+                    label = "modeChipContent",
+                )
                 Surface(
                     onClick = { onThemeModeChange(mode) },
                     shape = RoundedCornerShape(12.dp),
-                    color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    color = chipColor,
                     modifier = Modifier
                         .height(44.dp)
                         .clickable { onThemeModeChange(mode) },
@@ -172,7 +198,7 @@ internal fun SettingsPage(
                             text = label,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                            color = chipContent,
                         )
                     }
                 }
@@ -201,18 +227,31 @@ internal fun SettingsPage(
                     )
                     return@forEach
                 }
+                val dotSize by animateDpAsState(
+                    targetValue = if (selected) 36.dp else 30.dp,
+                    animationSpec = spring(),
+                    label = "paletteDot",
+                )
+                val borderAlpha by animateColorAsState(
+                    targetValue = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                    animationSpec = spring(),
+                    label = "paletteBorder",
+                )
+                val elevation by animateDpAsState(
+                    targetValue = if (selected) 3.dp else 0.dp,
+                    animationSpec = spring(),
+                    label = "paletteElevation",
+                )
                 Surface(
                     onClick = { onPaletteChange(p) },
                     shape = CircleShape,
                     color = p.seedColor,
                     modifier = Modifier
-                        .size(if (selected) 36.dp else 30.dp)
-                        .then(
-                            if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier,
-                        ),
-                    shadowElevation = if (selected) 3.dp else 0.dp,
+                        .size(dotSize)
+                        .border(2.dp, borderAlpha, CircleShape),
+                    shadowElevation = elevation,
                 ) {
-                    if (selected) {
+                    AnimatedVisibility(visible = selected, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn()) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_check),
@@ -234,10 +273,15 @@ internal fun SettingsPage(
             checked = lockEnabled,
             onCheckedChange = onLockEnabledChange,
         )
-        if (lockEnabled) {
-            Spacer(Modifier.height(8.dp))
-            Surface(
-                onClick = onLockApp,
+        AnimatedVisibility(
+            visible = lockEnabled,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+        ) {
+            Column {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    onClick = onLockApp,
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.fillMaxWidth(),
@@ -255,6 +299,7 @@ internal fun SettingsPage(
                     Spacer(Modifier.width(12.dp))
                     Text("Lock app now", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                 }
+            }
             }
         }
 
@@ -325,6 +370,8 @@ internal fun SettingsPage(
             modifier = Modifier.padding(horizontal = 4.dp),
         )
         Spacer(Modifier.height(12.dp))
+        }
+    }
     }
 }
 

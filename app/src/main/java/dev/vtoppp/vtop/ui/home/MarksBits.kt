@@ -1,9 +1,13 @@
 package dev.vtoppp.vtop.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.border
@@ -31,19 +35,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.ui.theme.Motion
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.GradeHistoryEntry
 import dev.vtoppp.vtop.data.MarkEntry
 import java.time.LocalDate
@@ -90,11 +97,11 @@ internal fun normalizeComponents(name: String): String {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun WeightageBar(
     components: List<MarkEntry>,
     modifier: Modifier = Modifier,
-    grade: String? = null,
 ) {
     val segments = remember(components) { buildWeightSegments(components) }
     if (segments.isEmpty()) return
@@ -109,43 +116,52 @@ internal fun WeightageBar(
             modifier = Modifier.weight(1f),
         ) {
             segments.forEach { segment ->
-                val animatedFill by animateFloatAsState(
-                    targetValue = segment.fill,
-                    animationSpec = tween(600),
-                    label = "segmentFill",
-                )
-                Canvas(
-                    modifier = Modifier
-                        .weight(segment.weight)
-                        .height(6.dp),
-                ) {
-                    val radius = CornerRadius(size.height / 2f, size.height / 2f)
-                    drawRoundRect(color = track, topLeft = Offset.Zero, size = size, cornerRadius = radius)
-                    if (animatedFill > 0f) {
-                        drawRoundRect(
-                            color = barFill,
-                            topLeft = Offset.Zero,
-                            size = Size(size.width * animatedFill, size.height),
-                            cornerRadius = radius,
-                        )
+                key(segment.label) {
+                    val animatedFill by animateFloatAsState(
+                        targetValue = segment.fill,
+                        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                        label = "segmentFill",
+                    )
+                    Canvas(
+                        modifier = Modifier
+                            .weight(segment.weight)
+                            .height(6.dp),
+                    ) {
+                        val radius = CornerRadius(size.height / 2f, size.height / 2f)
+                        drawRoundRect(color = track, topLeft = Offset.Zero, size = size, cornerRadius = radius)
+                        if (animatedFill > 0f) {
+                            drawRoundRect(
+                                color = barFill,
+                                topLeft = Offset.Zero,
+                                size = Size(size.width * animatedFill, size.height),
+                                cornerRadius = radius,
+                            )
+                        }
                     }
                 }
             }
         }
-        Spacer(modifier = Modifier.width(8.dp))
-        WeightageChips(components = components, grade = grade)
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun WeightageChips(
     components: List<MarkEntry>,
     grade: String? = null,
+    corner: androidx.compose.ui.unit.Dp = 10.dp,
 ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+    val chipShape = remember(corner) { RoundedCornerShape(corner) }
     val earned = remember(components) { earnedWeightage(components) }
+    val earnedAnimated by animateIntAsState(
+        targetValue = kotlin.math.ceil(earned.toDouble() - 1e-9).toInt(),
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "earned",
+    )
     val track = MaterialTheme.colorScheme.surfaceContainerHighest
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = chipShape,
         color = track,
         modifier = Modifier
             .width(40.dp)
@@ -153,7 +169,7 @@ internal fun WeightageChips(
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
-                text = kotlin.math.ceil(earned.toDouble() - 1e-9).toInt().toString(),
+                text = earnedAnimated.toString(),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -163,9 +179,19 @@ internal fun WeightageChips(
     }
     Spacer(modifier = Modifier.width(6.dp))
     val gradeText = grade?.takeIf { it.isNotBlank() }?.let(::gradeLabel) ?: "?"
+    val gradeSurface by animateColorAsState(
+        targetValue = if (gradeText == "?") track else gradeContainer(grade!!),
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "gradeSurface",
+    )
+    val gradeContent by animateColorAsState(
+        targetValue = if (gradeText == "?") MaterialTheme.colorScheme.onSurfaceVariant else gradeOnContainer(grade!!),
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "gradeContent",
+    )
     Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = if (gradeText == "?") track else gradeContainer(grade!!),
+        shape = chipShape,
+        color = gradeSurface,
         modifier = Modifier
             .width(40.dp)
             .height(40.dp),
@@ -175,11 +201,12 @@ internal fun WeightageChips(
                 text = gradeText,
                 style = if (gradeText.length > 1) MaterialTheme.typography.labelSmall else MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.ExtraBold,
-                color = if (gradeText == "?") MaterialTheme.colorScheme.onSurfaceVariant else gradeOnContainer(grade!!),
+                color = gradeContent,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
             )
         }
+    }
     }
 }
 
@@ -212,6 +239,7 @@ internal fun gradeLabel(grade: String): String = when (grade.uppercase()) {
     else -> grade.uppercase()
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun CourseRow(
     grade: GradeHistoryEntry,
@@ -219,6 +247,22 @@ internal fun CourseRow(
     stateKey: String,
 ) {
     var expanded by rememberSaveable(stateKey) { mutableStateOf(false) }
+    val chevronAngle by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "chevron",
+    )
+    val cardCorner by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (expanded) 20.dp else 14.dp,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "cardCorner",
+    )
+    val chipCorner by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (expanded) 16.dp else 10.dp,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "chipCorner",
+    )
+    val cardShape = remember(cardCorner) { RoundedCornerShape(cardCorner) }
     val hasComponents = components.isNotEmpty()
     val componentsSorted = remember(components) { components.sortedWith(componentComparator()) }
     val terms = remember(components) { components.map { it.semesterSubId }.distinct() }
@@ -226,25 +270,25 @@ internal fun CourseRow(
         Modifier.border(
             width = 1.dp,
             color = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
-            shape = RoundedCornerShape(14.dp),
+            shape = cardShape,
         )
     } else {
         Modifier.border(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-            shape = RoundedCornerShape(14.dp),
+            shape = cardShape,
         )
     }
 
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = cardShape,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
             .fillMaxWidth()
             .then(failBorder)
             .clickable { if (hasComponents) expanded = !expanded },
     ) {
-        Column(modifier = Modifier.animateContentSize(tween(250, easing = FastOutSlowInEasing))) {
+        Column(modifier = Modifier.animateContentSize(tween(Motion.Content))) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -275,8 +319,8 @@ internal fun CourseRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (components.isNotEmpty() && !expanded) {
-                    WeightageChips(components = components, grade = grade.grade)
+                if (components.isNotEmpty()) {
+                    WeightageChips(components = components, grade = grade.grade, corner = chipCorner)
                 }
                 if (hasComponents) {
                     Icon(
@@ -286,27 +330,34 @@ internal fun CourseRow(
                         modifier = Modifier
                             .padding(start = 4.dp)
                             .size(18.dp)
-                            .rotate(if (expanded) 90f else 0f),
+                            .graphicsLayer { rotationZ = chevronAngle },
                     )
                 }
             }
-            if (expanded) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                WeightageBar(components = componentsSorted, grade = grade.grade, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
-                if (terms.size > 1) {
-                    Text(
-                        text = "Marks from ${terms.size} semesters (re-attempt mix)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.padding(start = 14.dp, top = 6.dp),
-                    )
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(Motion.Quick)),
+                exit = fadeOut(tween(Motion.Fast)),
+            ) {
+                Column {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    WeightageBar(components = componentsSorted, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+                    if (terms.size > 1) {
+                        Text(
+                            text = "Marks from ${terms.size} semesters (re-attempt mix)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(start = 14.dp, top = 6.dp),
+                        )
+                    }
+                    componentsSorted.forEach { c -> MarksLine(c) }
                 }
-                componentsSorted.forEach { c -> MarksLine(c) }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun MarksOnlyRow(
     courseCode: String,
@@ -315,20 +366,36 @@ internal fun MarksOnlyRow(
     grade: String? = null,
 ) {
     var expanded by rememberSaveable("m:$courseCode") { mutableStateOf(false) }
+    val chevronAngle by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "chevron",
+    )
+    val cardCorner by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (expanded) 20.dp else 14.dp,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "cardCorner",
+    )
+    val chipCorner by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (expanded) 16.dp else 10.dp,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "chipCorner",
+    )
+    val cardShape = remember(cardCorner) { RoundedCornerShape(cardCorner) }
     val componentsSorted = remember(components) { components.sortedWith(componentComparator()) }
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = cardShape,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
             .fillMaxWidth()
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                shape = RoundedCornerShape(14.dp),
+                shape = cardShape,
             )
             .clickable { expanded = !expanded },
     ) {
-        Column(modifier = Modifier.animateContentSize(tween(250, easing = FastOutSlowInEasing))) {
+        Column(modifier = Modifier.animateContentSize(tween(Motion.Content))) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -352,8 +419,8 @@ internal fun MarksOnlyRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (components.isNotEmpty() && !expanded) {
-                    WeightageChips(components = components, grade = grade)
+                if (components.isNotEmpty()) {
+                    WeightageChips(components = components, grade = grade, corner = chipCorner)
                 }
                 Icon(
                     painter = painterResource(R.drawable.ic_chevron_right),
@@ -362,13 +429,19 @@ internal fun MarksOnlyRow(
                     modifier = Modifier
                         .padding(start = 4.dp)
                         .size(18.dp)
-                        .rotate(if (expanded) 90f else 0f),
+                        .graphicsLayer { rotationZ = chevronAngle },
                 )
             }
-            if (expanded) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                WeightageBar(components = componentsSorted, grade = grade, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
-                componentsSorted.forEach { c -> MarksLine(c) }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(Motion.Quick)),
+                exit = fadeOut(tween(Motion.Fast)),
+            ) {
+                Column {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    WeightageBar(components = componentsSorted, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+                    componentsSorted.forEach { c -> MarksLine(c) }
+                }
             }
         }
     }

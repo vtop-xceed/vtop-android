@@ -1,6 +1,11 @@
 package dev.vtoppp.vtop.ui.section
 
 import android.view.View
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import dev.vtoppp.vtop.ui.theme.Motion
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
@@ -95,32 +101,42 @@ fun SectionScreen(
     }
 
     Box(modifier = modifier) {
-        if (blocks.isEmpty()) {
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-                LoadingIndicator(modifier = Modifier.size(48.dp))
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "Loading section…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(blocks) { block ->
-                    BlockView(
-                        block = block,
-                        onAction = { index -> host.trigger(index, null) },
-                        onSelect = { index, value -> host.trigger(index, value) },
+        AnimatedContent(
+            targetState = blocks.isEmpty(),
+            transitionSpec = {
+                fadeIn(tween(Motion.Content)) togetherWith fadeOut(tween(Motion.Quick))
+            },
+            label = "sectionContent",
+        ) { empty ->
+            if (empty) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+                    LoadingIndicator(modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Loading section…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(blocks) { block ->
+                        Box(modifier = Modifier.animateItem()) {
+                            BlockView(
+                                block = block,
+                                onAction = { index -> host.trigger(index, null) },
+                                onSelect = { index, value -> host.trigger(index, value) },
+                            )
+                        }
+                    }
                 }
             }
         }

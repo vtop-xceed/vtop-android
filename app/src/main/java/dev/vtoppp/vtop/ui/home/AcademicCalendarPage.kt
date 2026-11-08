@@ -1,121 +1,64 @@
 package dev.vtoppp.vtop.ui.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.setValue
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.activity.compose.BackHandler
-import androidx.compose.ui.zIndex
-import androidx.compose.material3.MaterialShapes
-import androidx.compose.material3.toShape
 import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.TextUnit
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.AgendaRow
 import dev.vtoppp.vtop.data.CalendarAgenda
 import dev.vtoppp.vtop.data.CalendarDayEvent
-import dev.vtoppp.vtop.data.ClassScheduleItem
-import dev.vtoppp.vtop.data.DaySchedule
-import dev.vtoppp.vtop.data.PillKind
-import dev.vtoppp.vtop.data.PillState
-import dev.vtoppp.vtop.data.UserDatabase
-import dev.vtoppp.vtop.data.UserProfile
-import dev.vtoppp.vtop.ui.theme.AppPalette
 import dev.vtoppp.vtop.ui.theme.Motion
-import dev.vtoppp.vtop.ui.theme.StatusColors
-import kotlin.math.absoluteValue
 
 @Composable
 internal fun CategoryPill(category: String) {
@@ -337,13 +280,17 @@ internal fun MonthCalendarCard(
                             val date = first.withDayOfMonth(day)
                             val isToday = today == date
                             val past = today != null && date.isBefore(today)
-                            val fill = when (row?.eventCategory?.uppercase()) {
-                                "EXAM" -> examColor.copy(alpha = 0.35f)
-                                "HOLIDAY", "NO_CLASS" -> holidayColor.copy(alpha = 0.35f)
-                                "REMOTE" -> remoteColor.copy(alpha = 0.4f)
-                                "INFO" -> infoColor.copy(alpha = 0.35f)
-                                else -> Color.Transparent
-                            }
+                            val fill by animateColorAsState(
+                                targetValue = when (row?.eventCategory?.uppercase()) {
+                                    "EXAM" -> examColor.copy(alpha = 0.35f)
+                                    "HOLIDAY", "NO_CLASS" -> holidayColor.copy(alpha = 0.35f)
+                                    "REMOTE" -> remoteColor.copy(alpha = 0.4f)
+                                    "INFO" -> infoColor.copy(alpha = 0.35f)
+                                    else -> androidx.compose.ui.graphics.Color.Transparent
+                                },
+                                animationSpec = tween(Motion.Quick),
+                                label = "tileFill",
+                            )
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
@@ -413,7 +360,9 @@ internal fun LegendDot(color: androidx.compose.ui.graphics.Color, label: String)
 @Composable
 internal fun AcademicCalendarPage(
     events: List<CalendarDayEvent>,
+    onRefresh: () -> Unit = {},
 ) {
+    val isSyncing by dev.vtoppp.vtop.data.UserDatabase.isSyncingFlow.collectAsState()
     val months = remember(events) {
         events.map { it.monthYear }.distinct().filter { it.isNotBlank() }
     }
@@ -429,25 +378,27 @@ internal fun AcademicCalendarPage(
     }
     val todayIso = remember { java.time.LocalDate.now().toString() }
 
-    val monthEvents = remember(events, selectedMonth) {
-        if (selectedMonth.isNotBlank()) {
-            events.filter { it.monthYear.equals(selectedMonth, ignoreCase = true) }
-        } else {
-            events
-        }
-    }
+
     val initialMonthIndex = remember(months, selectedMonth) {
         months.indexOfFirst { it.equals(selectedMonth, ignoreCase = true) }.coerceAtLeast(0)
     }
     val monthListState = rememberLazyListState(initialFirstVisibleItemIndex = initialMonthIndex)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 10.dp)
-            .padding(bottom = 84.dp),
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        state = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState(),
+        isRefreshing = isSyncing,
+        onRefresh = onRefresh,
+        indicator = {},
     ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        SyncingBar(visible = isSyncing)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .padding(bottom = 84.dp),
+        ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = "Academic Calendar",
@@ -464,11 +415,23 @@ internal fun AcademicCalendarPage(
 
         Spacer(Modifier.height(12.dp))
         if (selectedMonth.isNotBlank()) {
-            MonthCalendarCard(
-                events = monthEvents,
-                monthKey = selectedMonth,
-                todayIso = todayIso,
-            )
+            AnimatedContent(
+                targetState = selectedMonth,
+                modifier = Modifier.fillMaxWidth().animateContentSize(tween(Motion.Content)),
+                transitionSpec = {
+                    fadeIn(tween(Motion.Quick)) + slideInHorizontally(tween(Motion.Content)) { it / 4 } togetherWith
+                        fadeOut(tween(Motion.Fast)) + slideOutHorizontally(tween(Motion.Fast)) { -it / 4 }
+                },
+                label = "calendarMonth",
+            ) { monthKey ->
+                if (monthKey.isNotBlank()) {
+                    MonthCalendarCard(
+                        events = events,
+                        monthKey = monthKey,
+                        todayIso = todayIso,
+                    )
+                }
+            }
         }
         if (months.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
@@ -480,16 +443,26 @@ internal fun AcademicCalendarPage(
             ) {
                 items(months) { m ->
                     val isSelected = m.equals(selectedMonth, ignoreCase = true)
+                    val chipColor by animateColorAsState(
+                        targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        animationSpec = tween(Motion.Color),
+                        label = "monthChip",
+                    )
+                    val chipContent by animateColorAsState(
+                        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                        animationSpec = tween(Motion.Color),
+                        label = "monthChipContent",
+                    )
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        color = chipColor,
                         modifier = Modifier.clickable { selectedMonth = m },
                     ) {
                         Text(
                             text = shortMonthChip(m),
                             style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                            color = chipContent,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         )
                     }
@@ -502,12 +475,16 @@ internal fun AcademicCalendarPage(
 
         if (events.isEmpty()) {
             Spacer(Modifier.height(24.dp))
-            Text(
-                text = "No calendar records cached yet.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.outline,
-            )
+            AnimatedVisibility(visible = events.isEmpty(), enter = fadeIn(tween(Motion.Content))) {
+                Text(
+                    text = "No calendar records cached yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
         }
         Spacer(Modifier.height(12.dp))
+        }
+    }
     }
 }
