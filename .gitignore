@@ -32,3 +32,6 @@ section_cache/
 
 # Wrangler local state (may hold account info)
 .wrangler/
+
+# Local analytics query script (owner-only; never public)
+scripts/usage-stats.sh
