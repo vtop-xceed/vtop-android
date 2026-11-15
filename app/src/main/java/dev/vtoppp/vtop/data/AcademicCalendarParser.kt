@@ -16,8 +16,10 @@ data class CalendarDayEvent(
     val isExam: Boolean = false,
 )
 
-object AcademicCalendarParser {
+/** Semester the academic calendar is synced for; its name comes from the local DB. */
+const val CALENDAR_SEMESTER_ID = "BL20262701"
 
+object AcademicCalendarParser {
     private val MONTH_MAP = mapOf(
         "JANUARY" to "01", "JAN" to "01",
         "FEBRUARY" to "02", "FEB" to "02",
@@ -37,12 +39,27 @@ object AcademicCalendarParser {
         "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
     )
 
+    // Word boundaries: "Location" must not read as "CAT", "Meeting" must not read as "TEE"
+    private val EXAM_WORDS = Regex(
+        "\\b(assessment\\s*test|exam|fat|cat|tee|term\\s*end|mid\\s*semester|end\\s*semester)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val HOLIDAY_WORDS = Regex(
+        "\\b(holiday|break|dussehra|jayanti|diwali|pongal|holi)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
     /**
      * Extracts available month dates from getDateForSemesterPreview or getListForSemester HTML.
-     * Looks for `processViewCalendar('01-OCT-2026')` patterns.
+     * Looks for `processViewCalendar('01-OCT-2026')` patterns. VTOP escapes the quotes as
+     * `&#39;`, so both forms are accepted.
      */
     fun extractMonthDates(html: String): List<String> {
-        val regex = Regex("""processViewCalendar\s*\(\s*['"]([^'"]+)['"]\s*\)""", RegexOption.IGNORE_CASE)
+        val regex = Regex(
+            """processViewCalendar\s*\(\s*(?:&#39;|&apos;|['"])\s*([0-9]{2}-[A-Z]{3}-[0-9]{4})\s*(?:&#39;|&apos;|['"])""",
+            RegexOption.IGNORE_CASE,
+        )
         val list = mutableListOf<String>()
         for (m in regex.findAll(html)) {
             val dateStr = m.groupValues[1].trim()
@@ -121,39 +138,25 @@ object AcademicCalendarParser {
                 }
 
                 val fullText = rawNotes.joinToString(" ").lowercase(Locale.US)
-                val isHoliday = fullText.contains("holiday") ||
-                    fullText.contains("break") ||
-                    fullText.contains("dussehra") ||
-                    fullText.contains("jayanti") ||
-                    fullText.contains("diwali")
+                val isHoliday = HOLIDAY_WORDS.containsMatchIn(fullText)
 
-                val isExam = fullText.contains("assessment test") ||
-                    fullText.contains("exam") ||
-                    fullText.contains("fat") ||
-                    fullText.contains("cat") ||
-                    fullText.contains("tee") ||
-                    fullText.contains("term end")
+                val isExam = EXAM_WORDS.containsMatchIn(fullText)
 
                 val isInstructional = fullText.contains("instructional day") && !fullText.contains("no instructional")
 
+                // One precedence, used by the grid too: an exam day matters more than a break
                 val category = when {
-                    isHoliday -> "HOLIDAY"
                     isExam -> "EXAM"
-                    isInstructional -> "INSTRUCTIONAL"
+                    isHoliday -> "HOLIDAY"
                     fullText.contains("remote") -> "REMOTE"
                     fullText.contains("no instructional") -> "NO_CLASS"
+                    isInstructional -> "INSTRUCTIONAL"
                     else -> if (rawNotes.isEmpty()) "INSTRUCTIONAL" else "INFO"
                 }
 
                 val title = when {
-                    isHoliday -> rawNotes.firstOrNull { n ->
-                        val lower = n.lowercase(Locale.US)
-                        lower.contains("dussehra") || lower.contains("jayanti") || lower.contains("diwali") || lower.contains("holiday") || lower.contains("break")
-                    } ?: "Holiday"
-                    isExam -> rawNotes.firstOrNull { n ->
-                        val lower = n.lowercase(Locale.US)
-                        lower.contains("exam") || lower.contains("cat") || lower.contains("fat") || lower.contains("tee") || lower.contains("assessment") || lower.contains("term end")
-                    } ?: "Exam"
+                    isExam -> rawNotes.firstOrNull { n -> EXAM_WORDS.containsMatchIn(n) } ?: "Exam"
+                    isHoliday -> rawNotes.firstOrNull { n -> HOLIDAY_WORDS.containsMatchIn(n) } ?: "Holiday"
                     isInstructional -> "Instructional Day"
                     fullText.contains("remote") -> "Remote Learning"
                     fullText.contains("no instructional") -> "No Class"

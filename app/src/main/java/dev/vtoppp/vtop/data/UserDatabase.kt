@@ -669,6 +669,16 @@ object UserDatabase {
         return days
     }
 
+    /**
+     * Index of the day the timeline should open on: today when it has classes,
+     * otherwise the next day that has any. Never yesterday.
+     */
+    fun nearestClassDayIndex(days: List<DaySchedule>): Int {
+        if (days.isEmpty()) return 0
+        val todayIndex = days.indexOfFirst { it.dayName == "Today" }.coerceAtLeast(0)
+        return (todayIndex until days.size).firstOrNull { days[it].classes.isNotEmpty() } ?: todayIndex
+    }
+
     private fun lookupSessionStatus(
         date: LocalDate,
         courseCode: String,
@@ -969,7 +979,15 @@ object UserDatabase {
         val db = helper?.writableDatabase ?: return
         db.beginTransaction()
         try {
-            db.delete("academic_calendar", "semester_sub_id = ?", arrayOf(semesterSubId))
+            // Clear only the months that were actually re-fetched: a month whose fetch
+            // failed must keep its cached days instead of vanishing from the calendar.
+            for (month in events.map { it.monthYear }.distinct()) {
+                db.delete(
+                    "academic_calendar",
+                    "semester_sub_id = ? AND month_year = ?",
+                    arrayOf(semesterSubId, month),
+                )
+            }
             for (e in events) {
                 val cv = ContentValues().apply {
                     put("semester_sub_id", semesterSubId)
@@ -988,9 +1006,21 @@ object UserDatabase {
                 db.insertWithOnConflict("academic_calendar", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
             db.setTransactionSuccessful()
-            _calendarEventsFlow.value = events
         } finally {
             db.endTransaction()
+        }
+        // Publish what is actually stored, so a partial sync keeps the other months on screen
+        _calendarEventsFlow.value = loadCalendarEvents(semesterSubId)
+    }
+
+    /** Name of one semester, branch suffix removed. */
+    fun semesterName(semesterSubId: String): String? {
+        val db = helper?.readableDatabase ?: return null
+        return db.rawQuery(
+            "SELECT semester_name FROM semesters_attended WHERE semester_sub_id = ? LIMIT 1",
+            arrayOf(semesterSubId),
+        ).use { c ->
+            if (c.moveToFirst()) c.getString(0)?.substringBefore(" - ")?.takeIf { it.isNotBlank() } else null
         }
     }
 

@@ -120,4 +120,30 @@ class UserDatabaseScheduleTest {
         assertFalse(today.classes[0].isOngoing)
         assertFalse(today.classes[1].isClosest)
     }
+
+    @Test
+    fun opensOnTheClosestDayThatHasClasses() {
+        val classOnTuesday = ClassScheduleItem(
+            startTime = "10:05 AM",
+            endTime = "11:35 AM",
+            roomBlock = "AB02",
+            roomNumber = "320",
+            courseCode = "CSD4002",
+            title = "Ethical Hacking",
+        )
+        val days = listOf(
+            DaySchedule(dayName = "Yesterday", dateLabel = "Sat, Nov 14", classes = emptyList()),
+            DaySchedule(dayName = "Today", dateLabel = "Sun, Nov 15", classes = emptyList()),
+            DaySchedule(dayName = "Tomorrow", dateLabel = "Mon, Nov 16", classes = emptyList()),
+            DaySchedule(dayName = "Tuesday", dateLabel = "Tue, Nov 17", classes = listOf(classOnTuesday)),
+        )
+
+        assertEquals(3, UserDatabase.nearestClassDayIndex(days))
+        assertEquals(0, UserDatabase.nearestClassDayIndex(emptyList()))
+
+        val todayHasClasses = days.map { day ->
+            if (day.dayName == "Today") day.copy(classes = listOf(classOnTuesday)) else day
+        }
+        assertEquals(1, UserDatabase.nearestClassDayIndex(todayHasClasses))
+    }
 }

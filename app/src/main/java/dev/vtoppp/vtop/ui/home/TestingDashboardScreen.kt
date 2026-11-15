@@ -174,10 +174,21 @@ fun TestingDashboardScreen(
         UserDatabase.buildScheduleDays(storedTimetable, liveSessions)
     }
 
+    // Open on the closest day that actually has classes. The timetable lands
+    // after the first frame, so the page is jumped once, not on every rebuild.
+    val classDayIndex = remember(scheduleDays) { UserDatabase.nearestClassDayIndex(scheduleDays) }
     val horizontalPagerState = rememberPagerState(
-        initialPage = 1.coerceAtMost((scheduleDays.size - 1).coerceAtLeast(0)),
+        initialPage = classDayIndex,
         pageCount = { scheduleDays.size },
     )
+    var openedOnClassDay by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(scheduleDays.size, classDayIndex) {
+        if (scheduleDays.isEmpty() || openedOnClassDay) return@LaunchedEffect
+        openedOnClassDay = true
+        if (horizontalPagerState.currentPage != classDayIndex) {
+            horizontalPagerState.scrollToPage(classDayIndex)
+        }
+    }
 
     val liveAttendance by UserDatabase.attendanceFlow.collectAsState()
     val attendanceSubjects = remember(liveAttendance) {
@@ -479,6 +490,10 @@ fun TestingDashboardScreen(
                         )
                         Spacer(Modifier.width(10.dp))
                         val isToday = currentDay.dayName == "Today"
+                        // "Today · Tue, Nov 15" for near days, plain "Tue, Nov 17" otherwise
+                        val relativeDay = currentDay.dayName == "Today" ||
+                            currentDay.dayName == "Tomorrow" ||
+                            currentDay.dayName == "Yesterday"
                         val badgeColor by animateColorAsState(
                             targetValue = if (isToday) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                             animationSpec = tween(Motion.Color),
@@ -502,18 +517,27 @@ fun TestingDashboardScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                             ) {
-                                Text(
-                                    text = currentDay.dayName,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = badgeContent,
-                                )
-                                Text(
-                                    text = " · ${currentDay.dateLabel}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = badgeContentDim,
-                                )
+                                if (relativeDay) {
+                                    Text(
+                                        text = currentDay.dayName,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = badgeContent,
+                                    )
+                                    Text(
+                                        text = " · ${currentDay.dateLabel}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = badgeContentDim,
+                                    )
+                                } else {
+                                    Text(
+                                        text = currentDay.dateLabel,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = badgeContentDim,
+                                    )
+                                }
                                 AnimatedVisibility(
                                     visible = currentDay.classes.isNotEmpty(),
                                     enter = fadeIn(tween(Motion.Quick)) + scaleIn(tween(Motion.Content)),

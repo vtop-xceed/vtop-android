@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dev.vtoppp.vtop.data.AcademicCalendarParser
 import dev.vtoppp.vtop.data.AppLog
 import dev.vtoppp.vtop.data.AttendanceParser
+import dev.vtoppp.vtop.data.CALENDAR_SEMESTER_ID
 import dev.vtoppp.vtop.data.CalendarDayEvent
 import dev.vtoppp.vtop.data.GradeHistoryParser
 import dev.vtoppp.vtop.data.MarksParser
@@ -130,7 +131,7 @@ class HomeViewModel(
                 }
 
                 // 1.5 Sync Academic Calendar for Fall Semester 2026-27
-                val calSemId = "BL20262701"
+                val calSemId = CALENDAR_SEMESTER_ID
                 client.postSubAction(
                     "getDateForSemesterPreview",
                     mapOf("semSubId" to calSemId, "paramReturnId" to "getDateForSemesterPreview"),
