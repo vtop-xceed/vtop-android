@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -328,9 +329,10 @@ internal fun AcademicCalendarPage(
                             },
                         ) {
                             Icon(
-                                painter = painterResource(R.drawable.ic_arrow_back),
+                                painter = painterResource(R.drawable.ic_chevron_right),
                                 contentDescription = "Previous month",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.rotate(180f),
                             )
                         }
                         IconButton(
@@ -433,7 +435,9 @@ internal fun MonthCalendarCard(
 ) {
     val first = remember(monthKey) { parseMonthKey(monthKey) } ?: return
     val today = remember(todayIso) { runCatching { LocalDate.parse(todayIso) }.getOrNull() }
-    val windowStart = remember(first) { first.minusDays((first.dayOfWeek.value - 1).toLong()) }
+    // Sunday-first grid (VTOP's own column order): Sunday must land in column 0,
+    // so the offset is dayOfWeek % 7, not dayOfWeek - 1.
+    val windowStart = remember(first) { first.minusDays((first.dayOfWeek.value % 7).toLong()) }
 
     Surface(
         shape = RoundedCornerShape(20.dp),
@@ -485,22 +489,16 @@ private fun DayCell(
     modifier: Modifier = Modifier,
 ) {
     val category = event?.eventCategory?.uppercase().orEmpty()
-    val weekend = date.dayOfWeek.value >= 6
     val fill = when (category) {
         "HOLIDAY" -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.38f)
         "EXAM" -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f)
         "REMOTE" -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.38f)
+        "INSTRUCTIONAL", "INFO" -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
         else -> Color.Transparent
-    }
-    val dot = when {
-        category == "REMOTE" -> MaterialTheme.colorScheme.tertiary
-        category == "INFO" -> MaterialTheme.colorScheme.onSurface
-        category == "INSTRUCTIONAL" && !weekend -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-        else -> null
     }
     val numberColor = when {
         !inMonth && event == null -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
-        isToday -> MaterialTheme.colorScheme.onSurface
+        category == "NO_CLASS" -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
         else -> MaterialTheme.colorScheme.onSurface
     }
     val description = buildString {
@@ -513,7 +511,7 @@ private fun DayCell(
                 "REMOTE" -> "remote class"
                 "NO_CLASS" -> "no class"
                 "INFO" -> "event"
-                "INSTRUCTIONAL" -> if (weekend) "weekend" else "class day"
+                "INSTRUCTIONAL" -> "class day"
                 else -> "no entry"
             },
         )
@@ -521,7 +519,7 @@ private fun DayCell(
 
     Column(
         modifier = modifier
-            .height(44.dp)
+            .height(40.dp)
             .semantics { contentDescription = description }
             .clickable(enabled = event != null, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -546,14 +544,18 @@ private fun DayCell(
                 fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Medium,
                 color = numberColor,
             )
+            // A noted day that is neither class, holiday nor exam: badge it
+            if (category == "INFO") {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurface),
+                )
+            }
         }
-        Spacer(Modifier.height(3.dp))
-        Box(
-            modifier = Modifier
-                .size(5.dp)
-                .clip(CircleShape)
-                .background(dot ?: Color.Transparent),
-        )
     }
 }
 
@@ -565,9 +567,9 @@ private fun CalendarLegend() {
     ) {
         LegendTile(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.38f), "Holiday")
         LegendTile(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f), "Exam")
-        LegendDot(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f), "Class")
-        LegendDot(MaterialTheme.colorScheme.tertiary, "Remote")
-        LegendDot(MaterialTheme.colorScheme.onSurface, "Event")
+        LegendTile(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.38f), "Remote")
+        LegendTile(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f), "Class")
+        LegendEvent(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f), "Event")
     }
 }
 
@@ -590,14 +592,23 @@ private fun LegendTile(color: Color, label: String) {
 }
 
 @Composable
-private fun LegendDot(color: Color, label: String) {
+private fun LegendEvent(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
-                .size(7.dp)
-                .clip(CircleShape)
+                .size(12.dp)
+                .clip(RoundedCornerShape(4.dp))
                 .background(color),
-        )
+            contentAlignment = Alignment.TopEnd,
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(1.dp)
+                    .size(3.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onSurface),
+            )
+        }
         Spacer(Modifier.width(5.dp))
         Text(
             text = label,
