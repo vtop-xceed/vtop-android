@@ -39,6 +39,7 @@ fun LockScreen(
     banner: String? = null,
     onUnlock: () -> Unit,
     onSwitchAccount: () -> Unit,
+    onSetUpPin: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -149,6 +150,17 @@ fun LockScreen(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
+
+                TextButton(
+                    onClick = onSetUpPin,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "Set up a PIN",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
 
                 TextButton(
                     onClick = onSwitchAccount,

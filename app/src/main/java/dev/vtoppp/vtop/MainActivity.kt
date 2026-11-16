@@ -50,6 +50,7 @@ import dev.vtoppp.vtop.data.AutoCaptchaClient
 import dev.vtoppp.vtop.data.AutoUpdater
 import dev.vtoppp.vtop.data.UsagePing
 import dev.vtoppp.vtop.data.CredentialVault
+import dev.vtoppp.vtop.data.PinVault
 import dev.vtoppp.vtop.data.SessionCache
 import dev.vtoppp.vtop.data.SessionStore
 import dev.vtoppp.vtop.data.VtopError
@@ -60,6 +61,7 @@ import dev.vtoppp.vtop.ui.home.AutoUpdateDialog
 import dev.vtoppp.vtop.ui.home.HomeScreen
 import dev.vtoppp.vtop.ui.home.HomeViewModel
 import dev.vtoppp.vtop.ui.login.LockScreen
+import dev.vtoppp.vtop.ui.login.PinPadScreen
 import dev.vtoppp.vtop.ui.login.LoginScreen
 import dev.vtoppp.vtop.ui.login.LoginUiState
 import dev.vtoppp.vtop.ui.login.LoginViewModel
@@ -100,6 +102,8 @@ class MainActivity : FragmentActivity() {
             var lockEnabled by remember {
                 mutableStateOf(ThemePreferences.getLockEnabled(this))
             }
+            val pinVault = remember { PinVault(this) }
+            var pinSetup by remember { mutableStateOf(false) }
             val isDark = when (themeMode) {
                 dev.vtoppp.vtop.ui.theme.ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
                 dev.vtoppp.vtop.ui.theme.ThemeMode.LIGHT -> false
@@ -137,7 +141,15 @@ class MainActivity : FragmentActivity() {
                     onLockEnabledChange = { enabled ->
                         lockEnabled = enabled
                         ThemePreferences.setLockEnabled(this, enabled)
+                        if (enabled && !pinVault.hasPin()) {
+                            // A lock without a PIN behind it is not a lock.
+                            pinSetup = true
+                        }
+                        if (!enabled) pinVault.clearPin()
                     },
+                    pinVault = pinVault,
+                    pinSetup = pinSetup,
+                    onPinSetupChange = { pinSetup = it },
                 )
             }
         }
@@ -164,6 +176,9 @@ private fun Root(
     onBlurEnabledChange: (Boolean) -> Unit,
     lockEnabled: Boolean,
     onLockEnabledChange: (Boolean) -> Unit,
+    pinVault: PinVault,
+    pinSetup: Boolean,
+    onPinSetupChange: (Boolean) -> Unit,
 ) {
     val activity = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -206,6 +221,9 @@ private fun Root(
         loginVm.state.collect { s ->
             if (s is LoginUiState.Success) {
                 authorizedId = s.authorizedId
+                // First sign-in on a device with the app lock on: ask for a PIN
+                // (and a fingerprint) before the app hands over the dashboard.
+                if (lockEnabled && !pinVault.hasPin()) onPinSetupChange(true)
                 loginVm.consumePendingRemember()?.let { (user, pass) ->
                     if (user.isNotBlank() && pass.isNotBlank()) {
                         vault.saveCredentials(user, pass)
@@ -248,6 +266,9 @@ private fun Root(
     // Automatically prompt for fingerprint or lockscreen PIN when app is opened in locked state
     LaunchedEffect(isUnlocked, vault.hasCredentials) {
         if (!isUnlocked && vault.hasCredentials) {
+            // With a VTOP PIN the lock screen is the auth surface; the OS
+            // sheet would cover it.
+            if (pinVault.hasPin()) return@LaunchedEffect
             val fa = activity as? FragmentActivity ?: return@LaunchedEffect
             if (isAuthenticating) return@LaunchedEffect
             isAuthenticating = true
@@ -330,6 +351,8 @@ private fun Root(
     }
 
     val branch = when {
+        // The PIN screen owns the enrolment when it was asked for.
+        pinSetup -> "pin"
         vault.hasCredentials && !isUnlocked -> "lock"
         phase == BootPhase.Auto && authorizedId == null -> "auto"
         phase != BootPhase.Login && (phase == BootPhase.Auto || (authorizedId != null && loginVm.hasLiveSession())) -> "home"
@@ -345,8 +368,153 @@ private fun Root(
             label = "rootBranch",
         ) { target ->
         when (target) {
+            "pin" -> {
+                PinPadScreen(
+                    pinSet = pinVault.hasPin(),
+                    biometricAvailable = canUseBiometrics(activity),
+                    onUnlocked = {
+                        isUnlocked = true
+                        vaultBanner = null
+                        onPinSetupChange(false)
+                        if (phase != BootPhase.Auto) phase = BootPhase.Auto
+                    },
+                    onEnrolled = { vaultBanner = null },
+                    onCancel = {
+                        // No PIN was set, so the lock goes back off.
+                        onLockEnabledChange(false)
+                        onPinSetupChange(false)
+                    },
+                    onForgotPin = {},
+                    onUseScreenLock = {
+                        val fa = activity as? FragmentActivity ?: return@PinPadScreen
+                        scope.launch {
+                            val res = fa.promptDeviceAuth(
+                                title = "Unlock VTOP",
+                                subtitle = "Use your screen lock to access",
+                            )
+                            when (res) {
+                                DeviceAuthResult.Success -> {
+                                    isUnlocked = true
+                                    vaultBanner = null
+                                    if (phase != BootPhase.Auto) phase = BootPhase.Auto
+                                }
+                                DeviceAuthResult.Cancelled -> {}
+                                is DeviceAuthResult.Failed -> vaultBanner = res.error
+                                DeviceAuthResult.NotAvailable -> vaultBanner =
+                                    "No screen lock set on this device"
+                            }
+                        }
+                    },
+                    onBiometric = {
+                        val fa = activity as? FragmentActivity ?: return@PinPadScreen
+                        scope.launch {
+                            val res = fa.promptDeviceAuth(
+                                title = "Unlock VTOP",
+                                subtitle = "Use your fingerprint to access",
+                            )
+                            when (res) {
+                                DeviceAuthResult.Success -> {
+                                    isUnlocked = true
+                                    vaultBanner = null
+                                    if (phase != BootPhase.Auto) phase = BootPhase.Auto
+                                }
+                                DeviceAuthResult.Cancelled -> {}
+                                is DeviceAuthResult.Failed -> vaultBanner = res.error
+                                DeviceAuthResult.NotAvailable -> vaultBanner =
+                                    "No biometric or screen lock set on this device"
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             // App Lock screen: shown when user has saved credentials but app is locked
             "lock" -> {
+                if (pinVault.hasPin() || pinSetup) {
+                    PinPadScreen(
+                        pinSet = pinVault.hasPin(),
+                        biometricAvailable = canUseBiometrics(activity),
+                        onUnlocked = {
+                            isUnlocked = true
+                            vaultBanner = null
+                            onPinSetupChange(false)
+                            if (phase != BootPhase.Auto) phase = BootPhase.Auto
+                        },
+                        onEnrolled = { vaultBanner = null },
+                        onCancel = {
+                            onPinSetupChange(false)
+                        },
+                        onForgotPin = {
+                            val fa = activity as? FragmentActivity ?: return@PinPadScreen
+                            scope.launch {
+                                val res = fa.promptDeviceAuth(
+                                    title = "Reset app PIN",
+                                    subtitle = "Verify with your screen lock to reset the PIN",
+                                )
+                                when (res) {
+                                    DeviceAuthResult.Success -> {
+                                        pinVault.clearPin()
+                                        onPinSetupChange(true)
+                                        vaultBanner = null
+                                    }
+                                    DeviceAuthResult.Cancelled -> {}
+                                    is DeviceAuthResult.Failed -> vaultBanner = res.error
+                                    // No device credential: the PIN cannot be
+                                    // recovered, so the account leaves this
+                                    // device instead of unlocking silently.
+                                    DeviceAuthResult.NotAvailable -> {
+                                        pinVault.clearPin()
+                                        vault.clear()
+                                        sessionStore.clear()
+                                        isUnlocked = true
+                                        phase = BootPhase.Login
+                                    }
+                                }
+                            }
+                        },
+                        onUseScreenLock = {
+                            val fa = activity as? FragmentActivity ?: return@PinPadScreen
+                            scope.launch {
+                                val res = fa.promptDeviceAuth(
+                                    title = "Unlock VTOP",
+                                    subtitle = "Use your screen lock to access",
+                                )
+                                when (res) {
+                                    DeviceAuthResult.Success -> {
+                                        isUnlocked = true
+                                        vaultBanner = null
+                                        if (phase != BootPhase.Auto) phase = BootPhase.Auto
+                                    }
+                                    DeviceAuthResult.Cancelled -> {}
+                                    is DeviceAuthResult.Failed -> vaultBanner = res.error
+                                    DeviceAuthResult.NotAvailable -> vaultBanner =
+                                        "No screen lock set on this device"
+                                }
+                            }
+                        },
+                        onBiometric = {
+                            val fa = activity as? FragmentActivity ?: return@PinPadScreen
+                            scope.launch {
+                                val res = fa.promptDeviceAuth(
+                                    title = "Unlock VTOP",
+                                    subtitle = "Use your fingerprint to access",
+                                )
+                                when (res) {
+                                    DeviceAuthResult.Success -> {
+                                        isUnlocked = true
+                                        vaultBanner = null
+                                        if (phase != BootPhase.Auto) phase = BootPhase.Auto
+                                    }
+                                    DeviceAuthResult.Cancelled -> {}
+                                    is DeviceAuthResult.Failed -> vaultBanner = res.error
+                                    DeviceAuthResult.NotAvailable -> vaultBanner =
+                                        "No biometric or screen lock set on this device"
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
                 LockScreen(
                     savedUsername = vault.username,
                     banner = vaultBanner,
@@ -385,8 +553,10 @@ private fun Root(
                         phase = BootPhase.Login
                         vaultBanner = null
                     },
+                    onSetUpPin = { onPinSetupChange(true) },
                     modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
                 )
+                }
             }
             "auto" -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -439,7 +609,6 @@ private fun Root(
                         staleNotice = staleNotice,
                         onStaleNoticeShown = { homeVm.consumeStaleNotice() },
                         onCheckUpdate = { updater.check(force = true) },
-                        onLockApp = { isUnlocked = false },
                         themeMode = themeMode,
                         onThemeModeChange = onThemeModeChange,
                         blurEnabled = blurEnabled,
@@ -490,7 +659,7 @@ private fun Root(
                 }
 
                 Box(
-                    modifier = Modifier.fillMaxSize().padding(bottom = innerPadding.calculateBottomPadding()),
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     LoginScreen(
                         state = if (errorDismissed) LoginUiState.Idle else state,
@@ -538,6 +707,13 @@ private fun Root(
         }
         }
     }
+}
+
+/** True when the device can run a strong biometric prompt. */
+private fun canUseBiometrics(context: android.content.Context): Boolean {
+    val bm = androidx.biometric.BiometricManager.from(context)
+    return bm.canAuthenticate(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
+        androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
 }
 
 // ---------------------------------------------------------------- device auth (fingerprint / lockscreen PIN)
