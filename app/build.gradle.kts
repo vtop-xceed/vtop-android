@@ -39,8 +39,8 @@ android {
         applicationId = "dev.vtoppp.vtop"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "0.4.1"
+        versionCode = 24
+        versionName = "0.4.2"
     }
 
     buildTypes {
