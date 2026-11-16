@@ -1,7 +1,6 @@
 package dev.vtoppp.vtop.ui.login
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
@@ -26,14 +25,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +54,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.PinVault
 import dev.vtoppp.vtop.data.UserDatabase
@@ -122,6 +122,21 @@ fun PinPadScreen(
             delay(500)
         }
         lockedSeconds = 0
+    }
+
+    // A strong biometric unlocks without touching the pad, so offer it as soon
+    // as the screen is up. Enrolment counts too: the fingerprint replaces the
+    // PIN, and the pad is only there for when the sensor says no.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var biometricOffered by remember { mutableStateOf(false) }
+    LaunchedEffect(mode, biometricAvailable) {
+        if (!biometricAvailable) return@LaunchedEffect
+        if (mode != PinMode.Unlock && mode != PinMode.Create) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            if (biometricOffered) return@repeatOnLifecycle
+            biometricOffered = true
+            onBiometric()
+        }
     }
 
     fun submit(pin: String) {
@@ -204,6 +219,12 @@ fun PinPadScreen(
 
         Spacer(Modifier.height(10.dp))
 
+        // The line speaks up only when it has something to say: an error, the
+        // lockout clock, or the note after the PIN is saved.
+        val status = message
+            ?: if (lockedSeconds > 0) "Too many attempts. Try again in ${lockedSeconds}s."
+            else if (mode == PinMode.Saved) "Use it next time you open VTOP"
+            else null
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -212,68 +233,53 @@ fun PinPadScreen(
             contentAlignment = Alignment.Center,
         ) {
             AnimatedContent(
-                targetState = message ?: when {
-                    lockedSeconds > 0 -> "Too many attempts. Try again in ${lockedSeconds}s."
-                    mode == PinMode.Unlock -> "Enter your PIN"
-                    mode == PinMode.Create -> "Choose ${PinVault.PIN_LENGTH} digits"
-                    mode == PinMode.Confirm -> "Enter it once more"
-                    else -> "Use it next time you open VTOP"
-                },
+                targetState = status,
                 transitionSpec = {
                     fadeIn(tween(Motion.Quick)) togetherWith fadeOut(tween(Motion.Fast))
                 },
                 label = "pinMessage",
             ) { text ->
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    color = if (message != null) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
+                if (text != null) {
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        color = if (message != null) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
             }
         }
 
         Spacer(Modifier.weight(0.4f))
 
-        if (mode == PinMode.Create || mode == PinMode.Confirm) {
-            TextButton(onClick = onCancel) {
+        if (mode == PinMode.Saved) {
+            SavedActions(onDone = onUnlocked)
+        } else {
+            // One escape hatch above the pad: reset a forgotten PIN, or walk
+            // away from setting one.
+            TextButton(
+                onClick = { if (mode == PinMode.Unlock) onForgotPin() else onCancel() },
+            ) {
                 Text(
-                    text = "Not now",
+                    text = if (mode == PinMode.Unlock) "Forgot PIN?" else "Not now",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (mode == PinMode.Unlock) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
-        }
-
-        if (mode == PinMode.Saved) {
-            SavedActions(
-                biometricAvailable = biometricAvailable,
-                onBiometric = onBiometric,
-                onDone = onUnlocked,
-            )
-        } else {
             Keypad(
-                biometricAvailable = biometricAvailable && mode != PinMode.Saved,
+                showFingerprint = biometricAvailable && mode == PinMode.Unlock,
                 onDigit = { onDigit(it) },
                 onDelete = { onDelete() },
                 onBiometric = onBiometric,
             )
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        if (mode == PinMode.Unlock) {
-            TextButton(onClick = onForgotPin) {
-                Text(
-                    text = "Forgot PIN?",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
         }
     }
 }
@@ -334,7 +340,7 @@ private fun PinDots(filled: Int, error: Boolean, shakeKey: Int) {
 
 @Composable
 private fun Keypad(
-    biometricAvailable: Boolean,
+    showFingerprint: Boolean,
     onDigit: (Int) -> Unit,
     onDelete: () -> Unit,
     onBiometric: () -> Unit,
@@ -356,7 +362,7 @@ private fun Keypad(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
-                if (biometricAvailable) {
+                if (showFingerprint) {
                     Surface(
                         onClick = onBiometric,
                         shape = CircleShape,
@@ -408,48 +414,20 @@ private fun NumKey(digit: Int, onClick: () -> Unit) {
     }
 }
 
-/** After enrolment: offer the fingerprint, then let the user in. */
+/** After enrolment: the fingerprint is offered on its own next time. */
 @Composable
-private fun SavedActions(
-    biometricAvailable: Boolean,
-    onBiometric: () -> Unit,
-    onDone: () -> Unit,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
+private fun SavedActions(onDone: () -> Unit) {
+    Button(
+        onClick = onDone,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp),
+        shape = RoundedCornerShape(26.dp),
     ) {
-        if (biometricAvailable) {
-            OutlinedButton(
-                onClick = onBiometric,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(24.dp),
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_fingerprint),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Use fingerprint next time")
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-        Button(
-            onClick = onDone,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            shape = RoundedCornerShape(26.dp),
-        ) {
-            Text(
-                text = "Continue",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
+        Text(
+            text = "Continue",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
