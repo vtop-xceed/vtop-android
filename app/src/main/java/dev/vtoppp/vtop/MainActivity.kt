@@ -385,26 +385,6 @@ private fun Root(
                         onPinSetupChange(false)
                     },
                     onForgotPin = {},
-                    onUseScreenLock = {
-                        val fa = activity as? FragmentActivity ?: return@PinPadScreen
-                        scope.launch {
-                            val res = fa.promptDeviceAuth(
-                                title = "Unlock VTOP",
-                                subtitle = "Use your screen lock to access",
-                            )
-                            when (res) {
-                                DeviceAuthResult.Success -> {
-                                    isUnlocked = true
-                                    vaultBanner = null
-                                    if (phase != BootPhase.Auto) phase = BootPhase.Auto
-                                }
-                                DeviceAuthResult.Cancelled -> {}
-                                is DeviceAuthResult.Failed -> vaultBanner = res.error
-                                DeviceAuthResult.NotAvailable -> vaultBanner =
-                                    "No screen lock set on this device"
-                            }
-                        }
-                    },
                     onBiometric = {
                         val fa = activity as? FragmentActivity ?: return@PinPadScreen
                         scope.launch {
@@ -469,26 +449,6 @@ private fun Root(
                                         isUnlocked = true
                                         phase = BootPhase.Login
                                     }
-                                }
-                            }
-                        },
-                        onUseScreenLock = {
-                            val fa = activity as? FragmentActivity ?: return@PinPadScreen
-                            scope.launch {
-                                val res = fa.promptDeviceAuth(
-                                    title = "Unlock VTOP",
-                                    subtitle = "Use your screen lock to access",
-                                )
-                                when (res) {
-                                    DeviceAuthResult.Success -> {
-                                        isUnlocked = true
-                                        vaultBanner = null
-                                        if (phase != BootPhase.Auto) phase = BootPhase.Auto
-                                    }
-                                    DeviceAuthResult.Cancelled -> {}
-                                    is DeviceAuthResult.Failed -> vaultBanner = res.error
-                                    DeviceAuthResult.NotAvailable -> vaultBanner =
-                                        "No screen lock set on this device"
                                 }
                             }
                         },

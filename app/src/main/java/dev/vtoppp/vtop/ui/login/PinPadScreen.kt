@@ -68,7 +68,8 @@ private enum class PinMode { Unlock, Create, Confirm, Saved }
 /**
  * The app-lock screen VTOP owns: a PIN pad in the spirit of a payments app,
  * so authentication reads as a first-class part of VTOP instead of a jump to
- * the OS credential sheet. Fingerprint and the device lock stay one tap away.
+ * the OS credential sheet. The fingerprint key sits in the pad next to 0, and
+ * a forgotten PIN is reset with the device lock.
  */
 @Composable
 fun PinPadScreen(
@@ -78,7 +79,6 @@ fun PinPadScreen(
     onEnrolled: () -> Unit,
     onCancel: () -> Unit = {},
     onForgotPin: () -> Unit,
-    onUseScreenLock: () -> Unit,
     onBiometric: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -162,7 +162,10 @@ fun PinPadScreen(
     fun onDigit(digit: Int) {
         if (lockedSeconds > 0 || mode == PinMode.Saved) return
         if (digits.length >= PinVault.PIN_LENGTH) return
-        digits += digit
+        val next = digits + digit
+        digits = next
+        // The fourth digit is the last key on the pad, so it submits itself.
+        if (next.length == PinVault.PIN_LENGTH) submit(next)
     }
 
     fun onDelete() {
@@ -236,25 +239,6 @@ fun PinPadScreen(
 
         Spacer(Modifier.weight(0.4f))
 
-        if (biometricAvailable && mode != PinMode.Saved) {
-            Spacer(Modifier.height(12.dp))
-            Surface(
-                onClick = onBiometric,
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(56.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_fingerprint),
-                        contentDescription = "Use fingerprint",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(26.dp),
-                    )
-                }
-            }
-        }
-
         if (mode == PinMode.Create || mode == PinMode.Confirm) {
             TextButton(onClick = onCancel) {
                 Text(
@@ -273,10 +257,10 @@ fun PinPadScreen(
             )
         } else {
             Keypad(
-                canSubmit = digits.length == PinVault.PIN_LENGTH,
+                biometricAvailable = biometricAvailable && mode != PinMode.Saved,
                 onDigit = { onDigit(it) },
                 onDelete = { onDelete() },
-                onSubmit = { submit(digits) },
+                onBiometric = onBiometric,
             )
         }
 
@@ -289,22 +273,6 @@ fun PinPadScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
-            }
-            OutlinedButton(
-                onClick = onUseScreenLock,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(24.dp),
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_lock),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Use screen lock", style = MaterialTheme.typography.labelLarge)
             }
         }
     }
@@ -366,10 +334,10 @@ private fun PinDots(filled: Int, error: Boolean, shakeKey: Int) {
 
 @Composable
 private fun Keypad(
-    canSubmit: Boolean,
+    biometricAvailable: Boolean,
     onDigit: (Int) -> Unit,
     onDelete: () -> Unit,
-    onSubmit: () -> Unit,
+    onBiometric: () -> Unit,
 ) {
     val rows = listOf(
         listOf(1, 2, 3),
@@ -388,6 +356,26 @@ private fun Keypad(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
+                if (biometricAvailable) {
+                    Surface(
+                        onClick = onBiometric,
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(56.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_fingerprint),
+                                contentDescription = "Use fingerprint",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            NumKey(0) { onDigit(0) }
+            Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
                 IconButton(onClick = onDelete) {
                     Icon(
                         painter = painterResource(R.drawable.ic_backspace),
@@ -395,33 +383,6 @@ private fun Keypad(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(24.dp),
                     )
-                }
-            }
-            NumKey(0) { onDigit(0) }
-            Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
-                Surface(
-                    onClick = onSubmit,
-                    enabled = canSubmit,
-                    shape = CircleShape,
-                    color = if (canSubmit) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                    },
-                    modifier = Modifier.size(56.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_chevron_right),
-                            contentDescription = "Continue",
-                            tint = if (canSubmit) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            },
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
                 }
             }
         }
