@@ -9,141 +9,141 @@ import java.time.LocalTime
 
 class UserDatabaseScheduleTest {
 
+    private val wednesday = LocalDate.of(2026, 10, 28)
+
+    private fun entry(day: Int, start: String, end: String, code: String) = TimetableEntry(
+        regNo = "24BCY10147",
+        dayOfWeek = day,
+        startTime = start,
+        endTime = end,
+        roomBlock = "AB02",
+        roomNumber = "320",
+        courseCode = code,
+        courseTitle = code,
+    )
+
+    private fun day(days: List<DaySchedule>, name: String): DaySchedule =
+        days.first { it.dayName == name }
+
     @Test
-    fun buildsDynamicScheduleDaysWithOngoingAndClosest() {
-        val testWednesday = LocalDate.of(2026, 10, 28) // Wednesday (dayOfWeek = 3)
-        val currentTime = LocalTime.of(11, 30) // 11:30 AM
-
-        val entries = listOf(
-            TimetableEntry(
-                regNo = "24BCY10147",
-                dayOfWeek = 3, // Wednesday
-                startTime = "09:00 AM",
-                endTime = "10:30 AM",
-                roomBlock = "SJT",
-                roomNumber = "401",
-                courseCode = "CSE2005",
-                courseTitle = "Operating Systems",
-                slots = listOf("A11"),
-                activeSlot = "A11",
-            ),
-            TimetableEntry(
-                regNo = "24BCY10147",
-                dayOfWeek = 3, // Wednesday
-                startTime = "11:00 AM",
-                endTime = "13:10 PM",
-                roomBlock = "AB",
-                roomNumber = "330",
-                courseCode = "STS200",
-                courseTitle = "Soft Skills",
-                slots = listOf("A11", "B11"),
-                activeSlot = "B11",
-            ),
-            TimetableEntry(
-                regNo = "24BCY10147",
-                dayOfWeek = 3, // Wednesday
-                startTime = "14:00 PM",
-                endTime = "15:30 PM",
-                roomBlock = "AB02",
-                roomNumber = "171",
-                courseCode = "CSE3001",
-                courseTitle = "System Design",
-                slots = listOf("A14"),
-                activeSlot = "A14",
-            ),
-        )
-
+    fun stampsTheRunningClassAndTheNextOneUp() {
         val days = UserDatabase.buildScheduleDays(
-            entries = entries,
-            referenceDate = testWednesday,
-            referenceTime = currentTime,
+            entries = listOf(
+                entry(3, "09:00 AM", "10:30 AM", "CSE2005"),
+                entry(3, "11:00 AM", "13:10 PM", "STS200"),
+                entry(3, "14:00 PM", "15:30 PM", "CSE3001"),
+            ),
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(11, 30),
         )
 
         assertEquals(7, days.size)
-
-        // Day 1 is Today (Wednesday)
-        val today = days.find { it.dayName == "Today" }!!
+        val today = day(days, "Today")
         assertEquals(3, today.classes.size)
 
-        val pastClass = today.classes[0]
-        assertFalse(pastClass.isOngoing)
-        assertFalse(pastClass.isClosest)
+        // The 09:00 class is over: neither running nor next up.
+        assertFalse(today.classes[0].isOngoing)
+        assertFalse(today.classes[0].isClosest)
 
-        // 11:00 AM - 13:10 PM should be marked ONGOING at 11:30 AM
-        val runningClass = today.classes[1]
-        assertTrue(runningClass.isOngoing)
-        assertFalse(runningClass.isClosest)
+        // The 11:00 class is running right now.
+        assertTrue(today.classes[1].isOngoing)
+        assertFalse(today.classes[1].isClosest)
 
-        // 14:00 PM is upcoming, not closest because one is already ongoing
-        val upcomingClass = today.classes[2]
-        assertFalse(upcomingClass.isOngoing)
-        assertFalse(upcomingClass.isClosest)
+        // The 14:00 class is next up even while another one runs.
+        assertFalse(today.classes[2].isOngoing)
+        assertTrue(today.classes[2].isClosest)
+    }
+
+    @Test
+    fun promotesTheNextClassTheMomentTheRunningOneEnds() {
+        val days = UserDatabase.buildScheduleDays(
+            entries = listOf(
+                entry(3, "11:00 AM", "13:10 PM", "STS200"),
+                entry(3, "14:00 PM", "15:30 PM", "CSE3001"),
+            ),
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(13, 15),
+        )
+
+        val today = day(days, "Today")
+        assertFalse(today.classes[0].isOngoing)
+        assertTrue(today.classes[1].isClosest)
+    }
+
+    @Test
+    fun marksNextClassFromTheFollowingDayWhenTodayIsDone() {
+        val days = UserDatabase.buildScheduleDays(
+            entries = listOf(
+                entry(3, "09:00 AM", "10:30 AM", "CSE2005"),
+                entry(4, "11:00 AM", "12:00 PM", "CSE2006"),
+            ),
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(16, 0),
+        )
+
+        val today = day(days, "Today")
+        assertTrue(today.classes.none { it.isOngoing || it.isClosest })
+
+        // Tomorrow's first class is the closest one ahead.
+        assertTrue(day(days, "Tomorrow").classes[0].isClosest)
     }
 
     @Test
     fun marksClosestWhenNoClassIsOngoing() {
-        val testWednesday = LocalDate.of(2026, 10, 28) // Wednesday
-        val morningTime = LocalTime.of(8, 30) // 08:30 AM (before first class at 09:00 AM)
-
-        val entries = listOf(
-            TimetableEntry(
-                regNo = "24BCY10147",
-                dayOfWeek = 3,
-                startTime = "09:00 AM",
-                endTime = "10:30 AM",
-                roomBlock = "SJT",
-                roomNumber = "401",
-                courseCode = "CSE2005",
-                courseTitle = "Operating Systems",
-            ),
-            TimetableEntry(
-                regNo = "24BCY10147",
-                dayOfWeek = 3,
-                startTime = "11:00 AM",
-                endTime = "13:10 PM",
-                roomBlock = "AB",
-                roomNumber = "330",
-                courseCode = "STS200",
-                courseTitle = "Soft Skills",
-            ),
-        )
-
         val days = UserDatabase.buildScheduleDays(
-            entries = entries,
-            referenceDate = testWednesday,
-            referenceTime = morningTime,
+            entries = listOf(
+                entry(3, "09:00 AM", "10:30 AM", "CSE2005"),
+                entry(3, "11:00 AM", "13:10 PM", "STS200"),
+            ),
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(8, 30),
         )
 
-        val today = days.find { it.dayName == "Today" }!!
-        // The first class at 09:00 AM should be marked isClosest
+        val today = day(days, "Today")
         assertTrue(today.classes[0].isClosest)
         assertFalse(today.classes[0].isOngoing)
         assertFalse(today.classes[1].isClosest)
     }
 
     @Test
-    fun opensOnTheClosestDayThatHasClasses() {
-        val classOnTuesday = ClassScheduleItem(
-            startTime = "10:05 AM",
-            endTime = "11:35 AM",
-            roomBlock = "AB02",
-            roomNumber = "320",
-            courseCode = "CSD4002",
-            title = "Ethical Hacking",
-        )
-        val days = listOf(
-            DaySchedule(dayName = "Yesterday", dateLabel = "Sat, Nov 14", classes = emptyList()),
-            DaySchedule(dayName = "Today", dateLabel = "Sun, Nov 15", classes = emptyList()),
-            DaySchedule(dayName = "Tomorrow", dateLabel = "Mon, Nov 16", classes = emptyList()),
-            DaySchedule(dayName = "Tuesday", dateLabel = "Tue, Nov 17", classes = listOf(classOnTuesday)),
+    fun ordersClassesByClockTimeNotAlphabetically() {
+        val days = UserDatabase.buildScheduleDays(
+            entries = listOf(
+                entry(3, "1:00 PM", "2:00 PM", "LATE"),
+                entry(3, "12:00 PM", "12:50 PM", "NOON"),
+            ),
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(8, 30),
         )
 
-        assertEquals(3, UserDatabase.nearestClassDayIndex(days))
+        val today = day(days, "Today")
+        assertEquals("12:00 PM", today.classes[0].startTime)
+        assertEquals("1:00 PM", today.classes[1].startTime)
+    }
+
+    @Test
+    fun opensOnTheDayHoldingTheNextClass() {
+        val entries = listOf(
+            entry(3, "09:00 AM", "10:30 AM", "CSE2005"),
+            entry(4, "11:00 AM", "12:00 PM", "CSE2006"),
+        )
+
+        // 16:00 on Wednesday: today is done, so tomorrow holds the next class.
+        val late = UserDatabase.buildScheduleDays(
+            entries = entries,
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(16, 0),
+        )
+        assertEquals(late.indexOfFirst { it.dayName == "Tomorrow" }, UserDatabase.nearestClassDayIndex(late))
+
+        // 08:00 on Wednesday: today still holds the next class.
+        val early = UserDatabase.buildScheduleDays(
+            entries = entries,
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(8, 0),
+        )
+        assertEquals(early.indexOfFirst { it.dayName == "Today" }, UserDatabase.nearestClassDayIndex(early))
+
         assertEquals(0, UserDatabase.nearestClassDayIndex(emptyList()))
-
-        val todayHasClasses = days.map { day ->
-            if (day.dayName == "Today") day.copy(classes = listOf(classOnTuesday)) else day
-        }
-        assertEquals(1, UserDatabase.nearestClassDayIndex(todayHasClasses))
     }
 }

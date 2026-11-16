@@ -471,6 +471,10 @@ class VtopClient(
         }
         for (attempt in 1..MAX_LOGIN_ATTEMPTS) {
             val solution = currentSolution()
+            //: the credential POST is the one leg of the pipeline with no
+            //: narration; without this beat the status line sits on
+            //: "Session ready" while the password is being checked.
+            _warm.value = WarmState.Working("Checking credentials…")
             paceLoginPost()
             lastLoginPostAt = nowMs()
             // POSTs do not follow redirects: the POST itself answers with the

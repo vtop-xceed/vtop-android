@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 
 class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
@@ -601,7 +602,7 @@ object UserDatabase {
 
     /**
      * Builds dynamic day-wise schedule cards from stored timetable entries,
-     * calculating ongoing and closest class status relative to current time.
+     * stamping the running class and the next one to start.
      */
     fun buildScheduleDays(
         entries: List<TimetableEntry>,
@@ -627,16 +628,9 @@ object UserDatabase {
 
             val dayClasses = entries
                 .filter { it.dayOfWeek == dayOfWeekInt }
-                .sortedBy { it.startTime }
+                // clock order, not alphabetical: "1:00 PM" sorts before "12:00 PM"
+                .sortedBy { parseTime(it.startTime)?.toSecondOfDay() ?: Int.MAX_VALUE }
                 .map { entry ->
-                    var isOngoing = false
-                    if (offset == 0) {
-                        val start = parseTime(entry.startTime)
-                        val end = parseTime(entry.endTime)
-                        if (start != null && end != null) {
-                            isOngoing = !referenceTime.isBefore(start) && !referenceTime.isAfter(end)
-                        }
-                    }
                     ClassScheduleItem(
                         startTime = entry.startTime,
                         endTime = entry.endTime,
@@ -646,37 +640,48 @@ object UserDatabase {
                         title = entry.courseTitle,
                         slots = entry.slots,
                         activeSlot = entry.activeSlot,
-                        isOngoing = isOngoing,
+                        isOngoing = false,
                         isClosest = false,
                         date = date,
                         attendanceStatus = lookupSessionStatus(date, entry.courseCode, entry.slots, sessions),
                     )
-                }.toMutableList()
-
-            // If no class is currently ongoing on Today, mark the closest upcoming class
-            if (offset == 0 && dayClasses.none { it.isOngoing }) {
-                val closestIdx = dayClasses.indexOfFirst {
-                    val start = parseTime(it.startTime)
-                    start != null && start.isAfter(referenceTime)
                 }
-                if (closestIdx >= 0) {
-                    dayClasses[closestIdx] = dayClasses[closestIdx].copy(isClosest = true)
-                }
-            }
 
             days.add(DaySchedule(dayName = dayName, dateLabel = dateLabel, classes = dayClasses))
         }
-        return days
+        return stampLiveStatus(days, referenceDate.atTime(referenceTime))
+    }
+
+    /** This class as an instant on its own day. */
+    private fun ClassScheduleItem.at(time: String): LocalDateTime? =
+        date?.let { day -> parseTime(time)?.let { day.atTime(it) } }
+
+    /** Stamps the class running at [now] and the next one to start. */
+    private fun stampLiveStatus(days: List<DaySchedule>, now: LocalDateTime): List<DaySchedule> {
+        val today = now.toLocalDate()
+        val ahead = days.flatMap { it.classes }.filter { it.date != null && !it.date.isBefore(today) }
+        val running = ahead.firstOrNull { c ->
+            val start = c.at(c.startTime)
+            val end = c.at(c.endTime)?.let { if (start != null && it <= start) it.plusDays(1) else it }
+            start != null && end != null && !now.isBefore(start) && now.isBefore(end)
+        }
+        val upcoming = ahead.firstOrNull { c -> c.at(c.startTime)?.isAfter(now) == true }
+        return days.map { day ->
+            day.copy(classes = day.classes.map { c ->
+                c.copy(isOngoing = c == running, isClosest = c == upcoming)
+            })
+        }
     }
 
     /**
-     * Index of the day the timeline should open on: today when it has classes,
-     * otherwise the next day that has any. Never yesterday.
+     * Index of the day the timeline should open on: the day holding the class
+     * that is running or next up, otherwise today. Never yesterday.
      */
     fun nearestClassDayIndex(days: List<DaySchedule>): Int {
         if (days.isEmpty()) return 0
         val todayIndex = days.indexOfFirst { it.dayName == "Today" }.coerceAtLeast(0)
-        return (todayIndex until days.size).firstOrNull { days[it].classes.isNotEmpty() } ?: todayIndex
+        val marked = days.indexOfFirst { d -> d.classes.any { it.isOngoing || it.isClosest } }
+        return if (marked >= todayIndex) marked else todayIndex
     }
 
     private fun lookupSessionStatus(

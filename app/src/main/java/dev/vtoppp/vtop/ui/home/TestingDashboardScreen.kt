@@ -78,6 +78,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -118,6 +121,7 @@ import dev.vtoppp.vtop.data.UserProfile
 import dev.vtoppp.vtop.ui.theme.AppPalette
 import dev.vtoppp.vtop.ui.theme.Motion
 import dev.vtoppp.vtop.ui.theme.StatusColors
+import java.time.LocalDateTime
 import kotlin.math.absoluteValue
 
 data class SubjectAttendance(
@@ -137,13 +141,12 @@ fun TestingDashboardScreen(
     onOpenService: (MenuItem) -> Unit,
     pill: PillState = PillState(PillKind.Ready, "Connected"),
     onCheckUpdate: () -> Unit = {},
-    onLockApp: () -> Unit = {},
     onSignOut: () -> Unit = {},
     onBridgeRetry: () -> Unit = {},
     onRefresh: () -> Unit = {},
     marksNotice: String? = null,
     onMarksNoticeShown: () -> Unit = {},
-    currentPalette: AppPalette = AppPalette.Dynamic,
+    currentPalette: AppPalette = AppPalette.Material,
     onPaletteChange: (AppPalette) -> Unit = {},
     themeMode: dev.vtoppp.vtop.ui.theme.ThemeMode = dev.vtoppp.vtop.ui.theme.ThemeMode.DARK,
     onThemeModeChange: (dev.vtoppp.vtop.ui.theme.ThemeMode) -> Unit = {},
@@ -170,22 +173,37 @@ fun TestingDashboardScreen(
 
     val storedTimetable by UserDatabase.timetableFlow.collectAsState()
     val liveSessions by UserDatabase.attendanceSessionsFlow.collectAsState()
-    val scheduleDays = remember(storedTimetable, liveSessions) {
-        UserDatabase.buildScheduleDays(storedTimetable, liveSessions)
+    // The highlight has to follow the clock, so the clock is state, not a
+    // value captured once when the timetable loads.
+    var now by remember { mutableStateOf(LocalDateTime.now()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(60_000)
+                now = LocalDateTime.now()
+            }
+        }
     }
 
-    // Open on the closest day that actually has classes. The timetable lands
-    // after the first frame, so the page is jumped once, not on every rebuild.
+    val scheduleDays = remember(storedTimetable, liveSessions, now) {
+        UserDatabase.buildScheduleDays(
+            storedTimetable,
+            liveSessions,
+            now.toLocalDate(),
+            now.toLocalTime(),
+        )
+    }
+
+    // Follow the day that holds the next class, but never mid-swipe.
     val classDayIndex = remember(scheduleDays) { UserDatabase.nearestClassDayIndex(scheduleDays) }
     val horizontalPagerState = rememberPagerState(
         initialPage = classDayIndex,
         pageCount = { scheduleDays.size },
     )
-    var openedOnClassDay by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(scheduleDays.size, classDayIndex) {
-        if (scheduleDays.isEmpty() || openedOnClassDay) return@LaunchedEffect
-        openedOnClassDay = true
-        if (horizontalPagerState.currentPage != classDayIndex) {
+    LaunchedEffect(classDayIndex) {
+        if (scheduleDays.isEmpty()) return@LaunchedEffect
+        if (horizontalPagerState.currentPage != classDayIndex && !horizontalPagerState.isScrollInProgress) {
             horizontalPagerState.scrollToPage(classDayIndex)
         }
     }
@@ -283,7 +301,6 @@ fun TestingDashboardScreen(
                 autoUpdateEnabled = autoUpdateEnabled,
                 onAutoUpdateEnabledChange = onAutoUpdateEnabledChange,
                 onCheckUpdate = onCheckUpdate,
-                onLockApp = onLockApp,
                 onSignOut = onSignOut,
                 onRefresh = onRefresh,
             )
@@ -325,7 +342,7 @@ fun TestingDashboardScreen(
 
                             Text(
                                 text = greeting,
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MaterialTheme.typography.titleSmall.copy(fontSize = 18.sp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontFamily = typography.fontFamily,
                                 fontWeight = typography.greetingWeight,
@@ -343,11 +360,13 @@ fun TestingDashboardScreen(
                                 val spacerPx = with(density) { 6.dp.roundToPx() }
 
                                 val baseFirstStyle = MaterialTheme.typography.headlineLarge.copy(
+                                    fontSize = 36.sp,
                                     fontWeight = typography.nameWeight,
                                     fontFamily = typography.fontFamily,
                                     letterSpacing = typography.letterSpacing,
                                 )
                                 val secondaryStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = 18.sp,
                                     fontWeight = typography.greetingWeight,
                                     fontFamily = typography.fontFamily,
                                     letterSpacing = typography.letterSpacing,
