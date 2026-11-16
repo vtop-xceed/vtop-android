@@ -83,6 +83,8 @@ fun HomeScreen(
     onBlurEnabledChange: (Boolean) -> Unit = {},
     lockEnabled: Boolean = true,
     onLockEnabledChange: (Boolean) -> Unit = {},
+    pinSet: Boolean = false,
+    onAddPin: () -> Unit = {},
     autoUpdateEnabled: Boolean = true,
     onAutoUpdateEnabledChange: (Boolean) -> Unit = {},
 ) {
@@ -105,6 +107,8 @@ fun HomeScreen(
             onBlurEnabledChange = onBlurEnabledChange,
             lockEnabled = lockEnabled,
             onLockEnabledChange = onLockEnabledChange,
+            pinSet = pinSet,
+            onAddPin = onAddPin,
             autoUpdateEnabled = autoUpdateEnabled,
             onAutoUpdateEnabledChange = onAutoUpdateEnabledChange,
             sections = state.sections,

@@ -26,8 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,8 +33,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +51,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -63,34 +62,67 @@ import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.ui.theme.Motion
 import kotlinx.coroutines.delay
 
-private enum class PinMode { Unlock, Create, Confirm, Saved }
+/**
+ * The app lock VTOP owns, in two pieces:
+ *
+ * - [AppLockScreen] is the lock itself. A strong biometric is offered the
+ *   moment the screen is up, so the pad is the fallback, not the first thing
+ *   to type.
+ * - [PinSetupScreen] is the one-off flow that sets a PIN. It is not part of
+ *   the lock: the PIN is the extra key that opens the pad when the sensor
+ *   says no.
+ */
+
+/** The two steps of setting a PIN. */
+internal enum class PinSetupStep { Create, Confirm }
+
+/** What the pad does with a full PIN. */
+internal sealed interface PinSetupOutcome {
+    /** The first entry is kept; ask for it once more. */
+    data object NeedsConfirm : PinSetupOutcome
+
+    /** Both entries match, so the PIN is good. */
+    data object Saved : PinSetupOutcome
+
+    /** The entries differ, so start over. */
+    data object Mismatch : PinSetupOutcome
+}
 
 /**
- * The app-lock screen VTOP owns: a PIN pad in the spirit of a payments app,
- * so authentication reads as a first-class part of VTOP instead of a jump to
- * the OS credential sheet. The fingerprint key sits in the pad next to 0, and
- * a forgotten PIN is reset with the device lock.
+ * The setup rule, kept pure so the flow can be checked without a device.
+ */
+internal fun pinSetupOutcome(
+    step: PinSetupStep,
+    first: String?,
+    entered: String,
+): PinSetupOutcome = when (step) {
+    PinSetupStep.Create -> PinSetupOutcome.NeedsConfirm
+    PinSetupStep.Confirm ->
+        if (first == entered) PinSetupOutcome.Saved else PinSetupOutcome.Mismatch
+}
+
+/**
+ * The lock screen. The fingerprint is offered on its own; a PIN, if one was
+ * set, is typed on the pad below it.
  */
 @Composable
-fun PinPadScreen(
+fun AppLockScreen(
     pinSet: Boolean,
     biometricAvailable: Boolean,
+    banner: String? = null,
     onUnlocked: () -> Unit,
-    onEnrolled: () -> Unit,
-    onCancel: () -> Unit = {},
     onForgotPin: () -> Unit,
-    onBiometric: () -> Unit,
+    onDeviceAuth: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val vault = remember { PinVault(context) }
-    var mode by remember { mutableStateOf(if (vault.hasPin()) PinMode.Unlock else PinMode.Create) }
     var digits by remember { mutableStateOf("") }
-    var firstPin by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var shakeKey by remember { mutableIntStateOf(0) }
     var lockedSeconds by remember { mutableIntStateOf(0) }
     var attempts by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     val profile = UserDatabase.profileFlow.collectAsState().value
     val greeting = profile?.name?.takeIf { it.isNotBlank() }?.let { "Hi $it" } ?: "VTOP is locked"
@@ -103,18 +135,9 @@ fun PinPadScreen(
         }
     }
 
-    // The parent clears the PIN after a verified reset: fall back to enrolment.
-    LaunchedEffect(pinSet) {
-        if (!pinSet && mode == PinMode.Unlock) {
-            mode = PinMode.Create
-            digits = ""
-            message = null
-        }
-    }
-
     // The lockout countdown is the one thing that has to tick, and only while
     // a lockout is actually running.
-    LaunchedEffect(mode, attempts) {
+    LaunchedEffect(attempts) {
         while (true) {
             val wait = vault.lockedUntil() - System.currentTimeMillis()
             if (wait <= 0) break
@@ -125,66 +148,26 @@ fun PinPadScreen(
     }
 
     // A strong biometric unlocks without touching the pad, so offer it as soon
-    // as the screen is up. Enrolment counts too: the fingerprint replaces the
-    // PIN, and the pad is only there for when the sensor says no.
-    val lifecycleOwner = LocalLifecycleOwner.current
+    // as the screen is up.
     var biometricOffered by remember { mutableStateOf(false) }
-    LaunchedEffect(mode, biometricAvailable) {
+    LaunchedEffect(biometricAvailable) {
         if (!biometricAvailable) return@LaunchedEffect
-        if (mode != PinMode.Unlock && mode != PinMode.Create) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             if (biometricOffered) return@repeatOnLifecycle
             biometricOffered = true
-            onBiometric()
+            onDeviceAuth()
         }
     }
 
     fun submit(pin: String) {
-        when (mode) {
-            PinMode.Unlock -> {
-                if (vault.verify(pin)) {
-                    message = null
-                    onUnlocked()
-                } else {
-                    message = "Wrong PIN. Try again."
-                    attempts++
-                    shakeKey++
-                }
-            }
-            PinMode.Create -> {
-                firstPin = pin
-                mode = PinMode.Confirm
-                digits = ""
-                message = null
-            }
-            PinMode.Confirm -> {
-                if (pin == firstPin) {
-                    vault.setPin(pin)
-                    mode = PinMode.Saved
-                    message = null
-                    onEnrolled()
-                } else {
-                    mode = PinMode.Create
-                    firstPin = null
-                    message = "PINs did not match. Start again."
-                    shakeKey++
-                }
-            }
-            PinMode.Saved -> Unit
+        if (vault.verify(pin)) {
+            message = null
+            onUnlocked()
+        } else {
+            message = "Wrong PIN. Try again."
+            attempts++
+            shakeKey++
         }
-    }
-
-    fun onDigit(digit: Int) {
-        if (lockedSeconds > 0 || mode == PinMode.Saved) return
-        if (digits.length >= PinVault.PIN_LENGTH) return
-        val next = digits + digit
-        digits = next
-        // The fourth digit is the last key on the pad, so it submits itself.
-        if (next.length == PinVault.PIN_LENGTH) submit(next)
-    }
-
-    fun onDelete() {
-        if (digits.isNotEmpty()) digits = digits.dropLast(1)
     }
 
     Column(
@@ -198,12 +181,138 @@ fun PinPadScreen(
         Spacer(Modifier.weight(0.6f))
 
         Text(
-            text = when (mode) {
-                PinMode.Unlock -> greeting
-                PinMode.Create -> "Create a PIN"
-                PinMode.Confirm -> "Confirm your PIN"
-                PinMode.Saved -> "PIN saved"
-            },
+            text = greeting,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+
+        Spacer(Modifier.height(14.dp))
+
+        if (pinSet) {
+            PinDots(
+                filled = digits.length,
+                error = message != null,
+                shakeKey = shakeKey,
+            )
+
+            Spacer(Modifier.height(10.dp))
+        }
+
+        StatusLine(
+            text = message
+                ?: if (lockedSeconds > 0) "Too many attempts. Try again in ${lockedSeconds}s."
+                else banner,
+            isError = message != null || lockedSeconds > 0,
+        )
+
+        Spacer(Modifier.weight(0.4f))
+
+        if (pinSet) {
+            TextButton(onClick = onForgotPin) {
+                Text(
+                    text = "Forgot PIN?",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Keypad(
+                showFingerprint = biometricAvailable,
+                onDigit = { digit ->
+                    if (lockedSeconds > 0) return@Keypad
+                    if (digits.length >= PinVault.PIN_LENGTH) return@Keypad
+                    val next = digits + digit
+                    digits = next
+                    // The fourth digit is the last key on the pad, so it
+                    // submits itself.
+                    if (next.length == PinVault.PIN_LENGTH) submit(next)
+                },
+                onDelete = { if (digits.isNotEmpty()) digits = digits.dropLast(1) },
+                onDeviceAuth = onDeviceAuth,
+            )
+        } else {
+            // No PIN: the device itself is the lock, so one key takes the
+            // whole stage.
+            AuthKey(
+                onClick = onDeviceAuth,
+                icon = if (biometricAvailable) R.drawable.ic_fingerprint else R.drawable.ic_lock,
+                size = 72.dp,
+                iconSize = 34.dp,
+                description = "Unlock",
+            )
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = if (biometricAvailable) {
+                    "Touch the sensor to unlock"
+                } else {
+                    "Use your screen lock to unlock"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * Sets a PIN: type it, type it again, done. The fingerprint never appears
+ * here, because a PIN is the fallback for when the sensor says no.
+ */
+@Composable
+fun PinSetupScreen(
+    onDone: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val vault = remember { PinVault(context) }
+    var step by remember { mutableStateOf(PinSetupStep.Create) }
+    var first by remember { mutableStateOf<String?>(null) }
+    var digits by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf<String?>(null) }
+    var shakeKey by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(shakeKey) {
+        if (shakeKey > 0) {
+            delay(320)
+            digits = ""
+        }
+    }
+
+    fun submit(pin: String) {
+        when (pinSetupOutcome(step, first, pin)) {
+            PinSetupOutcome.NeedsConfirm -> {
+                first = pin
+                step = PinSetupStep.Confirm
+                digits = ""
+                message = null
+            }
+            PinSetupOutcome.Saved -> {
+                vault.setPin(pin)
+                message = null
+                onDone()
+            }
+            PinSetupOutcome.Mismatch -> {
+                first = null
+                step = PinSetupStep.Create
+                message = "PINs did not match. Start again."
+                shakeKey++
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.weight(0.6f))
+
+        Text(
+            text = if (step == PinSetupStep.Create) "Create a PIN" else "Confirm your PIN",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -219,67 +328,61 @@ fun PinPadScreen(
 
         Spacer(Modifier.height(10.dp))
 
-        // The line speaks up only when it has something to say: an error, the
-        // lockout clock, or the note after the PIN is saved.
-        val status = message
-            ?: if (lockedSeconds > 0) "Too many attempts. Try again in ${lockedSeconds}s."
-            else if (mode == PinMode.Saved) "Use it next time you open VTOP"
-            else null
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(22.dp)
-                .semantics { liveRegion = LiveRegionMode.Assertive },
-            contentAlignment = Alignment.Center,
-        ) {
-            AnimatedContent(
-                targetState = status,
-                transitionSpec = {
-                    fadeIn(tween(Motion.Quick)) togetherWith fadeOut(tween(Motion.Fast))
-                },
-                label = "pinMessage",
-            ) { text ->
-                if (text != null) {
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = if (message != null) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-            }
-        }
+        StatusLine(text = message, isError = message != null)
 
         Spacer(Modifier.weight(0.4f))
 
-        if (mode == PinMode.Saved) {
-            SavedActions(onDone = onUnlocked)
-        } else {
-            // One escape hatch above the pad: reset a forgotten PIN, or walk
-            // away from setting one.
-            TextButton(
-                onClick = { if (mode == PinMode.Unlock) onForgotPin() else onCancel() },
-            ) {
+        TextButton(onClick = onCancel) {
+            Text(
+                text = "Not now",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Keypad(
+            showFingerprint = false,
+            onDigit = { digit ->
+                if (digits.length >= PinVault.PIN_LENGTH) return@Keypad
+                val next = digits + digit
+                digits = next
+                if (next.length == PinVault.PIN_LENGTH) submit(next)
+            },
+            onDelete = { if (digits.isNotEmpty()) digits = digits.dropLast(1) },
+            onDeviceAuth = {},
+        )
+    }
+}
+
+/** One line of feedback: an error, a lockout clock, or a note. */
+@Composable
+private fun StatusLine(text: String?, isError: Boolean) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(22.dp)
+            .semantics { liveRegion = LiveRegionMode.Assertive },
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedContent(
+            targetState = text,
+            transitionSpec = {
+                fadeIn(tween(Motion.Quick)) togetherWith fadeOut(tween(Motion.Fast))
+            },
+            label = "pinMessage",
+        ) { shown ->
+            if (shown != null) {
                 Text(
-                    text = if (mode == PinMode.Unlock) "Forgot PIN?" else "Not now",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (mode == PinMode.Unlock) {
-                        MaterialTheme.colorScheme.primary
+                    text = shown,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    color = if (isError) {
+                        MaterialTheme.colorScheme.error
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
             }
-            Keypad(
-                showFingerprint = biometricAvailable && mode == PinMode.Unlock,
-                onDigit = { onDigit(it) },
-                onDelete = { onDelete() },
-                onBiometric = onBiometric,
-            )
         }
     }
 }
@@ -338,12 +441,16 @@ private fun PinDots(filled: Int, error: Boolean, shakeKey: Int) {
     }
 }
 
+/**
+ * The pad. The fingerprint key sits left of 0 and backspace right of it, and
+ * the fourth digit submits itself.
+ */
 @Composable
 private fun Keypad(
     showFingerprint: Boolean,
     onDigit: (Int) -> Unit,
     onDelete: () -> Unit,
-    onBiometric: () -> Unit,
+    onDeviceAuth: () -> Unit,
 ) {
     val rows = listOf(
         listOf(1, 2, 3),
@@ -363,21 +470,13 @@ private fun Keypad(
         ) {
             Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
                 if (showFingerprint) {
-                    Surface(
-                        onClick = onBiometric,
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(56.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_fingerprint),
-                                contentDescription = "Use fingerprint",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(26.dp),
-                            )
-                        }
-                    }
+                    AuthKey(
+                        onClick = onDeviceAuth,
+                        icon = R.drawable.ic_fingerprint,
+                        size = 56.dp,
+                        iconSize = 26.dp,
+                        description = "Use fingerprint",
+                    )
                 }
             }
             NumKey(0) { onDigit(0) }
@@ -414,20 +513,28 @@ private fun NumKey(digit: Int, onClick: () -> Unit) {
     }
 }
 
-/** After enrolment: the fingerprint is offered on its own next time. */
+/** The one round key that is not a digit: the fingerprint or the screen lock. */
 @Composable
-private fun SavedActions(onDone: () -> Unit) {
-    Button(
-        onClick = onDone,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(52.dp),
-        shape = RoundedCornerShape(26.dp),
+private fun AuthKey(
+    onClick: () -> Unit,
+    icon: Int,
+    size: Dp,
+    iconSize: Dp,
+    description: String,
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        modifier = Modifier.size(size),
     ) {
-        Text(
-            text = "Continue",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = description,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(iconSize),
+            )
+        }
     }
 }

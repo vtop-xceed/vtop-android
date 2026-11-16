@@ -7,9 +7,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,8 +47,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -86,6 +82,8 @@ internal fun SettingsPage(
     onBlurEnabledChange: (Boolean) -> Unit,
     lockEnabled: Boolean,
     onLockEnabledChange: (Boolean) -> Unit,
+    pinSet: Boolean,
+    onAddPin: () -> Unit,
     autoUpdateEnabled: Boolean,
     onAutoUpdateEnabledChange: (Boolean) -> Unit,
     onCheckUpdate: () -> Unit,
@@ -154,6 +152,18 @@ internal fun SettingsPage(
                         checked = lockEnabled,
                         onCheckedChange = onLockEnabledChange,
                     )
+                    if (lockEnabled && !pinSet) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 6.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                        )
+                        ActionRow(
+                            icon = null,
+                            label = "Add a PIN",
+                            onClick = onAddPin,
+                            trailing = R.drawable.ic_chevron_right,
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(18.dp))
