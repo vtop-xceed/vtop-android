@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
@@ -16,10 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -33,8 +29,8 @@ import dev.vtoppp.vtop.ui.theme.Motion
  * The single popup driving the whole update flow:
  *
  *  - [AutoUpdateState.Available] — "new release" card; [Update] starts the
- *    download (the auto-check toggle lives here so the option stays discoverable
- *    exactly when an update exists);
+ *    download (the auto-check toggle lives in Settings, next to the check
+ *    button, so one place owns the preference);
  *  - [AutoUpdateState.Downloading] — Android loading animation + megabyte counter;
  *  - [AutoUpdateState.Ready] — final instruction card: pressing [Update] hands the
  *    downloaded APK to the system installer;
@@ -46,7 +42,6 @@ fun AutoUpdateDialog(
     updater: AutoUpdater,
 ) {
     val state = updater.state
-    var autoCheck by remember { mutableStateOf(updater.autoCheckEnabled) }
 
     when (val s = state) {
         is AutoUpdateState.Idle -> Unit
@@ -75,10 +70,6 @@ fun AutoUpdateDialog(
                         title = s.release.title,
                         tagLine = "v" + s.release.version + " · " + s.release.apkNameSizeLine(),
                     )
-                    AutoCheckRow(autoCheck) {
-                        autoCheck = it
-                        updater.autoCheckEnabled = it
-                    }
                 }
             },
             confirmButton = {
@@ -159,10 +150,6 @@ fun AutoUpdateDialog(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     UpdateBody(title = s.reason, tagLine = null)
-                    AutoCheckRow(autoCheck) {
-                        autoCheck = it
-                        updater.autoCheckEnabled = it
-                    }
                 }
             },
             confirmButton = {
@@ -182,28 +169,9 @@ fun AutoUpdateDialog(
                         title = "You're running the latest release (v" + s.currentVersion + ").",
                         tagLine = null,
                     )
-                    AutoCheckRow(autoCheck) {
-                        autoCheck = it
-                        updater.autoCheckEnabled = it
-                    }
                 }
             },
             confirmButton = { TextButton(onClick = updater::reset) { Text("OK") } },
-        )
-    }
-}
-
-@Composable
-private fun AutoCheckRow(checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Checkbox(checked = checked, onCheckedChange = onChange)
-        Text(
-            "Check for updates at startup",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(start = 4.dp),
         )
     }
 }

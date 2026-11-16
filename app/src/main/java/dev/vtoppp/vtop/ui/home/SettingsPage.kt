@@ -1,14 +1,14 @@
 package dev.vtoppp.vtop.ui.home
 
+import android.os.Build
+
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,12 +27,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -45,20 +48,30 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.vtoppp.vtop.BuildConfig
 import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.data.ThirdPartyServices
 import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.data.UserProfile
+import dev.vtoppp.vtop.ui.theme.AccentColorSheet
 import dev.vtoppp.vtop.ui.theme.AppPalette
 import dev.vtoppp.vtop.ui.theme.ThemeMode
+
+private val DEFAULT_CUSTOM_ACCENT = Color(0xFF6B4EA2)
 
 // ponytail: one settings surface for the app; each group sits in its own card
 @Composable
@@ -76,7 +89,6 @@ internal fun SettingsPage(
     autoUpdateEnabled: Boolean,
     onAutoUpdateEnabledChange: (Boolean) -> Unit,
     onCheckUpdate: () -> Unit,
-    onLockApp: () -> Unit,
     onSignOut: () -> Unit,
     onRefresh: () -> Unit = {},
 ) {
@@ -113,7 +125,7 @@ internal fun SettingsPage(
 
                 Spacer(Modifier.height(14.dp))
 
-                IdentityCard(authorizedId, userProfile)
+                IdentityCard(authorizedId, userProfile, onSignOut = { confirmSignOut = true })
 
                 Spacer(Modifier.height(18.dp))
                 SectionLabel("Appearance")
@@ -130,14 +142,7 @@ internal fun SettingsPage(
                         modifier = Modifier.padding(vertical = 14.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                     )
-                    Text(
-                        text = "Accent",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    AccentDots(currentPalette = currentPalette, onPaletteChange = onPaletteChange)
+                    AccentChoices(currentPalette = currentPalette, onPaletteChange = onPaletteChange)
                 }
 
                 Spacer(Modifier.height(18.dp))
@@ -145,26 +150,10 @@ internal fun SettingsPage(
                 SettingsCard {
                     SettingToggleRow(
                         title = "App lock",
-                        subtitle = "Require fingerprint or PIN to open VTOP++",
+                        subtitle = "Require fingerprint/PIN at startup",
                         checked = lockEnabled,
                         onCheckedChange = onLockEnabledChange,
                     )
-                    AnimatedVisibility(
-                        visible = lockEnabled,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically(),
-                    ) {
-                        Column {
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                            )
-                            ActionRow(
-                                icon = R.drawable.ic_lock,
-                                label = "Lock app now",
-                                onClick = onLockApp,
-                            )
-                        }
-                    }
                 }
 
                 Spacer(Modifier.height(18.dp))
@@ -177,20 +166,16 @@ internal fun SettingsPage(
                         onCheckedChange = onBlurEnabledChange,
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    SettingToggleRow(
-                        title = "Auto-update check",
-                        subtitle = "Ping for new builds on launch",
-                        checked = autoUpdateEnabled,
-                        onCheckedChange = onAutoUpdateEnabledChange,
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    ActionRow(
-                        icon = R.drawable.ic_update,
-                        label = "Check for update",
-                        trailing = R.drawable.ic_chevron_right,
-                        onClick = onCheckUpdate,
+                    UpdateCheckRow(
+                        autoUpdateEnabled = autoUpdateEnabled,
+                        onAutoUpdateEnabledChange = onAutoUpdateEnabledChange,
+                        onCheckUpdate = onCheckUpdate,
                     )
                 }
+
+                Spacer(Modifier.height(18.dp))
+                SectionLabel("Add-ons")
+                AddOnCard()
 
                 Spacer(Modifier.height(18.dp))
                 SectionLabel("About")
@@ -202,31 +187,6 @@ internal fun SettingsPage(
                         label = "Source code",
                         trailing = R.drawable.ic_chevron_right,
                         onClick = { openSourceRepo(context) },
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    Text(
-                        text = "Sends one anonymous ping per day so I can see how many people " +
-                            "use VTOP++. No identifiers, no personal data.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 12.dp),
-                    )
-                }
-
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("Account")
-                Surface(
-                    onClick = { confirmSignOut = true },
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = "Sign out",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     )
                 }
 
@@ -246,6 +206,9 @@ internal fun SettingsPage(
                         confirmSignOut = false
                         onSignOut()
                     },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
                 ) { Text("Sign out") }
             },
             dismissButton = {
@@ -256,7 +219,7 @@ internal fun SettingsPage(
 }
 
 @Composable
-private fun IdentityCard(authorizedId: String, userProfile: UserProfile?) {
+private fun IdentityCard(authorizedId: String, userProfile: UserProfile?, onSignOut: () -> Unit) {
     val liveProfile = UserDatabase.profileFlow.collectAsState().value ?: userProfile
     val displayName = liveProfile?.name?.takeIf { it.isNotBlank() && it != authorizedId }
     val initial = (liveProfile?.name?.firstOrNull() ?: authorizedId.firstOrNull())?.uppercase() ?: "V"
@@ -284,18 +247,22 @@ private fun IdentityCard(authorizedId: String, userProfile: UserProfile?) {
                 }
             }
             Spacer(Modifier.width(14.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = displayName ?: authorizedId,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (displayName != null) {
                     Text(
                         text = authorizedId,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 val programme = listOfNotNull(
@@ -308,8 +275,18 @@ private fun IdentityCard(authorizedId: String, userProfile: UserProfile?) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+            Spacer(Modifier.width(10.dp))
+            IconButton(onClick = onSignOut) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_logout),
+                    contentDescription = "Sign out",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(22.dp),
+                )
             }
         }
     }
@@ -356,31 +333,68 @@ private fun ThemeChips(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> U
     }
 }
 
+/** Two choices: the platform's Material colours, or a colour the user picks. */
 @Composable
-private fun AccentDots(currentPalette: AppPalette, onPaletteChange: (AppPalette) -> Unit) {
+private fun AccentChoices(currentPalette: AppPalette, onPaletteChange: (AppPalette) -> Unit) {
+    var showPicker by remember { mutableStateOf(false) }
+    val custom = (currentPalette as? AppPalette.Custom)?.seed ?: DEFAULT_CUSTOM_ACCENT
     Row(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AppPalette.entries.forEach { p ->
-            if (p == AppPalette.Dynamic) {
-                DynamicPaletteDot(selected = currentPalette == p, onClick = { onPaletteChange(p) })
-            } else {
-                PaletteDot(palette = p, selected = currentPalette == p, onClick = { onPaletteChange(p) })
-            }
-        }
         Text(
-            text = currentPalette.displayName,
+            text = "Accent",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = if (currentPalette is AppPalette.Custom) "Custom" else "Material theme",
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 4.dp),
+        )
+        PaletteDot(
+            color = materialAccentColor(),
+            selected = currentPalette is AppPalette.Material,
+            onClick = { onPaletteChange(AppPalette.Material) },
+        )
+        PaletteDot(
+            color = custom,
+            selected = currentPalette is AppPalette.Custom,
+            onClick = { showPicker = true },
+        )
+    }
+
+    if (showPicker) {
+        AccentColorSheet(
+            initial = custom,
+            onDismiss = { showPicker = false },
+            onConfirm = { color ->
+                onPaletteChange(AppPalette.Custom(color))
+                showPicker = false
+            },
         )
     }
 }
 
+/** The platform's own accent, so the first circle always means "Material". */
 @Composable
-private fun PaletteDot(palette: AppPalette, selected: Boolean, onClick: () -> Unit) {
+private fun materialAccentColor(): Color {
+    val context = LocalContext.current
+    val dark = isSystemInDarkTheme()
+    return remember(dark) {
+        if (Build.VERSION.SDK_INT >= 31) {
+            if (dark) dynamicDarkColorScheme(context).primary else dynamicLightColorScheme(context).primary
+        } else {
+            Color(0xFF0B57D0)
+        }
+    }
+}
+
+@Composable
+private fun PaletteDot(color: Color, selected: Boolean, onClick: () -> Unit) {
     val dotSize by animateDpAsState(
         targetValue = if (selected) 36.dp else 30.dp,
         animationSpec = spring(),
@@ -399,7 +413,7 @@ private fun PaletteDot(palette: AppPalette, selected: Boolean, onClick: () -> Un
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = palette.seedColor,
+        color = color,
         modifier = Modifier
             .size(dotSize)
             .border(2.dp, borderAlpha, CircleShape),
@@ -414,46 +428,6 @@ private fun PaletteDot(palette: AppPalette, selected: Boolean, onClick: () -> Un
                     painter = painterResource(R.drawable.ic_check),
                     contentDescription = "Selected",
                     tint = Color.White,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-    }
-}
-
-// ponytail: dynamic-palette cell drawn as a 4-square mosaic so it reads as "follows system palette", not a static seed color
-@Composable
-private fun DynamicPaletteDot(
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val primary = MaterialTheme.colorScheme.primary
-    val secondary = MaterialTheme.colorScheme.secondary
-    val tertiary = MaterialTheme.colorScheme.tertiary
-    val outline = MaterialTheme.colorScheme.outline
-    val sz = if (selected) 36.dp else 30.dp
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        modifier = Modifier
-            .size(sz)
-            .then(if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier),
-        shadowElevation = if (selected) 3.dp else 0.dp,
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cellW = size.width / 2f
-            val cellH = size.height / 2f
-            drawRect(primary, Offset(0f, 0f), Size(cellW, cellH))
-            drawRect(secondary, Offset(cellW, 0f), Size(cellW, cellH))
-            drawRect(tertiary, Offset(0f, cellH), Size(cellW, cellH))
-            drawRect(outline, Offset(cellW, cellH), Size(cellW, cellH))
-        }
-        if (selected) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_check),
-                    contentDescription = "Selected",
-                    tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(18.dp),
                 )
             }
@@ -505,6 +479,91 @@ private fun SettingToggleRow(
         }
         Spacer(Modifier.width(12.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * One control for both update meanings: the switch persists "check on launch",
+ * the button checks right now. The switch sits beside the toggleable label row
+ * rather than inside its touch target, so one tap never does both.
+ */
+@Composable
+private fun UpdateCheckRow(
+    autoUpdateEnabled: Boolean,
+    onAutoUpdateEnabledChange: (Boolean) -> Unit,
+    onCheckUpdate: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .toggleable(
+                    value = autoUpdateEnabled,
+                    onValueChange = onAutoUpdateEnabledChange,
+                    role = Role.Switch,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Auto-update check",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "Check for updates at startup",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // The icon consumes its own tap, so checking for updates never
+            // flips the switch it sits next to.
+            IconButton(onClick = onCheckUpdate) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_update),
+                    contentDescription = "Check for updates",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Switch(
+                checked = autoUpdateEnabled,
+                onCheckedChange = null,
+                modifier = Modifier.clearAndSetSemantics { },
+            )
+        }
+    }
+}
+
+/** One switch per third-party service; the list grows with [ThirdPartyServices.all]. */
+@Composable
+private fun AddOnCard() {
+    val context = LocalContext.current
+    SettingsCard {
+        ThirdPartyServices.all.forEachIndexed { index, service ->
+            if (index > 0) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            }
+            var enabled by remember(service.id) {
+                mutableStateOf(ThirdPartyServices.isEnabled(context, service))
+            }
+            SettingToggleRow(
+                title = service.label,
+                subtitle = service.description,
+                checked = enabled,
+                onCheckedChange = { value ->
+                    enabled = value
+                    ThirdPartyServices.setEnabled(context, service, value)
+                    if (value) ThirdPartyServices.onEnabled(context, service)
+                },
+            )
+        }
     }
 }
 

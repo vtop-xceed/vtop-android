@@ -13,21 +13,36 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 
 enum class ThemeMode { SYSTEM, DARK, AMOLED, LIGHT }
 
-enum class AppPalette(val displayName: String, val seedColor: Color) {
-    Dynamic("System", Color(0xFF4285F4)),
-    GoogleBlue("Blue", Color(0xFF0B57D0)),
-    Emerald("Emerald", Color(0xFF006D44)),
-    Violet("Violet", Color(0xFF6B4EA2)),
-    Coral("Sunset", Color(0xFFA04000)),
+/** The app accent: the platform's Material colours, or one the user picked. */
+sealed interface AppPalette {
+    /** Material You: the wallpaper-derived colours the platform provides. */
+    data object Material : AppPalette
+
+    /** A colour the user picked in the accent picker. */
+    data class Custom(val seed: Color) : AppPalette {
+        val displayName: String get() = "Custom"
+    }
 }
 
 object ThemePreferences {
     private const val PREFS_NAME = "vtop_theme_prefs"
     private const val KEY_PALETTE = "selected_palette"
+    private const val KEY_ACCENT = "accent_mode"
+    private const val KEY_ACCENT_COLOR = "accent_color"
+    private const val ACCENT_MATERIAL = "MATERIAL"
+    private const val ACCENT_CUSTOM = "CUSTOM"
+    private val DEFAULT_ACCENT = Color(0xFF6B4EA2)
+    private val legacySeeds = mapOf(
+        "GoogleBlue" to Color(0xFF0B57D0),
+        "Emerald" to Color(0xFF006D44),
+        "Violet" to Color(0xFF6B4EA2),
+        "Coral" to Color(0xFFA04000),
+    )
     private const val KEY_THEME_MODE = "theme_mode"
     private const val KEY_BLUR = "blur_enabled"
     private const val KEY_LOCK_ENABLED = "lock_enabled"
@@ -54,17 +69,27 @@ object ThemePreferences {
     }
 
     fun getPalette(context: Context): AppPalette {
-        val name = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_PALETTE, AppPalette.Dynamic.name)
-        return runCatching { AppPalette.valueOf(name ?: AppPalette.Dynamic.name) }
-            .getOrDefault(AppPalette.Dynamic)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getString(KEY_ACCENT, null) == ACCENT_CUSTOM) {
+            return AppPalette.Custom(Color(prefs.getInt(KEY_ACCENT_COLOR, DEFAULT_ACCENT.toArgb())))
+        }
+        // Migration: the old preset palettes become the custom accent they had.
+        val legacy = legacySeeds[prefs.getString(KEY_PALETTE, null)]
+        return legacy?.let { AppPalette.Custom(it) } ?: AppPalette.Material
     }
 
     fun setPalette(context: Context, palette: AppPalette) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_PALETTE, palette.name)
-            .apply()
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        when (palette) {
+            is AppPalette.Material -> prefs.edit()
+                .putString(KEY_ACCENT, ACCENT_MATERIAL)
+                .remove(KEY_ACCENT_COLOR)
+                .apply()
+            is AppPalette.Custom -> prefs.edit()
+                .putString(KEY_ACCENT, ACCENT_CUSTOM)
+                .putInt(KEY_ACCENT_COLOR, palette.seed.toArgb())
+                .apply()
+        }
     }
 }
 
@@ -117,153 +142,6 @@ private val DarkBlueColors = darkColorScheme(
     outlineVariant = Color(0xFF444746),
 )
 
-// Emerald Palette
-private val LightEmeraldColors = lightColorScheme(
-    primary = Color(0xFF006D44),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF8FF8C7),
-    onPrimaryContainer = Color(0xFF002111),
-    secondary = Color(0xFF4D6357),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD0E8D7),
-    onSecondaryContainer = Color(0xFF0B1F15),
-    tertiary = Color(0xFF3D6373),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFC1E8FB),
-    onTertiaryContainer = Color(0xFF001F29),
-    surface = Color(0xFFF6FAF5),
-    onSurface = Color(0xFF181D19),
-    surfaceVariant = Color(0xFFDCE5DC),
-    onSurfaceVariant = Color(0xFF404943),
-    surfaceContainer = Color(0xFFECF2EC),
-    surfaceContainerHigh = Color(0xFFE6ECE6),
-    surfaceContainerHighest = Color(0xFFE0E7E0),
-    outline = Color(0xFF707972),
-    outlineVariant = Color(0xFFBFC9C0),
-)
-
-private val DarkEmeraldColors = darkColorScheme(
-    primary = Color(0xFF6CDBAC),
-    onPrimary = Color(0xFF003821),
-    primaryContainer = Color(0xFF005132),
-    onPrimaryContainer = Color(0xFF8FF8C7),
-    secondary = Color(0xFFB4CCBC),
-    onSecondary = Color(0xFF20352A),
-    secondaryContainer = Color(0xFF354B40),
-    onSecondaryContainer = Color(0xFFD0E8D7),
-    tertiary = Color(0xFFA5CDDE),
-    onTertiary = Color(0xFF073543),
-    tertiaryContainer = Color(0xFF244C5B),
-    onTertiaryContainer = Color(0xFFC1E8FB),
-    surface = Color(0xFF101512),
-    onSurface = Color(0xFFE0E4DF),
-    surfaceVariant = Color(0xFF404943),
-    onSurfaceVariant = Color(0xFFC0C9C0),
-    surfaceContainer = Color(0xFF1C211E),
-    surfaceContainerHigh = Color(0xFF272B28),
-    surfaceContainerHighest = Color(0xFF313632),
-    outline = Color(0xFF8A938C),
-    outlineVariant = Color(0xFF404943),
-)
-
-// Violet Palette
-private val LightVioletColors = lightColorScheme(
-    primary = Color(0xFF6B4EA2),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFEBDDFF),
-    onPrimaryContainer = Color(0xFF250059),
-    secondary = Color(0xFF625B71),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE8DEF8),
-    onSecondaryContainer = Color(0xFF1E192B),
-    tertiary = Color(0xFF7D5260),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFD8E4),
-    onTertiaryContainer = Color(0xFF31111D),
-    surface = Color(0xFFFEF7FF),
-    onSurface = Color(0xFF1D1B20),
-    surfaceVariant = Color(0xFFE7E0EB),
-    onSurfaceVariant = Color(0xFF49454E),
-    surfaceContainer = Color(0xFFF3EDF7),
-    surfaceContainerHigh = Color(0xFFEDE7F2),
-    surfaceContainerHighest = Color(0xFFE7E1EC),
-    outline = Color(0xFF7A757F),
-    outlineVariant = Color(0xFFCAC4CF),
-)
-
-private val DarkVioletColors = darkColorScheme(
-    primary = Color(0xFFD4BBFF),
-    onPrimary = Color(0xFF3B1D71),
-    primaryContainer = Color(0xFF523688),
-    onPrimaryContainer = Color(0xFFEBDDFF),
-    secondary = Color(0xFFCCC2DC),
-    onSecondary = Color(0xFF332D41),
-    secondaryContainer = Color(0xFF4A4458),
-    onSecondaryContainer = Color(0xFFE8DEF8),
-    tertiary = Color(0xFFEFB8C8),
-    onTertiary = Color(0xFF492532),
-    tertiaryContainer = Color(0xFF633B48),
-    onTertiaryContainer = Color(0xFFFFD8E4),
-    surface = Color(0xFF151218),
-    onSurface = Color(0xFFE6E0E9),
-    surfaceVariant = Color(0xFF49454E),
-    onSurfaceVariant = Color(0xFFCAC4D0),
-    surfaceContainer = Color(0xFF211F24),
-    surfaceContainerHigh = Color(0xFF2C292F),
-    surfaceContainerHighest = Color(0xFF36343A),
-    outline = Color(0xFF948F99),
-    outlineVariant = Color(0xFF49454E),
-)
-
-// Sunset/Coral Palette
-private val LightCoralColors = lightColorScheme(
-    primary = Color(0xFFA04000),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFDBD0),
-    onPrimaryContainer = Color(0xFF3B0F00),
-    secondary = Color(0xFF77574E),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFFFDBD1),
-    onSecondaryContainer = Color(0xFF2C150F),
-    tertiary = Color(0xFF6C5D2F),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFF6E1A7),
-    onTertiaryContainer = Color(0xFF231B00),
-    surface = Color(0xFFFFF8F6),
-    onSurface = Color(0xFF231917),
-    surfaceVariant = Color(0xFFF5DED7),
-    onSurfaceVariant = Color(0xFF53433F),
-    surfaceContainer = Color(0xFFF9EAE6),
-    surfaceContainerHigh = Color(0xFFF4E4DF),
-    surfaceContainerHighest = Color(0xFFEEDFD9),
-    outline = Color(0xFF85736E),
-    outlineVariant = Color(0xFFD8C2BC),
-)
-
-private val DarkCoralColors = darkColorScheme(
-    primary = Color(0xFFFFB59B),
-    onPrimary = Color(0xFF5B1E00),
-    primaryContainer = Color(0xFF813100),
-    onPrimaryContainer = Color(0xFFFFDBD0),
-    secondary = Color(0xFFE7BDB2),
-    onSecondary = Color(0xFF442A22),
-    secondaryContainer = Color(0xFF5D4037),
-    onSecondaryContainer = Color(0xFFFFDBD1),
-    tertiary = Color(0xFFD8C58D),
-    onTertiary = Color(0xFF3B2F05),
-    tertiaryContainer = Color(0xFF53451A),
-    onTertiaryContainer = Color(0xFFF6E1A7),
-    surface = Color(0xFF1A110F),
-    onSurface = Color(0xFFF1DFDA),
-    surfaceVariant = Color(0xFF53433F),
-    onSurfaceVariant = Color(0xFFD8C2BC),
-    surfaceContainer = Color(0xFF271D1A),
-    surfaceContainerHigh = Color(0xFF322825),
-    surfaceContainerHighest = Color(0xFF3D322F),
-    outline = Color(0xFFA08C86),
-    outlineVariant = Color(0xFF53433F),
-)
-
 val LocalBlurEnabled = androidx.compose.runtime.compositionLocalOf { true }
 
 // Ponytail: true-black surfaces for OLED panels; dynamic/static hues kept
@@ -282,10 +160,41 @@ private fun ColorScheme.amoledSurface(): ColorScheme = copy(
     outlineVariant = Color(0xFF2C2C2C),
 )
 
+/** Hue in degrees, saturation and value in 0..1. Compose has no HSV accessors. */
+fun Color.hsv(): FloatArray {
+    val max = maxOf(red, green, blue)
+    val min = minOf(red, green, blue)
+    val delta = max - min
+    val hue = when {
+        delta == 0f -> 0f
+        max == red -> 60f * (((green - blue) / delta) % 6f)
+        max == green -> 60f * (((blue - red) / delta) + 2f)
+        else -> 60f * (((red - green) / delta) + 4f)
+    }
+    return floatArrayOf(
+        (hue + 360f) % 360f,
+        if (max == 0f) 0f else delta / max,
+        max,
+    )
+}
+
+/** The accent roles, tonally derived from the picked seed. */
+private fun ColorScheme.withAccent(seed: Color, dark: Boolean): ColorScheme {
+    val hsv = seed.hsv()
+    val h = hsv[0]
+    val s = hsv[1]
+    return copy(
+        primary = Color.hsl(h, s, if (dark) 0.80f else 0.40f),
+        onPrimary = Color.hsl(h, s, if (dark) 0.22f else 0.99f),
+        primaryContainer = Color.hsl(h, s, if (dark) 0.32f else 0.90f),
+        onPrimaryContainer = Color.hsl(h, s, if (dark) 0.90f else 0.18f),
+    )
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VtopTheme(
-    palette: AppPalette = AppPalette.Dynamic,
+    palette: AppPalette = AppPalette.Material,
     themeMode: ThemeMode = ThemeMode.DARK,
     blurEnabled: Boolean = true,
     content: @Composable () -> Unit,
@@ -298,17 +207,14 @@ fun VtopTheme(
     }
     val context = LocalContext.current
     val base: ColorScheme = when (palette) {
-        AppPalette.Dynamic -> {
+        is AppPalette.Material ->
             if (Build.VERSION.SDK_INT >= 31) {
                 if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
             } else {
                 if (darkTheme) DarkBlueColors else LightBlueColors
             }
-        }
-        AppPalette.GoogleBlue -> if (darkTheme) DarkBlueColors else LightBlueColors
-        AppPalette.Emerald -> if (darkTheme) DarkEmeraldColors else LightEmeraldColors
-        AppPalette.Violet -> if (darkTheme) DarkVioletColors else LightVioletColors
-        AppPalette.Coral -> if (darkTheme) DarkCoralColors else LightCoralColors
+        is AppPalette.Custom ->
+            (if (darkTheme) DarkBlueColors else LightBlueColors).withAccent(palette.seed, darkTheme)
     }
     val colorScheme: ColorScheme = if (amoled) base.amoledSurface() else base
 

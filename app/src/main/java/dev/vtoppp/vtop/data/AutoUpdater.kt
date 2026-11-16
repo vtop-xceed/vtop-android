@@ -84,7 +84,7 @@ class AutoUpdater(context: Context) {
      * by [AppLog] and left as-is.
      */
     fun check(force: Boolean = true, silent: Boolean = false) {
-        if (state is AutoUpdateState.Downloading) return
+        if (state is AutoUpdateState.Checking || state is AutoUpdateState.Downloading) return
         if (!silent) state = AutoUpdateState.Checking
         kotlin.concurrent.thread(name = "update-check") {
             val result = runCatching { fetchLatest() }

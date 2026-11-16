@@ -32,10 +32,11 @@ object UsagePing {
     // Drop the guard later if debug builds should count too.
     fun ping(context: Context) {
         if (BuildConfig.DEBUG) return
-        val settings = context.applicationContext
-            .getSharedPreferences(SETTINGS_NAME, Context.MODE_PRIVATE)
+        val appContext = context.applicationContext
+        val settings = appContext.getSharedPreferences(SETTINGS_NAME, Context.MODE_PRIVATE)
         val today = utcDay()
-        if (settings.getString(KEY_LAST_PING, null) == today) return
+        val enabled = ThirdPartyServices.isEnabled(appContext, ThirdPartyServices.usagePing)
+        if (!shouldSendPing(enabled, settings.getString(KEY_LAST_PING, null), today)) return
 
         kotlin.concurrent.thread(name = "usage-ping") {
             runCatching {
@@ -70,6 +71,13 @@ object UsagePing {
     private fun utcDay(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         .apply { timeZone = TimeZone.getTimeZone("UTC") }
         .format(Date())
+
+    /**
+     * The whole gate, as one pure decision: a disabled service never sends,
+     * and a day that already carries a successful ping never sends twice.
+     */
+    internal fun shouldSendPing(enabled: Boolean, lastPingDay: String?, today: String): Boolean =
+        enabled && lastPingDay != today
 
     private fun sha256Hex(input: String): String =
         MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
