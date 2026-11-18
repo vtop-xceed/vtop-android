@@ -602,7 +602,7 @@ object UserDatabase {
 
     /**
      * Builds dynamic day-wise schedule cards from stored timetable entries,
-     * stamping the running class and the next one to start.
+     * stamping the class that is running at [referenceTime].
      */
     fun buildScheduleDays(
         entries: List<TimetableEntry>,
@@ -641,7 +641,6 @@ object UserDatabase {
                         slots = entry.slots,
                         activeSlot = entry.activeSlot,
                         isOngoing = false,
-                        isClosest = false,
                         date = date,
                         attendanceStatus = lookupSessionStatus(date, entry.courseCode, entry.slots, sessions),
                     )
@@ -656,7 +655,7 @@ object UserDatabase {
     private fun ClassScheduleItem.at(time: String): LocalDateTime? =
         date?.let { day -> parseTime(time)?.let { day.atTime(it) } }
 
-    /** Stamps the class running at [now] and the next one to start. */
+    /** Stamps the class running at [now]. */
     private fun stampLiveStatus(days: List<DaySchedule>, now: LocalDateTime): List<DaySchedule> {
         val today = now.toLocalDate()
         val ahead = days.flatMap { it.classes }.filter { it.date != null && !it.date.isBefore(today) }
@@ -665,23 +664,25 @@ object UserDatabase {
             val end = c.at(c.endTime)?.let { if (start != null && it <= start) it.plusDays(1) else it }
             start != null && end != null && !now.isBefore(start) && now.isBefore(end)
         }
-        val upcoming = ahead.firstOrNull { c -> c.at(c.startTime)?.isAfter(now) == true }
         return days.map { day ->
-            day.copy(classes = day.classes.map { c ->
-                c.copy(isOngoing = c == running, isClosest = c == upcoming)
-            })
+            day.copy(classes = day.classes.map { c -> c.copy(isOngoing = c == running) })
         }
     }
 
     /**
-     * Index of the day the timeline should open on: the day holding the class
-     * that is running or next up, otherwise today. Never yesterday.
+     * Index of the day the timeline opens on. Today stays on screen until at
+     * least 3 hours have passed since today's last class ended; only then does
+     * the timeline move to the next day that has classes. Never yesterday.
      */
-    fun nearestClassDayIndex(days: List<DaySchedule>): Int {
+    fun nearestClassDayIndex(days: List<DaySchedule>, now: LocalDateTime = LocalDateTime.now()): Int {
         if (days.isEmpty()) return 0
         val todayIndex = days.indexOfFirst { it.dayName == "Today" }.coerceAtLeast(0)
-        val marked = days.indexOfFirst { d -> d.classes.any { it.isOngoing || it.isClosest } }
-        return if (marked >= todayIndex) marked else todayIndex
+        val today = days.getOrNull(todayIndex)
+        val lastEnd = today?.classes?.mapNotNull { it.at(it.endTime) }?.maxOrNull()
+        // With a class today, stay on today until 3 hours clear of its end.
+        if (lastEnd != null && now.isBefore(lastEnd.plusHours(3))) return todayIndex
+        // No class today, or the grace is over: the next day that has one.
+        return (todayIndex + 1 until days.size).firstOrNull { days[it].classes.isNotEmpty() } ?: todayIndex
     }
 
     private fun lookupSessionStatus(

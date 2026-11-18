@@ -252,16 +252,16 @@ internal fun ClassSubCard(
     val effects = MaterialTheme.motionScheme.defaultEffectsSpec<androidx.compose.ui.graphics.Color>()
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.Dp>()
     val borderColor by animateColorAsState(
-        targetValue = when {
-            item.isOngoing -> MaterialTheme.colorScheme.error
-            item.isClosest -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        targetValue = if (item.isOngoing) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
         },
         animationSpec = effects,
         label = "cardBorder",
     )
     val borderWidth by animateDpAsState(
-        targetValue = if (item.isOngoing || item.isClosest) 2.dp else 1.dp,
+        targetValue = if (item.isOngoing) 2.dp else 1.dp,
         animationSpec = spatial,
         label = "cardBorderWidth",
     )

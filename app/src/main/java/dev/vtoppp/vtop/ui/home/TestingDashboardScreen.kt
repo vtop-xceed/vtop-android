@@ -198,7 +198,7 @@ fun TestingDashboardScreen(
     }
 
     // Follow the day that holds the next class, but never mid-swipe.
-    val classDayIndex = remember(scheduleDays) { UserDatabase.nearestClassDayIndex(scheduleDays) }
+    val classDayIndex = remember(scheduleDays) { UserDatabase.nearestClassDayIndex(scheduleDays, now) }
     val horizontalPagerState = rememberPagerState(
         initialPage = classDayIndex,
         pageCount = { scheduleDays.size },
