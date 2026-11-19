@@ -19,6 +19,36 @@ export default {
       return new Response("vtop usage service\n", { status: 200 });
     }
 
+    if (request.method === "GET" && url.pathname === "/stats") {
+      // Public aggregate-only view of agg_daily (what the repo README charts).
+      // Numbers are device-days, not unique users; per-day salted hashes are
+      // the only device signal, and they are not returned here.
+      const { results: dayRows } = await env.DB.prepare(
+        `SELECT day, version, devices FROM agg_daily
+         WHERE day >= date('now', '-29 days') ORDER BY day, version`,
+      ).all();
+      const byDay = new Map();
+      for (const row of dayRows) {
+        if (!byDay.has(row.day)) byDay.set(row.day, {});
+        byDay.get(row.day)[row.version] = row.devices;
+      }
+      const { results: allTimeRows } = await env.DB.prepare(
+        `SELECT version, SUM(devices) AS devices FROM agg_daily GROUP BY version ORDER BY devices DESC`,
+      ).all();
+      const { results: todayRows } = await env.DB.prepare(
+        `SELECT version, COUNT(*) AS devices FROM pings WHERE day = date('now') GROUP BY version`,
+      ).all();
+      return new Response(JSON.stringify({
+        generated: new Date().toISOString(),
+        days: [...byDay.entries()].map(([day, versions]) => ({ day, versions })),
+        allTime: Object.fromEntries(allTimeRows.map((r) => [r.version, r.devices])),
+        today: Object.fromEntries(todayRows.map((r) => [r.version, r.devices])),
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json", "cache-control": "public, max-age=300" },
+      });
+    }
+
     if (request.method === "POST" && url.pathname === "/ping") {
       let body;
       try {

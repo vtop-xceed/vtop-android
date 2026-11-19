@@ -13,6 +13,14 @@ Native Android client for the VTOP portal (VIT Bhopal). Pure OkHttp + Jsoup HTTP
 
 [auto-captcha]: https://github.com/vtop-xceed/auto-captcha
 
+## Anonymous usage
+
+![Daily device-days by version](usage/usage-chart.svg)
+
+Auto-refreshes daily via [`.github/workflows/usage-chart.yml`](.github/workflows/usage-chart.yml), which needs no Cloudflare credentials: it reads a public endpoint (`https://vtop-usage.sykik.workers.dev/stats`) serving exactly the aggregate totals shown in the chart — nothing else.
+
+The numbers count **device-days**, one per device per UTC day, from **devices with the anonymous usage ping enabled** — on by default, switchable off in *Settings → Add-ons → Anonymous usage ping*. They are not a count of unique users. Each ping carries only `{ v, d, h }` where `h = sha256(installId + ":" + day)`; no install id is stored server-side and a day's hash cannot be linked to any other day. Raw rows are purged after 31 days and only daily roll-ups are kept. The endpoint and this chart contain no IPs, identifiers or per-device data. The exact payload and the roll-up job live in `usage/`.
+
 ## Docs
 
 1. `docs/architecture.md` — module layout + data flow

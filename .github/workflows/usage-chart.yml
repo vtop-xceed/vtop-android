@@ -1,0 +1,34 @@
+name: Usage chart
+
+on:
+  schedule:
+    # 04:17 UTC, after the daily 03:17 UTC agg_daily roll-up in usage/src/index.js
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch aggregate stats (public endpoint, totals only)
+        run: curl -fsS --retry 3 --max-time 30 https://vtop-usage.sykik.workers.dev/stats -o /tmp/usage-stats.json
+
+      - name: Render chart
+        run: python3 usage/chart.py /tmp/usage-stats.json usage/usage-chart.svg
+
+      - name: Commit chart if changed
+        run: |
+          git add usage/usage-chart.svg
+          if git diff --cached --quiet; then
+            echo "chart unchanged"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: refresh usage chart"
+          git push
