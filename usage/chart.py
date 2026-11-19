@@ -3,16 +3,19 @@
 
 Usage: chart.py stats.json out.svg
 
-Device-days, not unique users. The "today" bar comes from live raw pings and
-is drawn semi-transparent; it rolls into the chart tomorrow at 03:17 UTC.
+Stacked area of device-days per version over the trailing 30 days.
+Device-days, not unique users. Today's slice is live (raw pings, dotted
+outline) and rolls into the chart tomorrow at 03:17 UTC. Days with no
+pings in agg_daily plot as 0: that measured zero, it was not measured
+zero-if-nobody-wanted-to-know days.
 """
 import json
 import math
 import sys
-from collections import OrderedDict
+from datetime import date, timedelta
 
-W, H = 720, 320
-ML, MR, MT, MB = 36, 14, 64, 60
+W, H = 720, 330
+ML, MR, MT, MB = 36, 14, 64, 66
 
 PALETTE = ["#c62828", "#1565c0", "#2e7d32", "#e65100", "#6a1b9a", "#00695c", "#4e342e", "#ad1457"]
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -22,12 +25,8 @@ def esc(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-def day_label(iso):
-    try:
-        y, m, d = iso.split("-")
-        return f"{int(d)} {MONTHS[int(m) - 1]}"
-    except Exception:
-        return iso
+def day_label(d):
+    return f"{d.day} {MONTHS[d.month - 1]}"
 
 
 def semver_key(v):
@@ -41,18 +40,24 @@ def main():
     src, dst = sys.argv[1], sys.argv[2]
     stats = json.load(open(src, "r", encoding="utf-8"))
 
-    import datetime
-    days = [{"day": d["day"], "versions": d["versions"], "live": False} for d in stats.get("days", [])]
-    if stats.get("today"):
-        today_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-        # The live bar replaces the pre-dawn roll for the current day.
-        days = [d for d in days if d["day"] != today_iso]
-        days.append({"day": today_iso, "versions": stats["today"], "live": True})
+    by_day = {d["day"]: dict(d["versions"]) for d in stats.get("days", [])}
+    today_iso = date.today().isoformat()
+    # The live slice replaces the pre-dawn roll for the current day.
+    live = bool(stats.get("today"))
+    if live:
+        by_day[today_iso] = dict(stats["today"])
 
-    versions = sorted({v for d in days for v in d["versions"]}, key=semver_key)
+    if not by_day:
+        day_keys = [today_iso]
+    else:
+        first = date.fromisoformat(min(by_day))
+        last = date.fromisoformat(max(by_day))
+        day_keys = [(first + timedelta(i)).isoformat() for i in range((last - first).days + 1)]
+
+    versions = sorted({v for vs in by_day.values() for v in vs}, key=semver_key)
     color = {v: PALETTE[i % len(PALETTE)] for i, v in enumerate(versions)}
 
-    totals = [sum(d["versions"].values()) for d in days]
+    totals = [sum(by_day.get(d, {}).values()) for d in day_keys]
     ymax = max(max(totals, default=0), 1)
     step = max(1, math.ceil(ymax / 4))
     while step * 4 < ymax:
@@ -61,8 +66,19 @@ def main():
 
     plot_w, plot_h = W - ML - MR, H - MT - MB
     base = MT + plot_h
-    band = plot_w / max(len(days), 1)
-    bar_w = min(30, band * 0.6)
+    span = max(len(day_keys) - 1, 1)
+    xs = [ML + (plot_w * i / span if len(day_keys) > 1 else plot_w / 2) for i in range(len(day_keys))]
+
+    def y_at(value):
+        return base - plot_h * value / ymax
+
+    layers = []
+    cumul = [0] * len(day_keys)
+    for v in versions:
+        vals = [by_day.get(d, {}).get(v, 0) for d in day_keys]
+        top = [c + val for c, val in zip(cumul, vals)]
+        layers.append((v, list(cumul), list(top)))
+        cumul = top
 
     s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img">',
          f'<rect width="{W}" height="{H}" fill="#ffffff"/>',
@@ -76,30 +92,34 @@ def main():
         s.append(f'<line x1="{ML}" y1="{y:.1f}" x2="{W - MR}" y2="{y:.1f}" stroke="#e3e3e3" stroke-width="1"/>')
         s.append(f'<text x="{ML - 4}" y="{y + 3:.1f}" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#888">{step * i}</text>')
 
-    for i, d in enumerate(days):
-        x = ML + band * i + (band - bar_w) / 2
-        y = base
-        for v in versions:
-            n = d["versions"].get(v, 0)
-            if n <= 0:
-                continue
-            h = plot_h * n / ymax
-            y -= h
-            op = ' opacity="0.5"' if d["live"] else ''
-            s.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" fill="{color[v]}"{op}><title>{esc(d["day"])} · v{esc(v)}: {n}</title></rect>')
-        label = "today*" if d["live"] else day_label(d["day"])
-        anchor = 'end' if band < 24 else 'middle'
-        lx = x + bar_w if band < 24 else x + bar_w / 2
-        s.append(f'<text x="{lx:.1f}" y="{base + 11}" text-anchor="{anchor}" font-family="system-ui,sans-serif" font-size="7.5" fill="#555" transform="rotate(-45 {lx:.1f} {base + 11})">{esc(label)}</text>')
+    for v, bottom, top in layers:
+        pts_top = " ".join(f"{x:.1f},{y_at(t):.1f}" for x, t in zip(xs, top))
+        pts_bot = " ".join(f"{x:.1f},{y_at(b):.1f}" for x, b in zip(reversed(xs), reversed(bottom)))
+        s.append(f'<polygon points="{pts_top} {pts_bot}" fill="{color[v]}" fill-opacity="0.9"><title>v{esc(v)}</title></polygon>')
+
+    if live and len(day_keys) >= 2:
+        top_pts = " ".join(f"{x:.1f},{y_at(t):.1f}" for x, t in zip(xs, layers[-1][2]))
+        s.append(f'<polyline points="{top_pts}" fill="none" stroke="#ffffff" stroke-width="1.1" stroke-dasharray="3 3" opacity="0.8"/>')
+        x = xs[-1]
+        s.append(f'<line x1="{x:.1f}" y1="{y_at(cumul[-1]):.1f}" x2="{x:.1f}" y2="{base:.1f}" stroke="#555" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/>')
+        s.append(f'<text x="{x - 3:.1f}" y="{y_at(cumul[-1]) - 5:.1f}" text-anchor="end" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">today (live)</text>')
+
+    ticks = 6 if len(day_keys) >= 6 else len(day_keys)
+    for i in range(ticks):
+        idx = round(i * (len(day_keys) - 1) / max(ticks - 1, 1))
+        d = date.fromisoformat(day_keys[idx])
+        anchor = 'start' if i == 0 else ('end' if i == ticks - 1 else 'middle')
+        s.append(f'<text x="{xs[idx]:.1f}" y="{base + 12}" text-anchor="{anchor}" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">{day_label(d)}</text>')
 
     lx = ML
     for v in versions:
-        s.append(f'<rect x="{lx}" y="{H - 26}" width="9" height="9" fill="{color[v]}" rx="2"/>')
-        s.append(f'<text x="{lx + 13}" y="{H - 18}" font-family="system-ui,sans-serif" font-size="8.5" fill="#333">v{esc(v)}</text>')
+        s.append(f'<rect x="{lx}" y="{H - 30}" width="9" height="9" fill="{color[v]}" rx="2"/>')
+        s.append(f'<text x="{lx + 13}" y="{H - 22}" font-family="system-ui,sans-serif" font-size="8.5" fill="#333">v{esc(v)}</text>')
         lx += 13 + 8 * len(v) + 22
 
     gen = (stats.get("generated") or "")[:10]
-    s.append(f'<text x="{W - MR}" y="{H - 4}" text-anchor="end" font-family="system-ui,sans-serif" font-size="7" fill="#aaa">*today is live so far and rolls in tomorrow · generated {esc(gen)}</text>')
+    s.append(f'<text x="{W - MR}" y="{H - 6}" text-anchor="end" font-family="system-ui,sans-serif" font-size="7" fill="#aaa">day with no pings plots as zero · generated {esc(gen)}</text>')
+    s.append(f'<text x="{ML}" y="{H - 6}" font-family="system-ui,sans-serif" font-size="7" fill="#aaa">window: trailing 30 days, oldest data drops off</text>')
     s.append("</svg>")
 
     with open(dst, "w", encoding="utf-8") as f:
