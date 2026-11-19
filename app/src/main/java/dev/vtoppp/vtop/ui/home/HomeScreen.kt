@@ -89,7 +89,7 @@ fun HomeScreen(
     onAutoUpdateEnabledChange: (Boolean) -> Unit = {},
 ) {
     if (state is HomeUiState.Ready) {
-        TestingDashboardScreen(
+        MainDashboardScreen(
             authorizedId = state.authorizedId,
             onOpenService = onOpen,
             pill = pill,

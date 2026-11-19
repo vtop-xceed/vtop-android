@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,24 +61,38 @@ import kotlin.math.absoluteValue
 @Composable
 internal fun AttendanceSection(
     subjects: List<SubjectAttendance>,
+    initialIndex: Int = 0,
     onOpenAttendance: () -> Unit,
 ) {
-    val pagerState = rememberPagerState(pageCount = { subjects.size })
+    val initialPage = initialIndex.coerceIn(0, (subjects.size - 1).coerceAtLeast(0))
+    val pagerState = rememberPagerState(
+        initialPage = initialPage,
+        pageCount = { subjects.size },
+    )
     val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(initialIndex, subjects.size) {
+        if (subjects.isNotEmpty() && !pagerState.isScrollInProgress) {
+            val target = initialIndex.coerceIn(0, subjects.size - 1)
+            if (pagerState.currentPage != target) {
+                pagerState.animateScrollToPage(target)
+            }
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        // Attendance Header with arrow ↗ as in sketch
+        // Attendance Header with arrow ↗ on far right inside a circle
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(horizontal = 20.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.clickable { onOpenAttendance() },
             ) {
                 Text(
@@ -85,68 +101,37 @@ internal fun AttendanceSection(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "↗",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-
-            // Subject cycle indicator / controls (e.g. 1/5 with arrows)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = "${pagerState.currentPage + 1}/${subjects.size}",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(4.dp))
-                Surface(
-                    onClick = {
-                        if (pagerState.currentPage > 0) {
-                            coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
-                        }
-                    },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.size(24.dp),
-                    enabled = pagerState.currentPage > 0,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_chevron_right),
-                            contentDescription = "Previous subject",
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (pagerState.currentPage > 0) 1f else 0.3f),
-                            modifier = Modifier
-                                .size(16.dp)
-                                .graphicsLayer { rotationZ = 180f },
+                if (subjects.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        Text(
+                            text = "${pagerState.currentPage + 1}/${subjects.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         )
                     }
                 }
-                Surface(
-                    onClick = {
-                        if (pagerState.currentPage < subjects.size - 1) {
-                            coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-                        }
-                    },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.size(24.dp),
-                    enabled = pagerState.currentPage < subjects.size - 1,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_chevron_right),
-                            contentDescription = "Next subject",
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (pagerState.currentPage < subjects.size - 1) 1f else 0.3f),
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Surface(
+                onClick = onOpenAttendance,
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "↗",
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
         }
@@ -189,7 +174,12 @@ internal fun AttendanceSection(
                 label = "attendanceCardAlpha",
             )
             val elevation by animateDpAsState(
-                targetValue = if (isCenter) 10.dp else 1.dp,
+                targetValue = when {
+                    isCenter && subject.isOngoing -> 12.dp
+                    isCenter && subject.isNext -> 10.dp
+                    isCenter -> 8.dp
+                    else -> 1.dp
+                },
                 animationSpec = spatial,
                 label = "attendanceCardElevation",
             )
@@ -231,7 +221,10 @@ internal fun AttendanceSection(
             )
             val containerColor by animateColorAsState(
                 targetValue = if (isCenter) {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
+                    when {
+                        subject.isOngoing -> MaterialTheme.colorScheme.surfaceContainerHighest
+                        else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                    }
                 } else {
                     MaterialTheme.colorScheme.surfaceContainer
                 },
@@ -240,6 +233,8 @@ internal fun AttendanceSection(
             )
             val borderColor by animateColorAsState(
                 targetValue = when {
+                    subject.isOngoing -> Color(0xFF22C55E).copy(alpha = if (isCenter) 0.85f else 0.45f)
+                    subject.isNext -> MaterialTheme.colorScheme.primary.copy(alpha = if (isCenter) 0.85f else 0.45f)
                     isDanger -> MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
                     isWarning -> StatusColors.Warning.copy(alpha = 0.45f)
                     else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isCenter) 0.35f else 0.15f)
@@ -271,7 +266,10 @@ internal fun AttendanceSection(
                     containerColor = containerColor,
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = elevation),
-                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+                border = BorderStroke(
+                    width = if ((subject.isOngoing || subject.isNext) && isCenter) 1.5.dp else 1.dp,
+                    color = borderColor,
+                ),
             ) {
                 Row(
                     modifier = Modifier
@@ -280,16 +278,17 @@ internal fun AttendanceSection(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Left Column: takes up to ~65-70% width, showing full subject name up to the skip box
+                    // Left Column
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .padding(end = 10.dp),
-                        verticalArrangement = Arrangement.Center,
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
+                        // Row 1: Course code + Status badge
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
@@ -299,49 +298,121 @@ internal fun AttendanceSection(
                                 color = MaterialTheme.colorScheme.primary,
                                 letterSpacing = 0.5.sp,
                             )
-                            Text(
-                                text = "·",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.outline,
-                            )
-                            Text(
-                                text = subject.courseTitle,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
+
+                            // Status badge: LIVE / NEXT / Slot+Time / NOT TODAY
+                            when {
+                                subject.isOngoing -> {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF22C55E).copy(alpha = 0.2f),
+                                        border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.6f)),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(5.dp)
+                                                    .background(Color(0xFF22C55E), CircleShape),
+                                            )
+                                            Text(
+                                                text = "LIVE",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color(0xFF22C55E),
+                                            )
+                                        }
+                                    }
+                                }
+                                subject.isNext -> {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                                    ) {
+                                        Text(
+                                            text = if (subject.todayStartTime.isNotBlank()) "NEXT · ${subject.todayStartTime}" else "NEXT",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                }
+                                subject.isToday -> {
+                                    val statusLabel = when {
+                                        !subject.todayStatus.isNullOrBlank() -> "${subject.todaySlot.ifBlank { "TODAY" }} · ${subject.todayStatus}"
+                                        subject.todayStartTime.isNotBlank() -> "${subject.todaySlot.ifBlank { "TODAY" }} · ${subject.todayStartTime}"
+                                        else -> subject.todaySlot.ifBlank { "TODAY" }
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+                                    ) {
+                                        Text(
+                                            text = statusLabel,
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.4f),
+                                    ) {
+                                        Text(
+                                            text = "NOT TODAY",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                }
+                            }
                         }
 
-                        Spacer(Modifier.height(6.dp))
+                        // Row 2: Full Course Title
+                        Text(
+                            text = subject.courseTitle,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
 
+                        // Row 3: Percentage and Attendance fractions
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
                                 text = "${subject.percentage}%",
-                                style = MaterialTheme.typography.headlineMedium,
+                                style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Black,
                                 color = percentageColor,
                             )
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                border = androidx.compose.foundation.BorderStroke(
+                                border = BorderStroke(
                                     1.dp,
                                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                                 ),
                             ) {
                                 Text(
                                     text = "${subject.attendedClasses} / ${subject.totalClasses}",
-                                    style = MaterialTheme.typography.labelMedium,
+                                    style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                 )
                             }
                         }
@@ -351,7 +422,7 @@ internal fun AttendanceSection(
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = missContainer,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, missBorder),
+                        border = BorderStroke(1.dp, missBorder),
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,

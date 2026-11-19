@@ -201,6 +201,19 @@ object TimetableParser {
         return entries
     }
 
+    /** Extracts courseCode -> facultyName mapping from timetable HTML. */
+    fun parseFacultyMap(html: String): Map<String, String> {
+        if (html.isBlank()) return emptyMap()
+        return try {
+            val doc = Jsoup.parse(html)
+            parseCourseListTable(doc)
+                .filter { it.faculty.isNotBlank() }
+                .associate { it.code to it.faculty }
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
     /** Parses VTOP course list table (columns: Code, Title, Slot, Venue, etc.). */
     private fun parseCourseListTable(doc: org.jsoup.nodes.Document): List<RawCourse> {
         val courses = mutableListOf<RawCourse>()
@@ -211,6 +224,13 @@ object TimetableParser {
         } ?: doc.select("table").firstOrNull() ?: return emptyList()
 
         val rows = table.select("tr")
+        var facultyColIdx = -1
+        val headerRow = rows.firstOrNull { it.select("th").isNotEmpty() } ?: rows.firstOrNull()
+        if (headerRow != null) {
+            val ths = headerRow.select("th, td")
+            facultyColIdx = ths.indexOfFirst { it.text().contains("Faculty", ignoreCase = true) }
+        }
+
         for (row in rows) {
             val cells = row.select("td")
             if (cells.size < 5) continue
@@ -246,6 +266,14 @@ object TimetableParser {
                 cells.getOrNull(codeIdx + 1)?.text()?.trim()?.ifBlank { code } ?: code
             }
 
+            // Faculty details (e.g. "ETHNUS TRAINER 4 -ACAD", "PAT TRAINER -ACAD")
+            val facultyRaw = if (facultyColIdx in cells.indices) {
+                cells[facultyColIdx].text().trim()
+            } else {
+                cells.firstOrNull { it.text().contains("-") && !it.text().contains(code) && !it.text().contains(slotMatch) }?.text()?.trim().orEmpty()
+            }
+            val faculty = facultyRaw.split("-").firstOrNull()?.trim().orEmpty()
+
             courses.add(
                 RawCourse(
                     code = code,
@@ -253,7 +281,7 @@ object TimetableParser {
                     type = "",
                     slot = slotMatch,
                     venue = venue,
-                    faculty = "",
+                    faculty = faculty,
                 ),
             )
         }

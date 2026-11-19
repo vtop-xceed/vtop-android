@@ -41,7 +41,7 @@ import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.UserDatabase
 
 @Composable
-fun GradeListPage(
+fun GradeHistoryPage(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
 ) {
@@ -83,7 +83,7 @@ fun GradeListPage(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 20.dp)
-            .padding(top = 12.dp, bottom = 84.dp),
+            .padding(top = 12.dp, bottom = 24.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Surface(

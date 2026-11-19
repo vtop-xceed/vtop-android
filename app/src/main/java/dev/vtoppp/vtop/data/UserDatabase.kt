@@ -655,33 +655,51 @@ object UserDatabase {
     private fun ClassScheduleItem.at(time: String): LocalDateTime? =
         date?.let { day -> parseTime(time)?.let { day.atTime(it) } }
 
-    /** Stamps the class running at [now]. */
+    /** Stamps the class running at [now], and marks the next upcoming class if none is running. */
     private fun stampLiveStatus(days: List<DaySchedule>, now: LocalDateTime): List<DaySchedule> {
         val today = now.toLocalDate()
-        val ahead = days.flatMap { it.classes }.filter { it.date != null && !it.date.isBefore(today) }
+        val ahead = days.flatMap { it.classes }
+            .filter { it.date != null && !it.date.isBefore(today) }
+            .sortedWith(compareBy({ it.date }, { parseTime(it.startTime) ?: LocalTime.MAX }))
+
         val running = ahead.firstOrNull { c ->
             val start = c.at(c.startTime)
             val end = c.at(c.endTime)?.let { if (start != null && it <= start) it.plusDays(1) else it }
             start != null && end != null && !now.isBefore(start) && now.isBefore(end)
         }
+
+        val nextUp = if (running == null) {
+            ahead.firstOrNull { c ->
+                val start = c.at(c.startTime)
+                start != null && now.isBefore(start)
+            }
+        } else null
+
         return days.map { day ->
-            day.copy(classes = day.classes.map { c -> c.copy(isOngoing = c == running) })
+            day.copy(classes = day.classes.map { c ->
+                c.copy(
+                    isOngoing = c == running,
+                    isNext = c == nextUp,
+                )
+            })
         }
     }
 
     /**
-     * Index of the day the timeline opens on. Today stays on screen until at
-     * least 3 hours have passed since today's last class ended; only then does
-     * the timeline move to the next day that has classes. Never yesterday.
+     * Index of the day the timeline opens on. Today stays on screen until the
+     * fixed cutoff of 22:00 (10:00 PM); only then does the timeline move to the
+     * next day that has classes. Never yesterday.
      */
     fun nearestClassDayIndex(days: List<DaySchedule>, now: LocalDateTime = LocalDateTime.now()): Int {
         if (days.isEmpty()) return 0
         val todayIndex = days.indexOfFirst { it.dayName == "Today" }.coerceAtLeast(0)
         val today = days.getOrNull(todayIndex)
-        val lastEnd = today?.classes?.mapNotNull { it.at(it.endTime) }?.maxOrNull()
-        // With a class today, stay on today until 3 hours clear of its end.
-        if (lastEnd != null && now.isBefore(lastEnd.plusHours(3))) return todayIndex
-        // No class today, or the grace is over: the next day that has one.
+        // With classes today, stay on Today until the fixed cutoff of 22:00.
+        if (today != null && today.classes.isNotEmpty()) {
+            val cutoff = LocalTime.of(22, 0)
+            if (now.toLocalTime().isBefore(cutoff)) return todayIndex
+        }
+        // No class today, or the 22:00 cutoff has passed: move to the next day with classes.
         return (todayIndex + 1 until days.size).firstOrNull { days[it].classes.isNotEmpty() } ?: todayIndex
     }
 

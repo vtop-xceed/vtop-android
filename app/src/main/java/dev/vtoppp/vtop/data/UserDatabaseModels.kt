@@ -113,6 +113,7 @@ data class ClassScheduleItem(
     val slots: List<String> = emptyList(),
     val activeSlot: String = "",
     val isOngoing: Boolean = false,
+    val isNext: Boolean = false,
     val date: java.time.LocalDate? = null,
     val attendanceStatus: String? = null,
 )

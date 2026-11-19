@@ -132,11 +132,18 @@ data class SubjectAttendance(
     val totalClasses: Int,
     val safeBunks: Int,
     val examTarget: String = "CAT-1",
+    val todaySlot: String = "",
+    val todayStartTime: String = "",
+    val todayEndTime: String = "",
+    val isOngoing: Boolean = false,
+    val isNext: Boolean = false,
+    val isToday: Boolean = false,
+    val todayStatus: String? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun TestingDashboardScreen(
+fun MainDashboardScreen(
     authorizedId: String,
     onOpenService: (MenuItem) -> Unit,
     pill: PillState = PillState(PillKind.Ready, "Connected"),
@@ -211,8 +218,12 @@ fun TestingDashboardScreen(
     }
 
     val liveAttendance by UserDatabase.attendanceFlow.collectAsState()
-    val attendanceSubjects = remember(liveAttendance) {
-        if (liveAttendance.isNotEmpty()) {
+    val todayDate = now.toLocalDate()
+    val todayDayOfWeek = todayDate.dayOfWeek.value // 1 = Monday .. 7 = Sunday
+    val todayTime = now.toLocalTime()
+
+    val (attendanceSubjects, attendanceFocusIndex) = remember(liveAttendance, storedTimetable, liveSessions, now) {
+        val baseSubjects = if (liveAttendance.isNotEmpty()) {
             liveAttendance.map { entry ->
                 // ponytail: calculate safe bunks to maintain 75% attendance threshold
                 val safeBunks = ((entry.attendedClasses - 0.75 * entry.totalClasses) / 0.75).toInt().coerceAtLeast(0)
@@ -236,23 +247,141 @@ fun TestingDashboardScreen(
                 SubjectAttendance("MAT2005", "Transform Techniques", 91, 20, 22, 4, "CAT-1"),
             )
         }
+
+        // Classes scheduled today in chronological order of start time
+        val todayClasses = storedTimetable
+            .filter { it.dayOfWeek == todayDayOfWeek }
+            .sortedBy { UserDatabase.parseTime(it.startTime)?.toSecondOfDay() ?: Int.MAX_VALUE }
+
+        // Find running class
+        val runningClass = todayClasses.firstOrNull { c ->
+            val start = UserDatabase.parseTime(c.startTime)
+            val end = UserDatabase.parseTime(c.endTime)
+            start != null && end != null && !todayTime.isBefore(start) && todayTime.isBefore(end)
+        }
+
+        // If none running, find next upcoming class today
+        val nextClass = if (runningClass == null) {
+            todayClasses.firstOrNull { c ->
+                val start = UserDatabase.parseTime(c.startTime)
+                start != null && todayTime.isBefore(start)
+            }
+        } else null
+
+        // Most recent class that finished today (if any)
+        val mostRecentClass = if (runningClass == null && nextClass == null) {
+            todayClasses.lastOrNull { c ->
+                val end = UserDatabase.parseTime(c.endTime)
+                end != null && !todayTime.isBefore(end)
+            }
+        } else null
+
+        // Today's subjects in chronological order
+        val todaySubjects = mutableListOf<SubjectAttendance>()
+        val seenCodes = mutableSetOf<String>()
+        val dateIso = todayDate.toString()
+
+        todayClasses.forEach { classEntry ->
+            val codeClean = classEntry.courseCode.trim().uppercase()
+            if (!seenCodes.contains(codeClean)) {
+                seenCodes.add(codeClean)
+                val base = baseSubjects.firstOrNull { it.courseCode.trim().equals(codeClean, ignoreCase = true) }
+                    ?: SubjectAttendance(
+                        courseCode = classEntry.courseCode,
+                        courseTitle = classEntry.courseTitle,
+                        percentage = 100,
+                        attendedClasses = 1,
+                        totalClasses = 1,
+                        safeBunks = 0,
+                    )
+                val isRunning = runningClass?.courseCode?.trim()?.equals(codeClean, ignoreCase = true) == true
+                val isNextUp = nextClass?.courseCode?.trim()?.equals(codeClean, ignoreCase = true) == true
+                val sessionToday = liveSessions.firstOrNull {
+                    it.courseCode.trim().equals(codeClean, ignoreCase = true) && it.date == dateIso
+                }
+
+                val activeSlotItem = when {
+                    isRunning -> runningClass
+                    isNextUp -> nextClass
+                    else -> classEntry
+                } ?: classEntry
+
+                todaySubjects.add(
+                    base.copy(
+                        todaySlot = activeSlotItem.activeSlot.ifBlank { activeSlotItem.slots.firstOrNull().orEmpty() },
+                        todayStartTime = activeSlotItem.startTime,
+                        todayEndTime = activeSlotItem.endTime,
+                        isOngoing = isRunning,
+                        isNext = isNextUp,
+                        isToday = true,
+                        todayStatus = sessionToday?.status,
+                    )
+                )
+            }
+        }
+
+        // Non-today subjects appended at the end
+        val nonTodaySubjects = baseSubjects.filter { !seenCodes.contains(it.courseCode.trim().uppercase()) }
+            .map { it.copy(isToday = false) }
+
+        val ordered = todaySubjects + nonTodaySubjects
+
+        val focusIdx = when {
+            runningClass != null -> ordered.indexOfFirst { it.courseCode.trim().equals(runningClass.courseCode.trim(), ignoreCase = true) }.coerceAtLeast(0)
+            nextClass != null -> ordered.indexOfFirst { it.courseCode.trim().equals(nextClass.courseCode.trim(), ignoreCase = true) }.coerceAtLeast(0)
+            mostRecentClass != null -> ordered.indexOfFirst { it.courseCode.trim().equals(mostRecentClass.courseCode.trim(), ignoreCase = true) }.coerceAtLeast(0)
+            todaySubjects.isNotEmpty() -> 0
+            else -> 0
+        }
+
+        Pair(ordered, focusIdx)
     }
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var selectedNavTab by rememberSaveable { mutableIntStateOf(0) }
     var showGradesPage by rememberSaveable { mutableStateOf(false) }
-    var isNavigatingService by remember { mutableStateOf(false) }
+    var showAttendancePage by rememberSaveable { mutableStateOf(false) }
+    var showTimetablePage by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(isNavigatingService) {
-        if (isNavigatingService) {
-            delay(3000L)
-            isNavigatingService = false
-        }
+    val faculties = remember(liveAttendance, storedTimetable) {
+        val map = liveAttendance.filter { it.facultyName.isNotBlank() }.associate { it.courseCode to it.facultyName }.toMutableMap()
+        try {
+            val semId = UserDatabase.getLatestSemesterId(authorizedId) ?: "BL20262705"
+            listOfNotNull(
+                "processViewTimeTable_$semId",
+                "processViewTimeTable_BL20262705",
+                "processViewTimeTable_BL20262701",
+            ).forEach { name ->
+                dev.vtoppp.vtop.data.SessionCache.load(name)?.let { cached ->
+                    dev.vtoppp.vtop.data.TimetableParser.parseFacultyMap(cached.first).forEach { (code, fac) ->
+                        if (map[code].isNullOrBlank() && fac.isNotBlank()) map[code] = fac
+                    }
+                }
+            }
+            listOfNotNull(
+                "processViewStudentAttendance_$semId",
+                "processViewStudentAttendance_BL20262705",
+                "processViewStudentAttendance_BL20262701",
+            ).forEach { name ->
+                dev.vtoppp.vtop.data.SessionCache.load(name)?.let { cached ->
+                    dev.vtoppp.vtop.data.AttendanceParser.parse(cached.first, authorizedId).forEach { entry ->
+                        if (map[entry.courseCode].isNullOrBlank() && entry.facultyName.isNotBlank()) {
+                            map[entry.courseCode] = entry.facultyName
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        map
+    }
+    val todayCourseCodes = remember(storedTimetable) {
+        val today = java.time.LocalDateTime.now().dayOfWeek.value
+        storedTimetable.filter { it.dayOfWeek == today }.map { it.courseCode }.toSet()
     }
 
     val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
-    val isProcessing = pill.kind == PillKind.Busy || !githubPingDone || isNavigatingService || isSyncing
+    val isProcessing = pill.kind == PillKind.Busy || !githubPingDone || isSyncing
 
     Box(
         modifier = Modifier
@@ -260,11 +389,18 @@ fun TestingDashboardScreen(
             .background(MaterialTheme.colorScheme.surface)
             .statusBarsPadding(), // Directly beneath system top navbar (time --- signal battery)
     ) {
-        BackHandler(enabled = selectedNavTab != 0 || showGradesPage) {
-            if (showGradesPage) showGradesPage = false else selectedNavTab = 0
+        BackHandler(enabled = selectedNavTab != 0 || showGradesPage || showAttendancePage || showTimetablePage) {
+            when {
+                showGradesPage -> showGradesPage = false
+                showAttendancePage -> showAttendancePage = false
+                showTimetablePage -> showTimetablePage = false
+                else -> selectedNavTab = 0
+            }
         }
         AnimatedContent(
             targetState = when {
+                showAttendancePage -> "attendance"
+                showTimetablePage -> "timetable"
                 selectedNavTab == 1 -> "calendar"
                 showGradesPage -> "grades"
                 selectedNavTab == 2 -> "marks"
@@ -278,7 +414,19 @@ fun TestingDashboardScreen(
         ) { contentKey ->
         when (contentKey) {
             "calendar" -> AcademicCalendarPage(events = liveCalendarEvents, onRefresh = onRefresh)
-            "grades" -> GradeListPage(
+            "attendance" -> AttendancePage(
+                entries = liveAttendance,
+                sessions = liveSessions,
+                timetable = storedTimetable,
+                faculties = faculties,
+                onBack = { showAttendancePage = false },
+            )
+            "timetable" -> TimetableDetailsPage(
+                timetable = storedTimetable,
+                faculties = faculties,
+                onBack = { showTimetablePage = false },
+            )
+            "grades" -> GradeHistoryPage(
                 onBack = { showGradesPage = false },
                 onRefresh = onRefresh,
             )
@@ -582,6 +730,22 @@ fun TestingDashboardScreen(
                                 }
                             }
                         }
+                        Spacer(modifier = Modifier.weight(1f))
+                        Surface(
+                            onClick = { showTimetablePage = true },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "↗",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -599,12 +763,9 @@ fun TestingDashboardScreen(
                 item {
                     AttendanceSection(
                         subjects = attendanceSubjects,
+                        initialIndex = attendanceFocusIndex,
                         onOpenAttendance = {
-                            isNavigatingService = true
-                            val attendanceItem = sections.flatMap { it.second }.find {
-                                it.label.contains("Attendance", ignoreCase = true)
-                            } ?: MenuItem("Academics", "Attendance", "academics/common/Attendance")
-                            onOpenService(attendanceItem)
+                            showAttendancePage = true
                         },
                     )
                 }
@@ -616,35 +777,42 @@ fun TestingDashboardScreen(
         }
         }
 
-        // Sticky floating bottom navigation bar
+        // Sticky floating bottom navigation bar: hidden on modal subpages (Timetable, Attendance, Grade History)
         // ponytail: sticky bottom container with soft gradient scrim prevents navbar from floating adrift
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                            MaterialTheme.colorScheme.surface,
-                        ),
-                    ),
-                )
-                .padding(bottom = 12.dp, top = 8.dp),
-            contentAlignment = Alignment.Center,
+        val hideBottomBar = showTimetablePage || showAttendancePage || showGradesPage
+        AnimatedVisibility(
+            visible = !hideBottomBar,
+            enter = fadeIn(tween(Motion.Fast)) + slideInVertically(tween(Motion.Content)) { it },
+            exit = fadeOut(tween(Motion.Quick)) + slideOutVertically(tween(Motion.Fast)) { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            FloatingDashboardNavBar(
-                selectedTab = selectedNavTab,
-                onTabSelected = { tab ->
-                    selectedNavTab = tab
-                    when (tab) {
-                        0 -> scope.launch { listState.animateScrollToItem(0) }
-                        else -> Unit
-                    }
-                },
-            )
-    }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                MaterialTheme.colorScheme.surface,
+                            ),
+                        ),
+                    )
+                    .padding(bottom = 12.dp, top = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                FloatingDashboardNavBar(
+                    selectedTab = selectedNavTab,
+                    onTabSelected = { tab ->
+                        selectedNavTab = tab
+                        when (tab) {
+                            0 -> scope.launch { listState.animateScrollToItem(0) }
+                            else -> Unit
+                        }
+                    },
+                )
+            }
+        }
 }
 
 

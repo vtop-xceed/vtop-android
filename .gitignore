@@ -27,7 +27,9 @@ app/src/main/java/dev/vtoppp/vtop/Creds.kt
 *.db
 *.html
 *.png
-pic_*.jpg
+*.jpg
+*.jpeg
+session-*.md
 section_cache/
 
 # Wrangler local state (may hold account info)

@@ -249,40 +249,57 @@ internal fun ClassSubCard(
     item: ClassScheduleItem,
     modifier: Modifier = Modifier,
 ) {
+    val isHighlighted = item.isOngoing || item.isNext
     val effects = MaterialTheme.motionScheme.defaultEffectsSpec<androidx.compose.ui.graphics.Color>()
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.Dp>()
     val borderColor by animateColorAsState(
-        targetValue = if (item.isOngoing) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        targetValue = when {
+            item.isOngoing -> MaterialTheme.colorScheme.primary
+            item.isNext -> MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
         },
         animationSpec = effects,
         label = "cardBorder",
     )
     val borderWidth by animateDpAsState(
-        targetValue = if (item.isOngoing) 2.dp else 1.dp,
+        targetValue = when {
+            item.isOngoing -> 2.dp
+            item.isNext -> 1.5.dp
+            else -> 1.dp
+        },
         animationSpec = spatial,
         label = "cardBorderWidth",
     )
     val cardBorder = BorderStroke(borderWidth, borderColor)
     val accent by animateColorAsState(
-        targetValue = if (item.isOngoing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+        targetValue = if (isHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         animationSpec = effects,
         label = "accent",
     )
     val accentContainer by animateColorAsState(
-        targetValue = if (item.isOngoing) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+        targetValue = when {
+            item.isOngoing -> MaterialTheme.colorScheme.primary
+            item.isNext -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.surfaceContainerHighest
+        },
         animationSpec = effects,
         label = "accentContainer",
     )
     val onAccentContainer by animateColorAsState(
-        targetValue = if (item.isOngoing) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+        targetValue = when {
+            item.isOngoing -> MaterialTheme.colorScheme.onPrimary
+            item.isNext -> MaterialTheme.colorScheme.onPrimaryContainer
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
         animationSpec = effects,
         label = "onAccentContainer",
     )
     val shadowElevation by animateDpAsState(
-        targetValue = if (item.isOngoing) 3.dp else 1.dp,
+        targetValue = when {
+            item.isOngoing -> 4.dp
+            item.isNext -> 2.dp
+            else -> 0.dp
+        },
         animationSpec = spatial,
         label = "cardShadow",
     )
@@ -303,10 +320,25 @@ internal fun ClassSubCard(
         ) {
             // Left: start/end times, stacked
             Column(
-                modifier = Modifier.widthIn(min = 56.dp),
+                modifier = Modifier.widthIn(min = 58.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                if (item.isOngoing || item.isNext) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (item.isOngoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.padding(bottom = 1.dp),
+                    ) {
+                        Text(
+                            text = if (item.isOngoing) "● LIVE" else "NEXT",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                            fontWeight = FontWeight.Black,
+                            color = if (item.isOngoing) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = accentContainer,

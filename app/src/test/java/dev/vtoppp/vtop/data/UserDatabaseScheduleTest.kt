@@ -64,16 +64,54 @@ class UserDatabaseScheduleTest {
 
         val today = day(days, "Today")
         assertFalse(today.classes.any { it.isOngoing })
+        // At 13:15, 11:00 is over, so 14:00 is highlighted as next up
+        assertTrue(today.classes[1].isNext)
     }
 
     @Test
-    fun staysOnTodayWithinThreeHoursOfTheLastClass() {
+    fun stampsTheNextUpcomingClassWhenNoneRunning() {
+        val days = UserDatabase.buildScheduleDays(
+            entries = listOf(
+                entry(3, "09:00 AM", "10:30 AM", "CSE2005"),
+                entry(3, "11:00 AM", "13:10 PM", "STS200"),
+                entry(3, "14:00 PM", "15:30 PM", "CSE3001"),
+            ),
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(8, 0),
+        )
+
+        val today = day(days, "Today")
+        assertFalse(today.classes.any { it.isOngoing })
+        assertTrue(today.classes[0].isNext)
+        assertFalse(today.classes[1].isNext)
+        assertFalse(today.classes[2].isNext)
+    }
+
+    @Test
+    fun stampsTheNextUpcomingClassBetweenClasses() {
+        val days = UserDatabase.buildScheduleDays(
+            entries = listOf(
+                entry(3, "09:00 AM", "10:30 AM", "CSE2005"),
+                entry(3, "11:00 AM", "13:10 PM", "STS200"),
+            ),
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(10, 35),
+        )
+
+        val today = day(days, "Today")
+        assertFalse(today.classes.any { it.isOngoing })
+        assertFalse(today.classes[0].isNext)
+        assertTrue(today.classes[1].isNext)
+    }
+
+    @Test
+    fun staysOnTodayUntilFixedCutoffAt22() {
         val entries = listOf(
             entry(3, "09:00 AM", "10:30 AM", "CSE2005"),
             entry(4, "11:00 AM", "12:00 PM", "CSE2006"),
         )
 
-        // 13:00 same day: the last class ended at 10:30, under 3 hours ago.
+        // 13:00 same day: well before 22:00 cutoff.
         val days = UserDatabase.buildScheduleDays(
             entries = entries,
             referenceDate = wednesday,
@@ -84,27 +122,22 @@ class UserDatabaseScheduleTest {
             UserDatabase.nearestClassDayIndex(days, at(LocalTime.of(13, 0))),
         )
 
-        // 13:29: still inside the grace window.
+        // 21:59: still before 22:00 cutoff.
         assertEquals(
             days.indexOfFirst { it.dayName == "Today" },
-            UserDatabase.nearestClassDayIndex(days, at(LocalTime.of(13, 29))),
+            UserDatabase.nearestClassDayIndex(days, at(LocalTime.of(21, 59))),
         )
 
-        // 13:30: the grace is over, so tomorrow takes over.
+        // 22:00: 22:00 cutoff reached, so tomorrow takes over.
         assertEquals(
             days.indexOfFirst { it.dayName == "Tomorrow" },
-            UserDatabase.nearestClassDayIndex(days, at(LocalTime.of(13, 30))),
+            UserDatabase.nearestClassDayIndex(days, at(LocalTime.of(22, 0))),
         )
 
-        // 16:00: well past the grace.
-        val late = UserDatabase.buildScheduleDays(
-            entries = entries,
-            referenceDate = wednesday,
-            referenceTime = LocalTime.of(16, 0),
-        )
+        // 23:30: late night, tomorrow is active.
         assertEquals(
-            late.indexOfFirst { it.dayName == "Tomorrow" },
-            UserDatabase.nearestClassDayIndex(late, at(LocalTime.of(16, 0))),
+            days.indexOfFirst { it.dayName == "Tomorrow" },
+            UserDatabase.nearestClassDayIndex(days, at(LocalTime.of(23, 30))),
         )
 
         assertEquals(0, UserDatabase.nearestClassDayIndex(emptyList(), at(LocalTime.of(16, 0))))
@@ -146,7 +179,7 @@ class UserDatabaseScheduleTest {
     }
 
     @Test
-    fun skipsDaysWithoutClassesAfterTheGrace() {
+    fun skipsDaysWithoutClassesAfterTheCutoff() {
         // Only Friday (offset 2) has classes; Thursday is empty.
         val days = UserDatabase.buildScheduleDays(
             entries = listOf(
@@ -154,11 +187,11 @@ class UserDatabaseScheduleTest {
                 entry(5, "09:00 AM", "10:30 AM", "CSE2007"),
             ),
             referenceDate = wednesday,
-            referenceTime = LocalTime.of(16, 0),
+            referenceTime = LocalTime.of(22, 0),
         )
 
         val friday = days.indexOfFirst { it.dayName == "Friday" }
-        assertEquals(friday, UserDatabase.nearestClassDayIndex(days, at(LocalTime.of(16, 0))))
+        assertEquals(friday, UserDatabase.nearestClassDayIndex(days, at(LocalTime.of(22, 0))))
     }
 
     @Test

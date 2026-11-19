@@ -98,15 +98,19 @@ class HomeViewModel(
                         val (summary, grades) = GradeHistoryParser.parse(cachedGrades.first, authorizedId)
                         if (grades.isNotEmpty() || summary != null) UserDatabase.saveGradeHistory(authorizedId, summary, grades)
                     }
-                    val cachedTt = SessionCache.load("processViewTimeTable_BL20262701")
-                    if (cachedTt != null) {
-                        val entries = TimetableParser.parse(cachedTt.first, authorizedId, "BL20262701")
-                        if (entries.isNotEmpty()) UserDatabase.saveTimetable(authorizedId, entries, "BL20262701")
-                    }
-                    val cachedAtt = SessionCache.load("processViewStudentAttendance_BL20262701")
-                    if (cachedAtt != null) {
-                        val att = AttendanceParser.parse(cachedAtt.first, authorizedId, "BL20262701")
-                        if (att.isNotEmpty()) UserDatabase.saveAttendance(authorizedId, att)
+                    val sems = UserDatabase.loadSemesters(authorizedId)
+                    val semIds = (sems.map { it.semesterSubId } + listOf("BL20262705", "BL20262701")).distinct()
+                    for (semId in semIds) {
+                        val cachedTt = SessionCache.load("processViewTimeTable_$semId")
+                        if (cachedTt != null) {
+                            val entries = TimetableParser.parse(cachedTt.first, authorizedId, semId)
+                            if (entries.isNotEmpty()) UserDatabase.saveTimetable(authorizedId, entries, semId)
+                        }
+                        val cachedAtt = SessionCache.load("processViewStudentAttendance_$semId")
+                        if (cachedAtt != null) {
+                            val att = AttendanceParser.parse(cachedAtt.first, authorizedId, semId)
+                            if (att.isNotEmpty()) UserDatabase.saveAttendance(authorizedId, att)
+                        }
                     }
                 } catch (_: Exception) {}
 

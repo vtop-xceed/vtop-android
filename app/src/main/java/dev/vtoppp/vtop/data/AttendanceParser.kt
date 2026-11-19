@@ -8,7 +8,7 @@ object AttendanceParser {
      * Parses attendance HTML (e.g. returned by processViewStudentAttendance)
      * into a list of [AttendanceEntry].
      */
-    fun parse(html: String, regNo: String, semesterSubId: String): List<AttendanceEntry> {
+    fun parse(html: String, regNo: String, semesterSubId: String = ""): List<AttendanceEntry> {
         if (html.isBlank()) return emptyList()
 
         val results = mutableListOf<AttendanceEntry>()
@@ -59,11 +59,13 @@ object AttendanceParser {
                 }
             }
 
-            // Find faculty
-            val facultyCell = cells.firstOrNull { cell ->
-                val t = cell.text()
-                t.contains("-") && (t.contains("SCAI") || t.contains("SCOPE") || t.contains("SELECT") || t.contains("SMEC") || t.contains("SASL"))
-            }
+            // Find faculty (from Faculty column or cell with hyphen)
+            val facultyCell = cells.getOrNull(4)?.takeIf { it.text().contains("-") }
+                ?: cells.firstOrNull { cell ->
+                    val t = cell.text()
+                    t.contains("-") && !t.contains("%") && !t.contains("BL20") &&
+                        !t.contains("Lecture") && !t.contains("Regular") && !t.contains("Project")
+                }
             val facultyName = facultyCell?.text()?.split("-")?.firstOrNull()?.trim().orEmpty()
 
             // Find percentage cell (e.g. "95%")
