@@ -1,5 +1,7 @@
 # VTOP++ Android
 
+This app does the boring parts for you: the captcha, the round trips, and the markup parsing, and hands you a phone-sized portal.
+
 ![Daily device-days by version, trailing 30 days](usage/usage-chart.svg)
 
 *Anonymous usage, trailing 30 days. Device-days per UTC day from devices with the anonymous usage ping enabled (on by default; switch off in Settings → Add-ons → Anonymous usage ping). Device-days, not unique users. Refreshes daily; details in [Anonymous usage](#anonymous-usage).*
@@ -7,8 +9,6 @@
 ![Views](https://visitor-badge.laobi.icu/badge?page_id=vtop-xceed.vtop-android&left_text=views)
 
 Native Android client for the VTOP portal (VIT Bhopal). Grab the latest build from [Releases](https://github.com/vtop-xceed/vtop-android/releases).
-
-VTOP is a desktop web portal with a captcha on every visit. This app does the boring parts for you: the captcha, the round trips, and the markup parsing, and hands you a phone-sized portal.
 
 ## What it does
 
