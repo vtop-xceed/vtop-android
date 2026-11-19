@@ -10,6 +10,10 @@ This app does the boring parts for you: the captcha, the round trips, and the ma
 
 Native Android client for the VTOP portal (VIT Bhopal). Grab the latest build from [Releases](https://github.com/vtop-xceed/vtop-android/releases).
 
+**Not affiliated with or endorsed by VIT University in any way.**
+
+**Not a full VTOP reimplementation** — it covers the ~90% of portal work you actually use: **grades & marks** 📊, **attendance** ✅, **timetable** 🗓️ and the **academic calendar** 📅. Built out of curiosity and sheer need, with AI-supercharged dev 🤖.
+
 ## What it does
 
 - **One-tap login** — sign in once; your credentials sit in a biometric-gated vault and the captcha is solved in the background.
