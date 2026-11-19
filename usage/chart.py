@@ -81,45 +81,45 @@ def main():
         cumul = top
 
     s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img">',
-         f'<rect width="{W}" height="{H}" fill="#ffffff"/>',
-         f'<text x="{ML}" y="18" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#1a1a1a">VTOP++ Android — device-days by version</text>',
-         f'<text x="{ML}" y="33" font-family="system-ui,sans-serif" font-size="8.5" fill="#666">opt-in anonymous ping only · device-days, not unique users · UTC · refreshed daily</text>',
-         f'<text x="{ML}" y="46" font-family="system-ui,sans-serif" font-size="8.5" fill="#666">all-time: ' + ' · '.join(
+         f'<rect width="{W}" height="{H}" fill="#000000"/>',
+         f'<text x="{ML}" y="18" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#f0f6fc">VTOP++ Android — device-days by version</text>',
+         f'<text x="{ML}" y="33" font-family="system-ui,sans-serif" font-size="8.5" fill="#8b949e">opt-in anonymous ping only · device-days, not unique users · UTC · refreshed daily</text>',
+         f'<text x="{ML}" y="46" font-family="system-ui,sans-serif" font-size="8.5" fill="#8b949e">all-time: ' + ' · '.join(
              f"v{esc(v)} {n}" for v, n in sorted(stats.get("allTime", {}).items(), key=lambda kv: semver_key(kv[0]))) + '</text>']
 
     for i in range(5):
         y = base - plot_h * i / 4
-        s.append(f'<line x1="{ML}" y1="{y:.1f}" x2="{W - MR}" y2="{y:.1f}" stroke="#e3e3e3" stroke-width="1"/>')
-        s.append(f'<text x="{ML - 4}" y="{y + 3:.1f}" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#888">{step * i}</text>')
+        s.append(f'<line x1="{ML}" y1="{y:.1f}" x2="{W - MR}" y2="{y:.1f}" stroke="#21262d" stroke-width="1"/>')
+        s.append(f'<text x="{ML - 4}" y="{y + 3:.1f}" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#8b949e">{step * i}</text>')
 
     for v, bottom, top in layers:
         pts_top = " ".join(f"{x:.1f},{y_at(t):.1f}" for x, t in zip(xs, top))
         pts_bot = " ".join(f"{x:.1f},{y_at(b):.1f}" for x, b in zip(reversed(xs), reversed(bottom)))
-        s.append(f'<polygon points="{pts_top} {pts_bot}" fill="{color[v]}" fill-opacity="0.9"><title>v{esc(v)}</title></polygon>')
+        s.append(f'<polygon points="{pts_top} {pts_bot}" fill="{color[v]}" fill-opacity="0.95"><title>v{esc(v)}</title></polygon>')
 
     if live and len(day_keys) >= 2:
         top_pts = " ".join(f"{x:.1f},{y_at(t):.1f}" for x, t in zip(xs, layers[-1][2]))
         s.append(f'<polyline points="{top_pts}" fill="none" stroke="#ffffff" stroke-width="1.1" stroke-dasharray="3 3" opacity="0.8"/>')
         x = xs[-1]
-        s.append(f'<line x1="{x:.1f}" y1="{y_at(cumul[-1]):.1f}" x2="{x:.1f}" y2="{base:.1f}" stroke="#555" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/>')
-        s.append(f'<text x="{x - 3:.1f}" y="{y_at(cumul[-1]) - 5:.1f}" text-anchor="end" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">today (live)</text>')
+        s.append(f'<line x1="{x:.1f}" y1="{y_at(cumul[-1]):.1f}" x2="{x:.1f}" y2="{base:.1f}" stroke="#8b949e" stroke-width="1" stroke-dasharray="3 3" opacity="0.8"/>')
+        s.append(f'<text x="{x - 3:.1f}" y="{y_at(cumul[-1]) - 5:.1f}" text-anchor="end" font-family="system-ui,sans-serif" font-size="7.5" fill="#c9d1d9">today (live)</text>')
 
     ticks = 6 if len(day_keys) >= 6 else len(day_keys)
     for i in range(ticks):
         idx = round(i * (len(day_keys) - 1) / max(ticks - 1, 1))
         d = date.fromisoformat(day_keys[idx])
         anchor = 'start' if i == 0 else ('end' if i == ticks - 1 else 'middle')
-        s.append(f'<text x="{xs[idx]:.1f}" y="{base + 12}" text-anchor="{anchor}" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">{day_label(d)}</text>')
+        s.append(f'<text x="{xs[idx]:.1f}" y="{base + 12}" text-anchor="{anchor}" font-family="system-ui,sans-serif" font-size="7.5" fill="#c9d1d9">{day_label(d)}</text>')
 
     lx = ML
     for v in versions:
         s.append(f'<rect x="{lx}" y="{H - 30}" width="9" height="9" fill="{color[v]}" rx="2"/>')
-        s.append(f'<text x="{lx + 13}" y="{H - 22}" font-family="system-ui,sans-serif" font-size="8.5" fill="#333">v{esc(v)}</text>')
+        s.append(f'<text x="{lx + 13}" y="{H - 22}" font-family="system-ui,sans-serif" font-size="8.5" fill="#f0f6fc">v{esc(v)}</text>')
         lx += 13 + 8 * len(v) + 22
 
     gen = (stats.get("generated") or "")[:10]
-    s.append(f'<text x="{W - MR}" y="{H - 6}" text-anchor="end" font-family="system-ui,sans-serif" font-size="7" fill="#aaa">day with no pings plots as zero · generated {esc(gen)}</text>')
-    s.append(f'<text x="{ML}" y="{H - 6}" font-family="system-ui,sans-serif" font-size="7" fill="#aaa">window: trailing 30 days, oldest data drops off</text>')
+    s.append(f'<text x="{W - MR}" y="{H - 6}" text-anchor="end" font-family="system-ui,sans-serif" font-size="7" fill="#6e7681">day with no pings plots as zero · generated {esc(gen)}</text>')
+    s.append(f'<text x="{ML}" y="{H - 6}" font-family="system-ui,sans-serif" font-size="7" fill="#6e7681">window: trailing 30 days, oldest data drops off</text>')
     s.append("</svg>")
 
     with open(dst, "w", encoding="utf-8") as f:

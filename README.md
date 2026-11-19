@@ -1,5 +1,9 @@
 # VTOP++ Android
 
+![Daily device-days by version, trailing 30 days](usage/usage-chart.svg)
+
+*Anonymous usage, trailing 30 days. Device-days per UTC day from devices with the anonymous usage ping enabled (on by default; switch off in Settings → Add-ons → Anonymous usage ping). Device-days, not unique users. Refreshes daily; details in [Anonymous usage](#anonymous-usage).*
+
 ![Views](https://visitor-badge.laobi.icu/badge?page_id=vtop-xceed.vtop-android&left_text=views)
 
 Native Android client for the VTOP portal (VIT Bhopal). Pure OkHttp + Jsoup HTTP client (no WebView shown to the user) with a Material 3 Expressive UI. See [Releases](https://github.com/vtop-xceed/vtop-android/releases).
@@ -15,9 +19,7 @@ Native Android client for the VTOP portal (VIT Bhopal). Pure OkHttp + Jsoup HTTP
 
 ## Anonymous usage
 
-![Daily device-days by version](usage/usage-chart.svg)
-
-Auto-refreshes daily via [`.github/workflows/usage-chart.yml`](.github/workflows/usage-chart.yml), which needs no Cloudflare credentials: it reads a public endpoint (`https://vtop-usage.sykik.workers.dev/stats`) serving exactly the aggregate totals shown in the chart — nothing else.
+The chart at the top of this page auto-refreshes daily via [`.github/workflows/usage-chart.yml`](.github/workflows/usage-chart.yml), which needs no Cloudflare credentials: it reads a public endpoint (`https://vtop-usage.sykik.workers.dev/stats`) serving exactly the aggregate totals shown — nothing else.
 
 The numbers count **device-days**, one per device per UTC day, from **devices with the anonymous usage ping enabled** — on by default, switchable off in *Settings → Add-ons → Anonymous usage ping*. They are not a count of unique users. Each ping carries only `{ v, d, h }` where `h = sha256(installId + ":" + day)`; no install id is stored server-side and a day's hash cannot be linked to any other day. Raw rows are purged after 31 days and only daily roll-ups are kept. The endpoint and this chart contain no IPs, identifiers or per-device data. The exact payload and the roll-up job live in `usage/`.
 

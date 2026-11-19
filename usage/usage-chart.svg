@@ -1,39 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="330" viewBox="0 0 720 330" role="img">
-<rect width="720" height="330" fill="#ffffff"/>
-<text x="36" y="18" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#1a1a1a">VTOP++ Android — device-days by version</text>
-<text x="36" y="33" font-family="system-ui,sans-serif" font-size="8.5" fill="#666">opt-in anonymous ping only · device-days, not unique users · UTC · refreshed daily</text>
-<text x="36" y="46" font-family="system-ui,sans-serif" font-size="8.5" fill="#666">all-time: v0.4.0 28 · v0.4.1 8 · v0.4.5 9 · v0.4.6 1</text>
-<line x1="36" y1="264.0" x2="706" y2="264.0" stroke="#e3e3e3" stroke-width="1"/>
-<text x="32" y="267.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#888">0</text>
-<line x1="36" y1="214.0" x2="706" y2="214.0" stroke="#e3e3e3" stroke-width="1"/>
-<text x="32" y="217.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#888">2</text>
-<line x1="36" y1="164.0" x2="706" y2="164.0" stroke="#e3e3e3" stroke-width="1"/>
-<text x="32" y="167.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#888">4</text>
-<line x1="36" y1="114.0" x2="706" y2="114.0" stroke="#e3e3e3" stroke-width="1"/>
-<text x="32" y="117.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#888">6</text>
-<line x1="36" y1="64.0" x2="706" y2="64.0" stroke="#e3e3e3" stroke-width="1"/>
-<text x="32" y="67.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#888">8</text>
-<polygon points="36.0,239.0 96.9,189.0 157.8,214.0 218.7,189.0 279.6,239.0 340.5,164.0 401.5,139.0 462.4,164.0 523.3,164.0 584.2,239.0 645.1,264.0 706.0,264.0 706.0,264.0 645.1,264.0 584.2,264.0 523.3,264.0 462.4,264.0 401.5,264.0 340.5,264.0 279.6,264.0 218.7,264.0 157.8,264.0 96.9,264.0 36.0,264.0" fill="#c62828" fill-opacity="0.9"><title>v0.4.0</title></polygon>
-<polygon points="36.0,239.0 96.9,189.0 157.8,214.0 218.7,189.0 279.6,239.0 340.5,164.0 401.5,139.0 462.4,164.0 523.3,64.0 584.2,164.0 645.1,239.0 706.0,239.0 706.0,264.0 645.1,264.0 584.2,239.0 523.3,164.0 462.4,164.0 401.5,139.0 340.5,164.0 279.6,239.0 218.7,189.0 157.8,214.0 96.9,189.0 36.0,239.0" fill="#1565c0" fill-opacity="0.9"><title>v0.4.1</title></polygon>
-<polygon points="36.0,239.0 96.9,189.0 157.8,214.0 218.7,189.0 279.6,239.0 340.5,164.0 401.5,139.0 462.4,164.0 523.3,64.0 584.2,89.0 645.1,139.0 706.0,189.0 706.0,239.0 645.1,239.0 584.2,164.0 523.3,64.0 462.4,164.0 401.5,139.0 340.5,164.0 279.6,239.0 218.7,189.0 157.8,214.0 96.9,189.0 36.0,239.0" fill="#2e7d32" fill-opacity="0.9"><title>v0.4.5</title></polygon>
-<polygon points="36.0,239.0 96.9,189.0 157.8,214.0 218.7,189.0 279.6,239.0 340.5,164.0 401.5,139.0 462.4,164.0 523.3,64.0 584.2,89.0 645.1,139.0 706.0,114.0 706.0,189.0 645.1,139.0 584.2,89.0 523.3,64.0 462.4,164.0 401.5,139.0 340.5,164.0 279.6,239.0 218.7,189.0 157.8,214.0 96.9,189.0 36.0,239.0" fill="#e65100" fill-opacity="0.9"><title>v0.4.6</title></polygon>
+<rect width="720" height="330" fill="#000000"/>
+<text x="36" y="18" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#f0f6fc">VTOP++ Android — device-days by version</text>
+<text x="36" y="33" font-family="system-ui,sans-serif" font-size="8.5" fill="#8b949e">opt-in anonymous ping only · device-days, not unique users · UTC · refreshed daily</text>
+<text x="36" y="46" font-family="system-ui,sans-serif" font-size="8.5" fill="#8b949e">all-time: v0.4.0 28 · v0.4.1 8 · v0.4.5 9 · v0.4.6 1</text>
+<line x1="36" y1="264.0" x2="706" y2="264.0" stroke="#21262d" stroke-width="1"/>
+<text x="32" y="267.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#8b949e">0</text>
+<line x1="36" y1="214.0" x2="706" y2="214.0" stroke="#21262d" stroke-width="1"/>
+<text x="32" y="217.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#8b949e">2</text>
+<line x1="36" y1="164.0" x2="706" y2="164.0" stroke="#21262d" stroke-width="1"/>
+<text x="32" y="167.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#8b949e">4</text>
+<line x1="36" y1="114.0" x2="706" y2="114.0" stroke="#21262d" stroke-width="1"/>
+<text x="32" y="117.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#8b949e">6</text>
+<line x1="36" y1="64.0" x2="706" y2="64.0" stroke="#21262d" stroke-width="1"/>
+<text x="32" y="67.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="8" fill="#8b949e">8</text>
+<polygon points="36.0,239.0 96.9,189.0 157.8,214.0 218.7,189.0 279.6,239.0 340.5,164.0 401.5,139.0 462.4,164.0 523.3,164.0 584.2,239.0 645.1,264.0 706.0,264.0 706.0,264.0 645.1,264.0 584.2,264.0 523.3,264.0 462.4,264.0 401.5,264.0 340.5,264.0 279.6,264.0 218.7,264.0 157.8,264.0 96.9,264.0 36.0,264.0" fill="#c62828" fill-opacity="0.95"><title>v0.4.0</title></polygon>
+<polygon points="36.0,239.0 96.9,189.0 157.8,214.0 218.7,189.0 279.6,239.0 340.5,164.0 401.5,139.0 462.4,164.0 523.3,64.0 584.2,164.0 645.1,239.0 706.0,239.0 706.0,264.0 645.1,264.0 584.2,239.0 523.3,164.0 462.4,164.0 401.5,139.0 340.5,164.0 279.6,239.0 218.7,189.0 157.8,214.0 96.9,189.0 36.0,239.0" fill="#1565c0" fill-opacity="0.95"><title>v0.4.1</title></polygon>
+<polygon points="36.0,239.0 96.9,189.0 157.8,214.0 218.7,189.0 279.6,239.0 340.5,164.0 401.5,139.0 462.4,164.0 523.3,64.0 584.2,89.0 645.1,139.0 706.0,189.0 706.0,239.0 645.1,239.0 584.2,164.0 523.3,64.0 462.4,164.0 401.5,139.0 340.5,164.0 279.6,239.0 218.7,189.0 157.8,214.0 96.9,189.0 36.0,239.0" fill="#2e7d32" fill-opacity="0.95"><title>v0.4.5</title></polygon>
+<polygon points="36.0,239.0 96.9,189.0 157.8,214.0 218.7,189.0 279.6,239.0 340.5,164.0 401.5,139.0 462.4,164.0 523.3,64.0 584.2,89.0 645.1,139.0 706.0,114.0 706.0,189.0 645.1,139.0 584.2,89.0 523.3,64.0 462.4,164.0 401.5,139.0 340.5,164.0 279.6,239.0 218.7,189.0 157.8,214.0 96.9,189.0 36.0,239.0" fill="#e65100" fill-opacity="0.95"><title>v0.4.6</title></polygon>
 <polyline points="36.0,239.0 96.9,189.0 157.8,214.0 218.7,189.0 279.6,239.0 340.5,164.0 401.5,139.0 462.4,164.0 523.3,64.0 584.2,89.0 645.1,139.0 706.0,114.0" fill="none" stroke="#ffffff" stroke-width="1.1" stroke-dasharray="3 3" opacity="0.8"/>
-<line x1="706.0" y1="114.0" x2="706.0" y2="264.0" stroke="#555" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/>
-<text x="703.0" y="109.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">today (live)</text>
-<text x="36.0" y="276" text-anchor="start" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">8 Nov</text>
-<text x="157.8" y="276" text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">10 Nov</text>
-<text x="279.6" y="276" text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">12 Nov</text>
-<text x="462.4" y="276" text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">15 Nov</text>
-<text x="584.2" y="276" text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">17 Nov</text>
-<text x="706.0" y="276" text-anchor="end" font-family="system-ui,sans-serif" font-size="7.5" fill="#555">19 Nov</text>
+<line x1="706.0" y1="114.0" x2="706.0" y2="264.0" stroke="#8b949e" stroke-width="1" stroke-dasharray="3 3" opacity="0.8"/>
+<text x="703.0" y="109.0" text-anchor="end" font-family="system-ui,sans-serif" font-size="7.5" fill="#c9d1d9">today (live)</text>
+<text x="36.0" y="276" text-anchor="start" font-family="system-ui,sans-serif" font-size="7.5" fill="#c9d1d9">8 Nov</text>
+<text x="157.8" y="276" text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#c9d1d9">10 Nov</text>
+<text x="279.6" y="276" text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#c9d1d9">12 Nov</text>
+<text x="462.4" y="276" text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#c9d1d9">15 Nov</text>
+<text x="584.2" y="276" text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#c9d1d9">17 Nov</text>
+<text x="706.0" y="276" text-anchor="end" font-family="system-ui,sans-serif" font-size="7.5" fill="#c9d1d9">19 Nov</text>
 <rect x="36" y="300" width="9" height="9" fill="#c62828" rx="2"/>
-<text x="49" y="308" font-family="system-ui,sans-serif" font-size="8.5" fill="#333">v0.4.0</text>
+<text x="49" y="308" font-family="system-ui,sans-serif" font-size="8.5" fill="#f0f6fc">v0.4.0</text>
 <rect x="111" y="300" width="9" height="9" fill="#1565c0" rx="2"/>
-<text x="124" y="308" font-family="system-ui,sans-serif" font-size="8.5" fill="#333">v0.4.1</text>
+<text x="124" y="308" font-family="system-ui,sans-serif" font-size="8.5" fill="#f0f6fc">v0.4.1</text>
 <rect x="186" y="300" width="9" height="9" fill="#2e7d32" rx="2"/>
-<text x="199" y="308" font-family="system-ui,sans-serif" font-size="8.5" fill="#333">v0.4.5</text>
+<text x="199" y="308" font-family="system-ui,sans-serif" font-size="8.5" fill="#f0f6fc">v0.4.5</text>
 <rect x="261" y="300" width="9" height="9" fill="#e65100" rx="2"/>
-<text x="274" y="308" font-family="system-ui,sans-serif" font-size="8.5" fill="#333">v0.4.6</text>
-<text x="706" y="324" text-anchor="end" font-family="system-ui,sans-serif" font-size="7" fill="#aaa">day with no pings plots as zero · generated 2026-11-19</text>
-<text x="36" y="324" font-family="system-ui,sans-serif" font-size="7" fill="#aaa">window: trailing 30 days, oldest data drops off</text>
+<text x="274" y="308" font-family="system-ui,sans-serif" font-size="8.5" fill="#f0f6fc">v0.4.6</text>
+<text x="706" y="324" text-anchor="end" font-family="system-ui,sans-serif" font-size="7" fill="#6e7681">day with no pings plots as zero · generated 2026-11-19</text>
+<text x="36" y="324" font-family="system-ui,sans-serif" font-size="7" fill="#6e7681">window: trailing 30 days, oldest data drops off</text>
 </svg>
