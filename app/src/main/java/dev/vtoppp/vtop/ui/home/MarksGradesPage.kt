@@ -43,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -99,14 +100,25 @@ fun MarksGradesPage(
     }
     val freshness = remember(stamps) { freshnessOf(stamps) }
     val isEmpty = courses.isEmpty() && marks.isEmpty()
-    val semesterNames by produceState(initialValue = mapOf<String, String>(), keys = arrayOf(marks)) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            UserDatabase.loadSemesters(authorizedId).associate { it.semesterSubId to it.semesterName }
+    val attendedSemesters by UserDatabase.semestersFlow.collectAsState()
+    LaunchedEffect(authorizedId) {
+        if (attendedSemesters.isEmpty()) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                UserDatabase.loadSemesters(authorizedId)
+            }
         }
+    }
+    val semesterNames = remember(attendedSemesters) {
+        attendedSemesters.associate { it.semesterSubId to it.semesterName }
     }
     val marksBySemester = remember(marks) { marks.groupBy { it.semesterSubId } }
     val semesterPicks = remember(marksBySemester, semesterNames) {
-        val allIds = (marksBySemester.keys + semesterNames.keys).distinct().sortedByDescending { it }
+        val validIds = if (semesterNames.isNotEmpty()) {
+            semesterNames.keys
+        } else {
+            marksBySemester.keys
+        }
+        val allIds = validIds.sortedByDescending { it }
         allIds.map { id ->
             val rows = marksBySemester[id].orEmpty()
             SemesterPick(

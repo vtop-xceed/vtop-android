@@ -178,6 +178,19 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
                 """.trimIndent(),
             )
         }
+        if (oldVersion < 10) {
+            // Clean up un-attended semesters previously scraped from university-wide mark view
+            runCatching {
+                db.execSQL(
+                    """
+                    DELETE FROM semesters_attended 
+                    WHERE (reg_no, semester_sub_id) NOT IN (
+                        SELECT DISTINCT reg_no, semester_sub_id FROM student_attendance
+                    ) AND EXISTS (SELECT 1 FROM student_attendance WHERE student_attendance.reg_no = semesters_attended.reg_no)
+                    """.trimIndent(),
+                )
+            }
+        }
         if (oldVersion < 5) {
             db.execSQL(
                 """
@@ -309,7 +322,7 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
 
     companion object {
         const val DB_NAME = "vtop_user_data.db"
-        const val DB_VERSION = 9
+        const val DB_VERSION = 10
     }
 }
 
@@ -341,6 +354,9 @@ object UserDatabase {
 
     private val _calendarEventsFlow = MutableStateFlow<List<CalendarDayEvent>>(emptyList())
     val calendarEventsFlow: StateFlow<List<CalendarDayEvent>> = _calendarEventsFlow.asStateFlow()
+
+    private val _semestersFlow = MutableStateFlow<List<SemesterAttended>>(emptyList())
+    val semestersFlow: StateFlow<List<SemesterAttended>> = _semestersFlow.asStateFlow()
 
     private val _isSyncingFlow = MutableStateFlow(false)
     val isSyncingFlow: StateFlow<Boolean> = _isSyncingFlow.asStateFlow()
@@ -413,6 +429,7 @@ object UserDatabase {
         val db = helper?.writableDatabase ?: return
         db.beginTransaction()
         try {
+            db.delete("semesters_attended", "reg_no = ?", arrayOf(regNo))
             for (s in semesters) {
                 val cv = ContentValues().apply {
                     put("reg_no", s.regNo)
@@ -423,6 +440,7 @@ object UserDatabase {
                 db.insertWithOnConflict("semesters_attended", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
             db.setTransactionSuccessful()
+            _semestersFlow.value = semesters
         } finally {
             db.endTransaction()
         }
@@ -443,7 +461,25 @@ object UserDatabase {
                 )
             }
         }
+        if (list.isNotEmpty()) {
+            _semestersFlow.value = list
+        }
         return list
+    }
+
+    fun getAttendanceSemesterSubIds(regNo: String): Set<String> {
+        val db = helper?.readableDatabase ?: return emptySet()
+        val set = mutableSetOf<String>()
+        db.rawQuery(
+            "SELECT DISTINCT semester_sub_id FROM student_attendance WHERE reg_no = ?",
+            arrayOf(regNo),
+        ).use { c ->
+            while (c.moveToNext()) {
+                val sem = c.getString(0)
+                if (!sem.isNullOrBlank()) set.add(sem)
+            }
+        }
+        return set
     }
 
     fun getLatestSemesterId(regNo: String): String? {

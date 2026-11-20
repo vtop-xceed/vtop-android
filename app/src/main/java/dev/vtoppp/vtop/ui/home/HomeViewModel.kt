@@ -87,6 +87,18 @@ class HomeViewModel(
                 UserDatabase.loadMarks(authorizedId)
                 UserDatabase.loadSemesterResults(authorizedId)
                 UserDatabase.loadCalendarEvents()
+                UserDatabase.loadSemesters(authorizedId)
+
+                // Clean and prime attended semesters from cached attendance page if present
+                SessionCache.load("academics/common/StudentAttendance")?.let { cachedAtt ->
+                    val sems = MarksParser.extractSemesters(cachedAtt.first)
+                    if (sems.isNotEmpty()) {
+                        UserDatabase.saveSemesters(
+                            authorizedId,
+                            sems.map { SemesterAttended(regNo = authorizedId, semesterSubId = it.first, semesterName = it.second) },
+                        )
+                    }
+                }
 
                 // 1. Fetch Profile & Cumulative Grade History from StudentGradeHistory
                 // This endpoint contains the student's real name (MAYANK KUSHWAHA), degree, school, CGPA, and course grades
@@ -160,50 +172,8 @@ class HomeViewModel(
                     }
                 }
 
-                // 2. Discover all attended semesters
-                var attendedSemesters: List<Pair<String, String>> = emptyList()
-
-                client.fetchSection("academics/common/StudentAttendance").onSuccess { html ->
-                    SessionCache.save("academics/common/StudentAttendance", html)
-                    val sems = MarksParser.extractSemesters(html)
-                    if (sems.isNotEmpty()) attendedSemesters = sems
-                }
-
-                if (attendedSemesters.isEmpty()) {
-                    client.fetchSection("academics/common/StudentTimeTable").onSuccess { html ->
-                        SessionCache.save("academics/common/StudentTimeTable", html)
-                        val sems = MarksParser.extractSemesters(html)
-                        if (sems.isNotEmpty()) attendedSemesters = sems
-                    }
-                }
-
-                if (attendedSemesters.isEmpty()) {
-                    client.fetchSection("examinations/StudentMarkView").onSuccess { html ->
-                        SessionCache.save("examinations/StudentMarkView", html)
-                        val sems = MarksParser.extractSemesters(html)
-                        if (sems.isNotEmpty()) attendedSemesters = sems
-                    }
-                }
-
-                if (attendedSemesters.isEmpty()) {
-                    val local = UserDatabase.loadSemesters(authorizedId)
-                    if (local.isNotEmpty()) {
-                        attendedSemesters = local.map { it.semesterSubId to it.semesterName }
-                    }
-                }
-
-                // Fallback list of known registered semesters for 24BCY10147 if network dropdown was unparsed
-                if (attendedSemesters.isEmpty()) {
-                    attendedSemesters = listOf(
-                        "BL20262701" to "Fall Semester 2026-27 - BPL",
-                        "BL20252605" to "Winter Semester 2025-26 - BPL",
-                        "BL20252604" to "INTERIM SEMESTER 2025-26 - BPL",
-                        "BL20252601" to "Fall Semester 2025-26 - BPL",
-                        "BL20242505" to "Winter Semester 2024-25 - BPL",
-                        "BL20242504" to "INTERIM SEMESTER 2024-25 - BPL",
-                    )
-                }
-
+                // 2. Discover all attended semesters (exclusively matched from Attendance)
+                val attendedSemesters = resolveAttendedSemesters()
                 val semAttendedList = attendedSemesters.map { (id, name) ->
                     SemesterAttended(regNo = authorizedId, semesterSubId = id, semesterName = name)
                 }
@@ -280,6 +250,57 @@ class HomeViewModel(
     }
 
     /**
+     * Resolves attended semesters strictly from Attendance.
+     * academics/common/StudentAttendance contains ONLY the semesters the student attended.
+     */
+    private suspend fun resolveAttendedSemesters(): List<Pair<String, String>> {
+        var attendedSemesters: List<Pair<String, String>> = emptyList()
+
+        client.fetchSection("academics/common/StudentAttendance").onSuccess { html ->
+            SessionCache.save("academics/common/StudentAttendance", html)
+            val sems = MarksParser.extractSemesters(html)
+            if (sems.isNotEmpty()) attendedSemesters = sems
+        }
+
+        if (attendedSemesters.isEmpty()) {
+            SessionCache.load("academics/common/StudentAttendance")?.let { cached ->
+                val sems = MarksParser.extractSemesters(cached.first)
+                if (sems.isNotEmpty()) attendedSemesters = sems
+            }
+        }
+
+        if (attendedSemesters.isEmpty()) {
+            val attIds = UserDatabase.getAttendanceSemesterSubIds(authorizedId)
+            if (attIds.isNotEmpty()) {
+                val markHtml = SessionCache.load("examinations/StudentMarkView")?.first
+                val markSems = if (!markHtml.isNullOrBlank()) MarksParser.extractSemesters(markHtml) else emptyList()
+                val nameMap = markSems.toMap()
+                attendedSemesters = attIds.map { id -> id to (nameMap[id] ?: id) }
+            }
+        }
+
+        if (attendedSemesters.isEmpty()) {
+            val local = UserDatabase.loadSemesters(authorizedId)
+            if (local.isNotEmpty()) {
+                attendedSemesters = local.map { it.semesterSubId to it.semesterName }
+            }
+        }
+
+        if (attendedSemesters.isEmpty()) {
+            attendedSemesters = listOf(
+                "BL20262701" to "Fall Semester 2026-27 - BPL",
+                "BL20252605" to "Winter Semester 2025-26 - BPL",
+                "BL20252604" to "INTERIM SEMESTER 2025-26 - BPL",
+                "BL20252601" to "Fall Semester 2025-26 - BPL",
+                "BL20242505" to "Winter Semester 2024-25 - BPL",
+                "BL20242504" to "INTERIM SEMESTER 2024-25 - BPL",
+            )
+        }
+
+        return attendedSemesters
+    }
+
+    /**
      * Marks & Grades refresh: grades page + per-semester marks, nothing else.
      * Records honest success/failure into [marksNotice] (cached data shown otherwise).
      */
@@ -304,11 +325,11 @@ class HomeViewModel(
                 }
                 var attended = UserDatabase.loadSemesters(authorizedId).map { it.semesterSubId to it.semesterName }
                 if (attended.isEmpty()) {
-                    delay(80)
-                    client.fetchSection("examinations/StudentMarkView").onSuccess { html ->
-                        SessionCache.save("examinations/StudentMarkView", html)
-                        attended = MarksParser.extractSemesters(html)
+                    attended = resolveAttendedSemesters()
+                    val semAttendedList = attended.map { (id, name) ->
+                        SemesterAttended(regNo = authorizedId, semesterSubId = id, semesterName = name)
                     }
+                    UserDatabase.saveSemesters(authorizedId, semAttendedList)
                 }
                 for ((semId, _) in attended) {
                     client.postSubAction(

@@ -14,12 +14,14 @@ object MarksParser {
      * Returns list of Pair(semesterSubId, semesterName), e.g. ("BL20242501", "Fall Semester 2024-25").
      */
     fun extractSemesters(html: String): List<Pair<String, String>> {
+        val selectBlock = Regex("""<select[^>]*name=["']semesterSubId["'][^>]*>(.*?)</select>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+            .find(html)?.groupValues?.get(1) ?: html
         val optionRegex = Regex("""<option\s+value="([^"]+)"[^>]*>(.*?)</option>""", RegexOption.IGNORE_CASE)
         val list = mutableListOf<Pair<String, String>>()
-        for (match in optionRegex.findAll(html)) {
+        for (match in optionRegex.findAll(selectBlock)) {
             val value = match.groupValues[1].trim()
             val text = match.groupValues[2].replace("&amp;", "&").trim()
-            if (value.isNotEmpty() && !text.contains("Choose", ignoreCase = true)) {
+            if (value.isNotEmpty() && !text.contains("Choose", ignoreCase = true) && !text.contains("Select", ignoreCase = true)) {
                 list.add(value to text)
             }
         }

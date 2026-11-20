@@ -21,6 +21,40 @@ class GradeAndMarksParserTest {
     }
 
     @Test
+    fun extractsOnlyAttendedSemestersFromStudentAttendanceFixture() {
+        val stream = javaClass.classLoader?.getResourceAsStream("fixtures/StudentAttendance.html")
+        assertNotNull("fixture must exist", stream)
+        val html = stream!!.bufferedReader().readText()
+
+        val semesters = MarksParser.extractSemesters(html)
+        assertEquals(6, semesters.size)
+        val expected = listOf(
+            "BL20262701" to "Fall Semester 2026-27 - BPL",
+            "BL20252605" to "Winter Semester 2025-26 - BPL",
+            "BL20252604" to "INTERIM SEMESTER 2025-26 - BPL",
+            "BL20252601" to "Fall Semester 2025-26 - BPL",
+            "BL20242505" to "Winter Semester 2024-25 - BPL",
+            "BL20242504" to "INTERIM SEMESTER 2024-25 - BPL",
+        )
+        assertEquals(expected, semesters)
+    }
+
+    @Test
+    fun filtersSemestersByAttendanceExcludingUnattended() {
+        val attendanceSemIds = setOf("BL20262701", "BL20252605", "BL20252604")
+        val universityAllSemesters = listOf(
+            "BL20262701" to "Fall Semester 2026-27",
+            "BL20252605" to "Winter Semester 2025-26",
+            "BL20252604" to "INTERIM SEMESTER 2025-26",
+            "BL20222301" to "Fall Semester 2022-23",
+            "BL20171801" to "Fall Semester 2017-18",
+        )
+        val filtered = universityAllSemesters.filter { attendanceSemIds.contains(it.first) }
+        assertEquals(3, filtered.size)
+        assertTrue(filtered.none { it.first == "BL20222301" || it.first == "BL20171801" })
+    }
+
+    @Test
     fun parsesMarksTable() {
         val sampleMarksHtml = """
             <div id="main-section">
