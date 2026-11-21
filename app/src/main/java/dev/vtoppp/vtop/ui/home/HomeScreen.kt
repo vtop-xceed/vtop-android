@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,11 +29,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,10 +44,12 @@ import dev.vtoppp.vtop.ui.theme.StatusColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -265,7 +268,12 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.Center,
                 ) {
                     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-                    LoadingIndicator(modifier = Modifier.size(56.dp))
+                    CircularWavyProgressIndicator(
+                        progress = { 0.5f },
+                        modifier = Modifier.size(56.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = lastSectionTitle?.let { "Loading $it…" } ?: "Loading…",
@@ -354,7 +362,17 @@ private fun FailureContent(
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     textAlign = TextAlign.Center,
                 )
-                FilledTonalButton(onClick = onRetry) { Text("Try again") }
+                val pulse = remember { Animatable(1f) }
+                LaunchedEffect(state) {
+                    while (true) {
+                        pulse.animateTo(1.02f, tween(600))
+                        pulse.animateTo(1f, tween(600))
+                    }
+                }
+                FilledTonalButton(
+                    onClick = onRetry,
+                    modifier = Modifier.graphicsLayer { scaleX = pulse.value; scaleY = pulse.value },
+                ) { Text("Try again") }
             }
         }
     }

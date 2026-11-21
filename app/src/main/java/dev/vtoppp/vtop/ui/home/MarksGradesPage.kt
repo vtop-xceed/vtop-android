@@ -48,6 +48,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -212,10 +213,11 @@ private fun MarksSemesterSection(
         rows.groupBy { it.courseCode }.toList()
             .sortedWith(compareBy({ it.second.firstOrNull()?.courseTitle.orEmpty().lowercase() }, { it.first }))
     }
-    val initialIndex = remember(picks, selectedId) {
-        picks.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+    var savedIndex by rememberSaveable(picks.map { it.id }) { mutableStateOf(0) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = savedIndex)
+    LaunchedEffect(listState) {
+        snapshotFlow(listState::firstVisibleItemIndex).collect { savedIndex = it }
     }
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
     val edgeFadeWidth = 20.dp
     val edgeFadeBg = MaterialTheme.colorScheme.surface
 

@@ -2,9 +2,6 @@ package dev.vtoppp.vtop.data
 
 object MarksParser {
 
-    private val rowRegex = Regex("""<tr[^>]*>(.*?)</tr>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-    private val cellRegex = Regex("""<t[dh][^>]*>(.*?)</t[dh]>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-    private val tagStripRegex = Regex("""<[^>]+>""")
     private val codeCandidateRegex = Regex("""^[A-Z]{3,4}\s*\d{3,4}[A-Z]?$""", RegexOption.IGNORE_CASE)
     private val slotRegex = Regex("""^[A-Z]\d{1,2}(?:\+[A-Z]\d{1,2})*$""")
     private val whitespaceRegex = Regex("""\s+""")
@@ -51,14 +48,8 @@ object MarksParser {
         val currentFaculty = ""
         var currentSlot = ""
 
-        for (rowMatch in rowRegex.findAll(html)) {
-            val rowContent = rowMatch.groupValues[1]
-            val cells = cellRegex.findAll(rowContent).map { cellMatch ->
-                tagStripRegex.replace(cellMatch.groupValues[1], " ")
-                    .replace("&nbsp;", " ")
-                    .replace("&amp;", "&")
-                    .trim()
-            }.toList()
+        for (row in HtmlTables.rows(html)) {
+            val cells = HtmlTables.cells(row.body)
 
             if (cells.isEmpty()) continue
 

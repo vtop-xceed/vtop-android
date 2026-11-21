@@ -15,6 +15,10 @@ private const val BASE = "https://vtop.vitbhopal.ac.in"
 
 /** Never more than one login POST per 10s (VTOP locks hammering accounts). */
 private const val LOGIN_PACE_MS = 10_000L
+/** Retry beat between login attempts and finishLogin retries on bounced chains. */
+private const val RETRY_DELAY_MS = 2_000L
+/** Roll retry beat inside [rollCaptcha]. */
+private const val ROLL_RETRY_DELAY_MS = 1_500L
 private const val MAX_LOGIN_ATTEMPTS = 3 /** VTOP captcha answers go stale within a couple of minutes. */
 private const val CAPTCHA_MAX_AGE_MS = 60_000L
 
@@ -326,7 +330,7 @@ class VtopClient(
     /** One dashboard round-trip to prove a restored session is alive server-side. */
     private suspend fun validateSeededSession(): Boolean = runCatching {
         val body = get("content", referer = BASE).second
-        if (looksLikeLoginPage(body)) return@runCatching false
+        if (isLoginPage(body)) return@runCatching false
         deriveFromDashboard(body) != null
     }.getOrElse {
         AppLog.d("prewarm: seeded session validation failed (${it::class.simpleName})")
@@ -336,7 +340,7 @@ class VtopClient(
     private suspend fun prepareCaptcha() {
         _warm.value = WarmState.Working("Connecting to VTOP…")
         val splash = get("content", referer = BASE).second
-        if (!looksLikeLoginPage(splash)) {
+        if (!isLoginPage(splash)) {
             // Maybe a live session from persisted cookies: restore it.
             val restored = deriveFromDashboard(splash)
             if (restored != null) {
@@ -419,7 +423,7 @@ class VtopClient(
                 }
                 if (found != null && found.size > 500) return@withTimeoutOrNull found
                 AppLog.d("prewarm: captcha roll $attempt empty")
-                delay(1_500)
+                delay(ROLL_RETRY_DELAY_MS)
             }
             null
         }
@@ -506,7 +510,7 @@ class VtopClient(
             if (attempt == MAX_LOGIN_ATTEMPTS) throw VtopError.CaptchaRejected
             prepareCaptcha()
             csrfNow = warmCsrf ?: fail("no csrf")
-            delay(2_000)
+            delay(RETRY_DELAY_MS)
             continue
         }
             if (code in 300..399) {
@@ -535,7 +539,7 @@ class VtopClient(
             // attempt goes out with a fresh csrf + captcha.
             prepareCaptcha()
             csrfNow = warmCsrf ?: fail("no csrf")
-            delay(2_000)
+            delay(RETRY_DELAY_MS)
         }
         throw VtopError.CaptchaRejected
     }
@@ -604,15 +608,26 @@ class VtopClient(
         for (tryIndex in 1..2) {
             val dash = get("init/page", referer = "$BASE/vtop/login").second
             deriveFromDashboard(dash)?.let { return it }
-            if (tryIndex == 1) delay(2_000)
+            if (tryIndex == 1) delay(RETRY_DELAY_MS)
         }
         val direct = get("content", referer = "$BASE/vtop/init/page").second
         return deriveFromDashboard(direct) ?: fail("dashboard missing authorizedID")
     }
 
+    /** True when [page] carries the portal dashboard shell (session proof). */
+    private fun isDashboardPage(page: String): Boolean = page.contains("page-wrapper")
+
+    /**
+     * True when [page] is the portal's login/rejection page rather than the
+     * dashboard: no dashboard shell, and one of the login-form markers.
+     */
+    private fun isLoginPage(page: String): Boolean =
+        !isDashboardPage(page) &&
+            (page.contains("stdForm") || page.contains("empForm") || page.contains("parentForm"))
+
     /** authorizedID + csrfValue + label from dashboard HTML; establishes hasSession. */
     private fun deriveFromDashboard(html: String): LoginResult? {
-        if (!html.contains("page-wrapper")) return null
+        if (!isDashboardPage(html)) return null
         val authId = Regex("""name="authorizedID"[\s\S]{0,120}?value="([^"]+)"""").find(html)?.groupValues?.get(1)
             ?: Regex("""id="authorizedIDX"[\s\S]{0,120}?value="([^"]+)"""").find(html)?.groupValues?.get(1)
             ?: return null
@@ -674,10 +689,6 @@ class VtopClient(
         }
     }
 
-    private fun looksLikeLoginPage(body: String): Boolean =
-        !body.contains("page-wrapper") &&
-            (body.contains("stdForm") || body.contains("empForm") || body.contains("parentForm"))
-
     private suspend fun rawSectionWithParams(
         endpoint: String,
         extraParams: Map<String, String>,
@@ -700,7 +711,7 @@ class VtopClient(
         if (code == 403 || code == 429) throw VtopError.Blocked("WAF_BLOCKED($code) on $endpoint")
         check(code in 200..299) { "section $endpoint -> $code" }
         AppLog.d("section: $endpoint -> $code ${body.length}B")
-        if (looksLikeLoginPage(body)) throw VtopError.SessionExpired
+        if (isLoginPage(body)) throw VtopError.SessionExpired
         return body
     }
 

@@ -68,6 +68,9 @@ class HomeViewModel(
     private var lastItem: MenuItem? = null
     private val syncInProgress = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /** Set when refreshMarksAndGrades() was dropped because a sync was running; consumed when that sync ends. */
+    private var marksRefreshQueued = false
+
     init {
         syncAllData()
     }
@@ -92,24 +95,13 @@ class HomeViewModel(
                 // Clean and prime attended semesters from cached attendance page if present
                 SessionCache.load("academics/common/StudentAttendance")?.let { cachedAtt ->
                     val sems = MarksParser.extractSemesters(cachedAtt.first)
-                    if (sems.isNotEmpty()) {
-                        UserDatabase.saveSemesters(
-                            authorizedId,
-                            sems.map { SemesterAttended(regNo = authorizedId, semesterSubId = it.first, semesterName = it.second) },
-                        )
-                    }
+                    if (sems.isNotEmpty()) saveAttendedSemesters(sems)
                 }
 
                 // 1. Fetch Profile & Cumulative Grade History from StudentGradeHistory
                 // This endpoint contains the student's real name (MAYANK KUSHWAHA), degree, school, CGPA, and course grades
                 try {
-                    val cachedGrades = SessionCache.load("examinations/examGradeView/StudentGradeHistory")
-                    if (cachedGrades != null) {
-                        val p = ProfileParser.parse(cachedGrades.first, authorizedId)
-                        if (p.name != authorizedId && p.name.isNotBlank()) UserDatabase.saveProfile(p)
-                        val (summary, grades) = GradeHistoryParser.parse(cachedGrades.first, authorizedId)
-                        if (grades.isNotEmpty() || summary != null) UserDatabase.saveGradeHistory(authorizedId, summary, grades)
-                    }
+                    SessionCache.load("examinations/examGradeView/StudentGradeHistory")?.let { saveGradeHistoryFromPage(it.first) }
                     val sems = UserDatabase.loadSemesters(authorizedId)
                     val semIds = (sems.map { it.semesterSubId } + listOf("BL20262705", "BL20262701")).distinct()
                     for (semId in semIds) {
@@ -128,23 +120,11 @@ class HomeViewModel(
 
                 client.fetchSection("examinations/examGradeView/StudentGradeHistory").onSuccess { html ->
                     SessionCache.save("examinations/examGradeView/StudentGradeHistory", html)
-                    val p = ProfileParser.parse(html, authorizedId)
-                    if (p.name != authorizedId && p.name.isNotBlank()) {
-                        UserDatabase.saveProfile(p)
-                    }
-                    val (summary, grades) = GradeHistoryParser.parse(html, authorizedId)
-                    if (grades.isNotEmpty() || summary != null) {
-                        UserDatabase.saveGradeHistory(authorizedId, summary, grades)
-                    }
+                    saveGradeHistoryFromPage(html)
                 }
 
                 // Also check StudentProfileAllView just in case
-                client.fetchSection("studentsRecord/StudentProfileAllView").onSuccess { html ->
-                    val p = ProfileParser.parse(html, authorizedId)
-                    if (p.name != authorizedId && p.name.isNotBlank()) {
-                        UserDatabase.saveProfile(p)
-                    }
-                }
+                client.fetchSection("studentsRecord/StudentProfileAllView").onSuccess { saveProfileFromPage(it) }
 
                 // 1.5 Sync Academic Calendar for Fall Semester 2026-27
                 val calSemId = CALENDAR_SEMESTER_ID
@@ -174,10 +154,7 @@ class HomeViewModel(
 
                 // 2. Discover all attended semesters (exclusively matched from Attendance)
                 val attendedSemesters = resolveAttendedSemesters()
-                val semAttendedList = attendedSemesters.map { (id, name) ->
-                    SemesterAttended(regNo = authorizedId, semesterSubId = id, semesterName = name)
-                }
-                UserDatabase.saveSemesters(authorizedId, semAttendedList)
+                saveAttendedSemesters(attendedSemesters)
 
                 // 3. Sequentially fetch data for each attended semester (Attendance, Timetable, Marks)
                 for ((semId, semName) in attendedSemesters) {
@@ -245,6 +222,7 @@ class HomeViewModel(
             } finally {
                 UserDatabase.setSyncing(false)
                 syncInProgress.set(false)
+                runQueuedMarksRefresh()
             }
         }
     }
@@ -305,7 +283,10 @@ class HomeViewModel(
      * Records honest success/failure into [marksNotice] (cached data shown otherwise).
      */
     fun refreshMarksAndGrades() {
-        if (!syncInProgress.compareAndSet(false, true)) return
+        if (!syncInProgress.compareAndSet(false, true)) {
+            marksRefreshQueued = true
+            return
+        }
         UserDatabase.setSyncing(true)
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -314,22 +295,12 @@ class HomeViewModel(
                 UserDatabase.loadSemesterResults(authorizedId)
                 client.fetchSection("examinations/examGradeView/StudentGradeHistory").onSuccess { html ->
                     SessionCache.save("examinations/examGradeView/StudentGradeHistory", html)
-                    val p = ProfileParser.parse(html, authorizedId)
-                    if (p.name != authorizedId && p.name.isNotBlank()) {
-                        UserDatabase.saveProfile(p)
-                    }
-                    val (summary, grades) = GradeHistoryParser.parse(html, authorizedId)
-                    if (grades.isNotEmpty() || summary != null) {
-                        UserDatabase.saveGradeHistory(authorizedId, summary, grades)
-                    }
+                    saveGradeHistoryFromPage(html)
                 }
                 var attended = UserDatabase.loadSemesters(authorizedId).map { it.semesterSubId to it.semesterName }
                 if (attended.isEmpty()) {
                     attended = resolveAttendedSemesters()
-                    val semAttendedList = attended.map { (id, name) ->
-                        SemesterAttended(regNo = authorizedId, semesterSubId = id, semesterName = name)
-                    }
-                    UserDatabase.saveSemesters(authorizedId, semAttendedList)
+                    saveAttendedSemesters(attended)
                 }
                 for ((semId, _) in attended) {
                     client.postSubAction(
@@ -368,8 +339,35 @@ class HomeViewModel(
             } finally {
                 UserDatabase.setSyncing(false)
                 syncInProgress.set(false)
+                runQueuedMarksRefresh()
             }
         }
+    }
+
+    /** Run the marks/grades refresh queued while a sync was in progress. */
+    private fun runQueuedMarksRefresh() {
+        if (marksRefreshQueued) {
+            marksRefreshQueued = false
+            refreshMarksAndGrades()
+        }
+    }
+
+    private fun saveProfileFromPage(html: String) {
+        val p = ProfileParser.parse(html, authorizedId)
+        if (p.name != authorizedId && p.name.isNotBlank()) UserDatabase.saveProfile(p)
+    }
+
+    private fun saveGradeHistoryFromPage(html: String) {
+        saveProfileFromPage(html)
+        val (summary, grades) = GradeHistoryParser.parse(html, authorizedId)
+        if (grades.isNotEmpty() || summary != null) UserDatabase.saveGradeHistory(authorizedId, summary, grades)
+    }
+
+    private fun saveAttendedSemesters(semesters: List<Pair<String, String>>) {
+        UserDatabase.saveSemesters(
+            authorizedId,
+            semesters.map { (id, name) -> SemesterAttended(regNo = authorizedId, semesterSubId = id, semesterName = name) },
+        )
     }
 
     fun open(item: MenuItem) {

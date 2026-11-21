@@ -2,6 +2,7 @@ package dev.vtoppp.vtop.ui.home
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import dev.vtoppp.vtop.R
@@ -73,7 +75,21 @@ internal fun EmptyState(
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(16.dp))
-        FilledTonalButton(onClick = onRefresh, enabled = !isSyncing) {
+        val pulse = remember { Animatable(1f) }
+        LaunchedEffect(isSyncing) {
+            if (isSyncing) {
+                while (isSyncing) {
+                    pulse.animateTo(1.02f, tween(600))
+                    pulse.animateTo(1f, tween(600))
+                }
+            }
+            pulse.animateTo(1f, tween(Motion.Fast))
+        }
+        FilledTonalButton(
+            onClick = onRefresh,
+            enabled = !isSyncing,
+            modifier = Modifier.graphicsLayer { scaleX = pulse.value; scaleY = pulse.value },
+        ) {
             AnimatedContent(
                 targetState = isSyncing,
                 transitionSpec = { fadeIn(tween(Motion.Quick)) togetherWith fadeOut(tween(Motion.Fast)) },

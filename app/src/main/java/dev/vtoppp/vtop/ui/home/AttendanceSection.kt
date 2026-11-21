@@ -1,5 +1,6 @@
 package dev.vtoppp.vtop.ui.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,16 +46,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.Font
 import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.ui.theme.AttendanceGreen
 import dev.vtoppp.vtop.ui.theme.StatusColors
 import kotlin.math.absoluteValue
 
@@ -150,7 +155,7 @@ internal fun AttendanceSection(
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(124.dp),
+                .height(104.dp),
         ) { pageIndex ->
             val subject = subjects[pageIndex]
             val isWarning = subject.percentage in 75..79
@@ -183,42 +188,42 @@ internal fun AttendanceSection(
                 animationSpec = spatial,
                 label = "attendanceCardElevation",
             )
+            val surfaceColor = MaterialTheme.colorScheme.surface
+            val isDark = surfaceColor.luminance() < 0.5f
+
             val percentageColor by animateColorAsState(
                 targetValue = when {
-                    isDanger -> MaterialTheme.colorScheme.error
-                    isWarning -> StatusColors.Warning
-                    else -> MaterialTheme.colorScheme.onSurface
+                    isDanger -> if (!isDark) Color(0xFFB91C1C) else Color(0xFFF87171)
+                    isWarning -> if (!isDark) Color(0xFFB45309) else Color(0xFFFBBF24)
+                    else -> if (!isDark) Color(0xFF15803D) else Color(0xFF4ADE80)
                 },
                 animationSpec = effects,
                 label = "percentage",
             )
-            val safeBunkDot by animateColorAsState(
+            val statContainer by animateColorAsState(
                 targetValue = when {
-                    isDanger -> MaterialTheme.colorScheme.error
-                    isWarning -> StatusColors.Warning
-                    else -> MaterialTheme.colorScheme.primary
+                    isDanger -> if (!isDark) Color(0xFFFEE2E2) else Color(0xFF381414)
+                    isWarning -> if (!isDark) Color(0xFFFEF3C7) else Color(0xFF382808)
+                    else -> if (!isDark) Color(0xFFDCFCE7) else Color(0xFF0F2E1B)
                 },
                 animationSpec = effects,
-                label = "safeBunkDot",
+                label = "statContainer",
             )
-            val missContainer by animateColorAsState(
+            val statBorder by animateColorAsState(
                 targetValue = when {
-                    isDanger -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
-                    isWarning -> StatusColors.Warning.copy(alpha = 0.15f)
-                    else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                    isDanger -> Color(0xFFEF4444).copy(alpha = 0.5f)
+                    isWarning -> Color(0xFFF59E0B).copy(alpha = 0.5f)
+                    else -> AttendanceGreen.copy(alpha = 0.5f)
                 },
                 animationSpec = effects,
-                label = "missContainer",
+                label = "statBorder",
             )
-            val missBorder by animateColorAsState(
-                targetValue = when {
-                    isDanger -> MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
-                    isWarning -> StatusColors.Warning.copy(alpha = 0.4f)
-                    else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                },
-                animationSpec = effects,
-                label = "missBorder",
+            val statCornerRadius by animateDpAsState(
+                targetValue = if (isDanger) 12.dp else 16.dp,
+                animationSpec = spatial,
+                label = "statCornerRadius",
             )
+            // ponytail: safe bunks/miss indicators hidden for now per user request
             val containerColor by animateColorAsState(
                 targetValue = if (isCenter) {
                     when {
@@ -233,7 +238,7 @@ internal fun AttendanceSection(
             )
             val borderColor by animateColorAsState(
                 targetValue = when {
-                    subject.isOngoing -> Color(0xFF22C55E).copy(alpha = if (isCenter) 0.85f else 0.45f)
+                    subject.isOngoing -> AttendanceGreen.copy(alpha = if (isCenter) 0.85f else 0.45f)
                     subject.isNext -> MaterialTheme.colorScheme.primary.copy(alpha = if (isCenter) 0.85f else 0.45f)
                     isDanger -> MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
                     isWarning -> StatusColors.Warning.copy(alpha = 0.45f)
@@ -274,16 +279,16 @@ internal fun AttendanceSection(
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Left Column
+                    // Left Column (takes remaining width, all lines with TextOverflow.Ellipsis)
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                            .padding(end = 12.dp),
+                        verticalArrangement = Arrangement.Center,
                     ) {
                         // Row 1: Course code + Status badge
                         Row(
@@ -297,6 +302,8 @@ internal fun AttendanceSection(
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.primary,
                                 letterSpacing = 0.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
 
                             // Status badge: LIVE / NEXT / Slot+Time / NOT TODAY
@@ -304,8 +311,8 @@ internal fun AttendanceSection(
                                 subject.isOngoing -> {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF22C55E).copy(alpha = 0.2f),
-                                        border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.6f)),
+                                        color = AttendanceGreen.copy(alpha = 0.2f),
+                                        border = BorderStroke(1.dp, AttendanceGreen.copy(alpha = 0.6f)),
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -315,13 +322,13 @@ internal fun AttendanceSection(
                                             Box(
                                                 modifier = Modifier
                                                     .size(5.dp)
-                                                    .background(Color(0xFF22C55E), CircleShape),
+                                                    .background(AttendanceGreen, CircleShape),
                                             )
                                             Text(
                                                 text = "LIVE",
                                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                                                 fontWeight = FontWeight.ExtraBold,
-                                                color = Color(0xFF22C55E),
+                                                color = AttendanceGreen,
                                             )
                                         }
                                     }
@@ -338,6 +345,8 @@ internal fun AttendanceSection(
                                             fontWeight = FontWeight.ExtraBold,
                                             color = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
                                 }
@@ -358,6 +367,8 @@ internal fun AttendanceSection(
                                             fontWeight = FontWeight.SemiBold,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
                                 }
@@ -378,84 +389,55 @@ internal fun AttendanceSection(
                             }
                         }
 
+                        Spacer(Modifier.height(5.dp))
+
                         // Row 2: Full Course Title
                         Text(
                             text = subject.courseTitle,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.5.sp),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
 
-                        // Row 3: Percentage and Attendance fractions
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                text = "${subject.percentage}%",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Black,
-                                color = percentageColor,
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                border = BorderStroke(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                                ),
-                            ) {
-                                Text(
-                                    text = "${subject.attendedClasses} / ${subject.totalClasses}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
+                        // ponytail: miss calculator hidden for now per user request
                     }
 
-                    // Right Column: can safely miss till CAT-1 - 0
+                    // Right Side: Uniform, prominent stat block with big percentage & fraction
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = missContainer,
-                        border = BorderStroke(1.dp, missBorder),
+                        shape = RoundedCornerShape(statCornerRadius),
+                        color = statContainer,
+                        border = BorderStroke(1.dp, statBorder),
+                        modifier = Modifier
+                            .width(84.dp)
+                            .fillMaxHeight(),
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                         ) {
-                            Text(
-                                text = "can safely miss",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                text = "till ${subject.examTarget}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                            )
-                            Spacer(Modifier.height(3.dp))
-                            Surface(
-                                shape = CircleShape,
-                                color = safeBunkDot,
-                                modifier = Modifier.size(24.dp),
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "${subject.safeBunks}",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White,
-                                    )
-                                }
+                            AnimatedContent(
+                                targetState = subject.percentage,
+                                label = "sectionPercentageMorph",
+                            ) { targetPct ->
+                                Text(
+                                    text = "$targetPct%",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                                    fontWeight = FontWeight.Black,
+                                    color = percentageColor,
+                                    textAlign = TextAlign.Center,
+                                )
                             }
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "${subject.attendedClasses}/${subject.totalClasses}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                fontWeight = FontWeight.Bold,
+                                color = percentageColor.copy(alpha = 0.85f),
+                                textAlign = TextAlign.Center,
+                            )
                         }
                     }
                 }

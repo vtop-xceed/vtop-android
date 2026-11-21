@@ -12,13 +12,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -28,7 +23,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material3.toPath
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -95,10 +89,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -218,6 +210,26 @@ fun MainDashboardScreen(
     }
 
     val liveAttendance by UserDatabase.attendanceFlow.collectAsState()
+    val semesters by UserDatabase.semestersFlow.collectAsState()
+    val latestSemesterId = remember(semesters) { UserDatabase.getLatestSemesterId(authorizedId) }
+
+    var attendanceSemesterId by rememberSaveable { mutableStateOf<String?>(null) }
+    var timetableSemesterId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val pageAttendance = remember(attendanceSemesterId, liveAttendance) {
+        if (attendanceSemesterId == null || attendanceSemesterId == latestSemesterId) {
+            liveAttendance
+        } else {
+            UserDatabase.loadAttendance(authorizedId, attendanceSemesterId)
+        }
+    }
+    val pageTimetable = remember(timetableSemesterId, storedTimetable) {
+        if (timetableSemesterId == null || timetableSemesterId == latestSemesterId) {
+            storedTimetable
+        } else {
+            UserDatabase.loadTimetable(authorizedId, timetableSemesterId)
+        }
+    }
     val todayDate = now.toLocalDate()
     val todayDayOfWeek = todayDate.dayOfWeek.value // 1 = Monday .. 7 = Sunday
     val todayTime = now.toLocalTime()
@@ -415,16 +427,22 @@ fun MainDashboardScreen(
         when (contentKey) {
             "calendar" -> AcademicCalendarPage(events = liveCalendarEvents, onRefresh = onRefresh)
             "attendance" -> AttendancePage(
-                entries = liveAttendance,
+                entries = pageAttendance,
                 sessions = liveSessions,
-                timetable = storedTimetable,
+                timetable = pageTimetable,
                 faculties = faculties,
                 onBack = { showAttendancePage = false },
+                semesterOptions = semesters,
+                selectedSemesterId = attendanceSemesterId ?: latestSemesterId,
+                onSemesterChange = { attendanceSemesterId = it },
             )
             "timetable" -> TimetableDetailsPage(
-                timetable = storedTimetable,
+                timetable = pageTimetable,
                 faculties = faculties,
                 onBack = { showTimetablePage = false },
+                semesterOptions = semesters,
+                selectedSemesterId = timetableSemesterId ?: latestSemesterId,
+                onSemesterChange = { timetableSemesterId = it },
             )
             "grades" -> GradeHistoryPage(
                 onBack = { showGradesPage = false },
@@ -481,160 +499,27 @@ fun MainDashboardScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        // Left: Greeting with First Name & Lastname (65% width)
-                        Column(modifier = Modifier.weight(0.65f)) {
-                            val greeting = SessionGreeting.greeting
-                            val fontIndex = SessionGreeting.fontIndex
-                            val typography = GreetingFontStyles[fontIndex.coerceIn(GreetingFontStyles.indices)]
-
-                            val parsedName = remember(liveProfile?.name, authorizedId) {
+                        GreetingCard(
+                            greeting = SessionGreeting.greeting,
+                            typography = GreetingFontStyles[SessionGreeting.fontIndex.coerceIn(GreetingFontStyles.indices)],
+                            parsedName = remember(liveProfile?.name, authorizedId) {
                                 parseDisplayName(liveProfile?.name, authorizedId)
-                            }
-                            val displayName = parsedName.firstName
-
-                            Text(
-                                text = greeting,
-                                style = MaterialTheme.typography.titleSmall.copy(fontSize = 18.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontFamily = typography.fontFamily,
-                                fontWeight = typography.greetingWeight,
-                                letterSpacing = typography.letterSpacing,
-                            )
-                            BoxWithConstraints(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { selectedNavTab = 3 }
-                                    .padding(top = 1.dp),
-                            ) {
-                                val textMeasurer = rememberTextMeasurer()
-                                val density = LocalDensity.current
-                                val maxWidthPx = constraints.maxWidth
-                                val spacerPx = with(density) { 6.dp.roundToPx() }
-
-                                val baseFirstStyle = MaterialTheme.typography.headlineLarge.copy(
-                                    fontSize = 36.sp,
-                                    fontWeight = typography.nameWeight,
-                                    fontFamily = typography.fontFamily,
-                                    letterSpacing = typography.letterSpacing,
-                                )
-                                val secondaryStyle = MaterialTheme.typography.bodyMedium.copy(
-                                    fontSize = 18.sp,
-                                    fontWeight = typography.greetingWeight,
-                                    fontFamily = typography.fontFamily,
-                                    letterSpacing = typography.letterSpacing,
-                                )
-
-                                // Measure first name: if it exceeds available width on wide fonts (like Monospace),
-                                // scale font size down so it NEVER gets ..ed
-                                val firstMeasure = textMeasurer.measure(
-                                    text = displayName,
-                                    style = baseFirstStyle,
-                                    maxLines = 1,
-                                )
-                                val firstWidthPx = firstMeasure.size.width
-
-                                val (effectiveFirstStyle, effectiveFirstWidthPx) = if (firstWidthPx > maxWidthPx && maxWidthPx > 0) {
-                                    val scale = (maxWidthPx.toFloat() / firstWidthPx.toFloat()).coerceIn(0.6f, 1f)
-                                    val scaled = baseFirstStyle.copy(fontSize = baseFirstStyle.fontSize * scale)
-                                    scaled to maxWidthPx
-                                } else {
-                                    baseFirstStyle to firstWidthPx
+                            },
+                            pill = pill,
+                            githubPingDone = githubPingDone,
+                            githubPingSuccess = githubPingSuccess,
+                            onBridgeRetry = onBridgeRetry,
+                            onGithubPing = {
+                                scope.launch {
+                                    githubPingDone = false
+                                    val ok = pingGitHubRelease()
+                                    githubPingSuccess = ok
+                                    githubPingDone = true
                                 }
-
-                                val availableForSecondary = maxWidthPx - effectiveFirstWidthPx - spacerPx
-
-                                // If name is too long, hide full middle & last name to use initials (e.g. Mayank K.)
-                                val resolvedSecondary = when {
-                                    parsedName.secondaryName == null -> null
-                                    availableForSecondary <= 0 -> null
-                                    else -> {
-                                        val fullWidth = textMeasurer.measure(
-                                            text = parsedName.secondaryName,
-                                            style = secondaryStyle,
-                                            maxLines = 1,
-                                        ).size.width
-                                        if (fullWidth <= availableForSecondary) {
-                                            parsedName.secondaryName
-                                        } else {
-                                            val initials = parsedName.secondaryInitials
-                                            if (initials != null) {
-                                                val initialsWidth = textMeasurer.measure(
-                                                    text = initials,
-                                                    style = secondaryStyle,
-                                                    maxLines = 1,
-                                                ).size.width
-                                                if (initialsWidth <= availableForSecondary) {
-                                                    initials
-                                                } else null
-                                            } else null
-                                        }
-                                    }
-                                }
-
-                                Row(
-                                    verticalAlignment = Alignment.Bottom,
-                                ) {
-                                    Text(
-                                        text = displayName,
-                                        style = effectiveFirstStyle,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Clip,
-                                    )
-                                    if (resolvedSecondary != null) {
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            text = resolvedSecondary,
-                                            style = secondaryStyle,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            overflow = TextOverflow.Clip,
-                                            modifier = Modifier.padding(bottom = 3.dp),
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Fluid status pills below the name: VTOP session bridging & GitHub release ping
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(top = 5.dp),
-                            ) {
-                                // 1. VTOP Session Bridging Pill / Green Check Dot
-                                val isVtopReady = pill.kind == PillKind.Ready
-                                FluidStatusPill(
-                                    isReady = isVtopReady,
-                                    isBusy = pill.kind == PillKind.Busy,
-                                    isError = pill.kind == PillKind.Error,
-                                    label = pill.label.ifBlank { "Bridging VTOP…" },
-                                    readyLabel = "VTOP bridged",
-                                    onClick = onBridgeRetry,
-                                )
-
-                                // 2. GitHub Release Update Checker Pill
-                                FluidStatusPill(
-                                    isReady = githubPingDone,
-                                    isBusy = !githubPingDone,
-                                    isError = !githubPingSuccess,
-                                    label = "Pinging GitHub…",
-                                    readyLabel = "Up to date",
-                                    readyIcon = R.drawable.ic_check,
-                                    onClick = {
-                                        if (githubPingDone) {
-                                            scope.launch {
-                                                githubPingDone = false
-                                                val ok = pingGitHubRelease()
-                                                githubPingSuccess = ok
-                                                githubPingDone = true
-                                            }
-                                        }
-                                    },
-                                )
-                            }
-                        }
+                            },
+                            onSettingsClick = { selectedNavTab = 3 },
+                            modifier = Modifier.weight(0.65f),
+                        )
 
                         Spacer(Modifier.width(12.dp))
 
@@ -935,7 +820,6 @@ internal fun FluidStatusPill(
     readyLabel: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isBusy: Boolean = false,
     isError: Boolean = false,
     readyIcon: Int = R.drawable.ic_check,
 ) {
@@ -1020,32 +904,14 @@ internal fun FluidStatusPill(
                     .height(20.dp)
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             ) {
-                if (isReady) {
-                    Icon(
-                        painter = painterResource(readyIcon),
-                        contentDescription = readyLabel,
-                        tint = contentColor,
-                        modifier = Modifier.size(10.dp),
-                    )
-                } else if (isBusy || !isReady) {
-                    val transition = rememberInfiniteTransition(label = "pillPulse")
-                    val alpha by transition.animateFloat(
-                        initialValue = Motion.PulseMinAlpha,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(Motion.PulseMs, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse,
-                        ),
-                        label = "pillPulseAlpha",
-                    )
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .graphicsLayer { this.alpha = alpha }
-                            .clip(CircleShape)
-                            .background(if (isError) MaterialTheme.colorScheme.error else StatusColors.Warning),
-                    )
-                }
+                MorphingStatusIcon(
+                    isReady = isReady,
+                    isError = isError,
+                    contentColor = contentColor,
+                    readyLabel = readyLabel,
+                    readyIcon = readyIcon,
+                    modifier = Modifier.size(10.dp),
+                )
 
                 Spacer(Modifier.width(4.dp))
                 Text(

@@ -2,9 +2,6 @@ package dev.vtoppp.vtop.data
 
 object GradeHistoryParser {
 
-    private val rowRegex = Regex("""(<tr[^>]*>)([\s\S]*?)</tr>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-    private val cellRegex = Regex("""<t[dh][^>]*>(.*?)</t[dh]>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-    private val tagStripRegex = Regex("""<[^>]+>""")
     private val courseCodeRegex = Regex("""^[A-Z]{3,4}\d{3,4}[A-Z]?$""", RegexOption.IGNORE_CASE)
     private val examMonthRegex = Regex("""(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[\s-]*[12][0-9]{3}""", RegexOption.IGNORE_CASE)
     private val examMonthLooseRegex = Regex("""(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|\d{4}|SEM)""", RegexOption.IGNORE_CASE)
@@ -19,14 +16,6 @@ object GradeHistoryParser {
      */
     fun parse(html: String, regNo: String): Pair<AcademicSummary?, List<GradeHistoryEntry>> {
         if (html.isBlank()) return null to emptyList()
-
-        fun cellsOf(row: String): List<String> =
-            cellRegex.findAll(row).map { cellMatch ->
-                tagStripRegex.replace(cellMatch.groupValues[1], " ")
-                    .replace("&nbsp;", " ")
-                    .replace("&amp;", "&")
-                    .trim()
-            }.toList()
 
         // 1. Authoritative summary: walk rows; the row whose cells start with
         //    "Credits Registered" is the box header; the next all-numeric row holds
@@ -44,11 +33,11 @@ object GradeHistoryParser {
         var fCount = 0
         var boxFound = false
 
-        val rows = rowRegex.findAll(html).toList()
+        val rows = HtmlTables.rows(html)
         var boxHeaderSeen = false
         for (m in rows) {
-            val tag = m.groupValues[1]
-            val cells = cellsOf(m.groupValues[2])
+            val tag = m.tag
+            val cells = HtmlTables.cells(m.body)
             if (cells.isEmpty()) continue
             if (tag.contains("level1", ignoreCase = true)) continue
             if (cells[0].equals("Total Credits", ignoreCase = true)) {
@@ -78,9 +67,9 @@ object GradeHistoryParser {
         // 2. Course rows from the top-level table only (level-1 attempt breakdowns skipped).
         val courseEntries = mutableListOf<GradeHistoryEntry>()
         for (m in rows) {
-            val tag = m.groupValues[1]
+            val tag = m.tag
             if (tag.contains("level1", ignoreCase = true)) continue
-            val cells = cellsOf(m.groupValues[2])
+            val cells = HtmlTables.cells(m.body)
             if (cells.size < 4) continue
 
             val codeIdx = cells.indexOfFirst {

@@ -6,3 +6,5 @@ object StatusColors {
     val Success = Color(0xFF2E7D32)
     val Warning = Color(0xFFFFA000)
 }
+
+val AttendanceGreen = Color(0xFF22C55E)

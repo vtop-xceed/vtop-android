@@ -77,142 +77,179 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
             """.trimIndent(),
         )
         createAcademicTables(db)
+        createIndexes(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS timetable_classes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    reg_no TEXT NOT NULL,
-                    semester_sub_id TEXT NOT NULL DEFAULT '',
-                    day_of_week INTEGER NOT NULL,
-                    start_time TEXT NOT NULL,
-                    end_time TEXT NOT NULL,
-                    room_block TEXT NOT NULL,
-                    room_number TEXT NOT NULL,
-                    course_code TEXT NOT NULL,
-                    course_title TEXT NOT NULL,
-                    slots TEXT NOT NULL,
-                    active_slot TEXT NOT NULL,
-                    updated_at_ms INTEGER NOT NULL
-                );
-                """.trimIndent(),
-            )
-        }
-        if (oldVersion < 3) {
-            createAcademicTables(db)
-        }
-        if (oldVersion < 4) {
-            try { db.execSQL("ALTER TABLE timetable_classes ADD COLUMN semester_sub_id TEXT NOT NULL DEFAULT ''") } catch (_: Exception) {}
-            try { db.execSQL("ALTER TABLE grade_history ADD COLUMN semester_sub_id TEXT NOT NULL DEFAULT ''") } catch (_: Exception) {}
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS semesters_attended (
-                    reg_no TEXT NOT NULL,
-                    semester_sub_id TEXT NOT NULL,
-                    semester_name TEXT NOT NULL,
-                    updated_at_ms INTEGER NOT NULL,
-                    PRIMARY KEY (reg_no, semester_sub_id)
-                );
-                """.trimIndent(),
-            )
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS student_attendance (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    reg_no TEXT NOT NULL,
-                    semester_sub_id TEXT NOT NULL,
-                    course_code TEXT NOT NULL,
-                    course_title TEXT NOT NULL,
-                    course_type TEXT,
-                    slot TEXT,
-                    faculty_name TEXT,
-                    attended_classes INTEGER NOT NULL DEFAULT 0,
-                    total_classes INTEGER NOT NULL DEFAULT 0,
-                    attendance_percentage REAL NOT NULL DEFAULT 0.0,
-                    updated_at_ms INTEGER NOT NULL
-                );
-                """.trimIndent(),
-            )
-        }
-        if (oldVersion < 6) {
-            // v6: per-semester economics for the Cumulative table
-            runCatching {
-                db.execSQL("ALTER TABLE grade_history ADD COLUMN semester_sub_id TEXT NOT NULL DEFAULT ''")
-            }
-        }
-        if (oldVersion < 7) {
-            runCatching {
-                db.execSQL("ALTER TABLE academic_summary ADD COLUMN curriculum_credits REAL NOT NULL DEFAULT 0.0")
-            }
-        }
-        if (oldVersion < 8) {
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS semester_results (
-                    reg_no TEXT NOT NULL,
-                    semester_sub_id TEXT NOT NULL,
-                    gpa REAL,
-                    updated_at_ms INTEGER NOT NULL,
-                    PRIMARY KEY (reg_no, semester_sub_id)
-                );
-                """.trimIndent(),
-            )
-        }
-        if (oldVersion < 9) {
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS attendance_sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    reg_no TEXT NOT NULL,
-                    semester_sub_id TEXT NOT NULL,
-                    course_code TEXT NOT NULL,
-                    date TEXT NOT NULL,
-                    slot TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    updated_at_ms INTEGER NOT NULL,
-                    UNIQUE(reg_no, semester_sub_id, course_code, date, slot)
-                );
-                """.trimIndent(),
-            )
-        }
-        if (oldVersion < 10) {
-            // Clean up un-attended semesters previously scraped from university-wide mark view
-            runCatching {
+            step(db) {
                 db.execSQL(
                     """
-                    DELETE FROM semesters_attended 
-                    WHERE (reg_no, semester_sub_id) NOT IN (
-                        SELECT DISTINCT reg_no, semester_sub_id FROM student_attendance
-                    ) AND EXISTS (SELECT 1 FROM student_attendance WHERE student_attendance.reg_no = semesters_attended.reg_no)
+                    CREATE TABLE IF NOT EXISTS timetable_classes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        reg_no TEXT NOT NULL,
+                        semester_sub_id TEXT NOT NULL DEFAULT '',
+                        day_of_week INTEGER NOT NULL,
+                        start_time TEXT NOT NULL,
+                        end_time TEXT NOT NULL,
+                        room_block TEXT NOT NULL,
+                        room_number TEXT NOT NULL,
+                        course_code TEXT NOT NULL,
+                        course_title TEXT NOT NULL,
+                        slots TEXT NOT NULL,
+                        active_slot TEXT NOT NULL,
+                        updated_at_ms INTEGER NOT NULL
+                    );
                     """.trimIndent(),
                 )
             }
         }
-        if (oldVersion < 5) {
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS academic_calendar (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    semester_sub_id TEXT NOT NULL,
-                    date TEXT NOT NULL,
-                    day_number INTEGER NOT NULL,
-                    month_year TEXT NOT NULL,
-                    day_of_week TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    subtitle TEXT NOT NULL,
-                    event_category TEXT NOT NULL,
-                    is_holiday INTEGER NOT NULL DEFAULT 0,
-                    is_instructional INTEGER NOT NULL DEFAULT 0,
-                    is_exam INTEGER NOT NULL DEFAULT 0,
-                    updated_at_ms INTEGER NOT NULL,
-                    UNIQUE(semester_sub_id, date)
-                );
-                """.trimIndent(),
-            )
+        if (oldVersion < 3) {
+            step(db) { createAcademicTables(db) }
         }
+        if (oldVersion < 4) {
+            step(db) {
+                try { db.execSQL("ALTER TABLE timetable_classes ADD COLUMN semester_sub_id TEXT NOT NULL DEFAULT ''") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE grade_history ADD COLUMN semester_sub_id TEXT NOT NULL DEFAULT ''") } catch (_: Exception) {}
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS semesters_attended (
+                        reg_no TEXT NOT NULL,
+                        semester_sub_id TEXT NOT NULL,
+                        semester_name TEXT NOT NULL,
+                        updated_at_ms INTEGER NOT NULL,
+                        PRIMARY KEY (reg_no, semester_sub_id)
+                    );
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS student_attendance (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        reg_no TEXT NOT NULL,
+                        semester_sub_id TEXT NOT NULL,
+                        course_code TEXT NOT NULL,
+                        course_title TEXT NOT NULL,
+                        course_type TEXT,
+                        slot TEXT,
+                        faculty_name TEXT,
+                        attended_classes INTEGER NOT NULL DEFAULT 0,
+                        total_classes INTEGER NOT NULL DEFAULT 0,
+                        attendance_percentage REAL NOT NULL DEFAULT 0.0,
+                        updated_at_ms INTEGER NOT NULL
+                    );
+                    """.trimIndent(),
+                )
+            }
+        }
+        if (oldVersion < 6) {
+            // v6: per-semester economics for the Cumulative table
+            step(db) {
+                runCatching {
+                    db.execSQL("ALTER TABLE grade_history ADD COLUMN semester_sub_id TEXT NOT NULL DEFAULT ''")
+                }
+            }
+        }
+        if (oldVersion < 7) {
+            step(db) {
+                runCatching {
+                    db.execSQL("ALTER TABLE academic_summary ADD COLUMN curriculum_credits REAL NOT NULL DEFAULT 0.0")
+                }
+            }
+        }
+        if (oldVersion < 8) {
+            step(db) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS semester_results (
+                        reg_no TEXT NOT NULL,
+                        semester_sub_id TEXT NOT NULL,
+                        gpa REAL,
+                        updated_at_ms INTEGER NOT NULL,
+                        PRIMARY KEY (reg_no, semester_sub_id)
+                    );
+                    """.trimIndent(),
+                )
+            }
+        }
+        if (oldVersion < 9) {
+            step(db) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS attendance_sessions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        reg_no TEXT NOT NULL,
+                        semester_sub_id TEXT NOT NULL,
+                        course_code TEXT NOT NULL,
+                        date TEXT NOT NULL,
+                        slot TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        updated_at_ms INTEGER NOT NULL,
+                        UNIQUE(reg_no, semester_sub_id, course_code, date, slot)
+                    );
+                    """.trimIndent(),
+                )
+            }
+        }
+        if (oldVersion < 10) {
+            step(db) {
+                // Clean up un-attended semesters previously scraped from university-wide mark view
+                runCatching {
+                    db.execSQL(
+                        """
+                        DELETE FROM semesters_attended
+                        WHERE (reg_no, semester_sub_id) NOT IN (
+                            SELECT DISTINCT reg_no, semester_sub_id FROM student_attendance
+                        ) AND EXISTS (SELECT 1 FROM student_attendance WHERE student_attendance.reg_no = semesters_attended.reg_no)
+                        """.trimIndent(),
+                    )
+                }
+            }
+        }
+        if (oldVersion < 5) {
+            step(db) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS academic_calendar (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        semester_sub_id TEXT NOT NULL,
+                        date TEXT NOT NULL,
+                        day_number INTEGER NOT NULL,
+                        month_year TEXT NOT NULL,
+                        day_of_week TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        subtitle TEXT NOT NULL,
+                        event_category TEXT NOT NULL,
+                        is_holiday INTEGER NOT NULL DEFAULT 0,
+                        is_instructional INTEGER NOT NULL DEFAULT 0,
+                        is_exam INTEGER NOT NULL DEFAULT 0,
+                        updated_at_ms INTEGER NOT NULL,
+                        UNIQUE(semester_sub_id, date)
+                    );
+                    """.trimIndent(),
+                )
+            }
+        }
+        if (oldVersion < 11) {
+            step(db) { createIndexes(db) }
+        }
+    }
+
+    private fun step(db: SQLiteDatabase, action: () -> Unit) {
+        db.beginTransaction()
+        try {
+            action()
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun createIndexes(db: SQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_student_attendance_reg ON student_attendance(reg_no, semester_sub_id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_timetable_classes_reg ON timetable_classes(reg_no, semester_sub_id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_student_marks_reg ON student_marks(reg_no, semester_sub_id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_grade_history_reg ON grade_history(reg_no, semester_sub_id)")
     }
 
     private fun createAcademicTables(db: SQLiteDatabase) {
@@ -322,7 +359,7 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
 
     companion object {
         const val DB_NAME = "vtop_user_data.db"
-        const val DB_VERSION = 10
+        const val DB_VERSION = 11
     }
 }
 
@@ -551,7 +588,8 @@ object UserDatabase {
                 )
             }
         }
-        if (list.isNotEmpty()) {
+        val latestSem = getLatestSemesterId(regNo)
+        if (latestSem == null || semId == latestSem) {
             _attendanceFlow.value = list
         }
         return list
@@ -629,7 +667,8 @@ object UserDatabase {
                     ),
                 )
             }
-            if (list.isNotEmpty()) {
+            val latestSem = getLatestSemesterId(regNo)
+            if (latestSem == null || semId == latestSem) {
                 _timetableFlow.value = list
             }
             list

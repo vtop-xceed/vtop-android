@@ -36,11 +36,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -223,7 +223,7 @@ private fun BrandMark(focused: Boolean, busy: Boolean, animated: Boolean) {
             Box(contentAlignment = Alignment.Center) {
                 Text(
                     text = "V",
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.displayMediumEmphasized,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
@@ -363,8 +363,10 @@ private fun CredentialForm(
 
         Spacer(Modifier.height(22.dp))
 
-        Button(
+        AnimatedButton(
             onClick = onSubmit,
+            isBusy = loading,
+            enabled = ready,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
@@ -372,19 +374,52 @@ private fun CredentialForm(
                     scaleX = ctaScale
                     scaleY = ctaScale
                 },
-            shape = RoundedCornerShape(26.dp),
-            enabled = ready,
-        ) {
-            if (loading) {
-                @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-                LoadingIndicator(modifier = Modifier.size(22.dp))
-            } else {
-                Text(
-                    text = "Sign in",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+        )
+    }
+}
+
+/**
+ * Sign-in CTA. While the request is in flight it pulses 1.00 <-> 1.04 and
+ * shows a wavy progress indicator; when idle it keeps the "Sign in" label.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AnimatedButton(
+    onClick: () -> Unit,
+    isBusy: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val pulse = remember { Animatable(1f) }
+    LaunchedEffect(isBusy) {
+        while (isBusy) {
+            pulse.animateTo(1.04f, tween(600))
+            pulse.animateTo(1f, tween(600))
+        }
+        pulse.animateTo(1f, tween(Motion.Fast))
+    }
+    Button(
+        onClick = onClick,
+        modifier = modifier.graphicsLayer {
+            scaleX = pulse.value
+            scaleY = pulse.value
+        },
+        shape = RoundedCornerShape(26.dp),
+        enabled = enabled,
+    ) {
+        if (isBusy) {
+            CircularWavyProgressIndicator(
+                progress = { 0.5f },
+                modifier = Modifier.size(22.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
+        } else {
+            Text(
+                text = "Sign in",
+                style = MaterialTheme.typography.labelLargeEmphasized,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }

@@ -10,6 +10,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.tween
 
 // ponytail: one duration ladder for the whole app; callers read from here, never raw numbers
+// Scheme tokens: MarksBits reads MotionScheme via MaterialTheme.motionScheme; the ladder
+// stays at tuned tween durations because scheme specs are springs with different timing.
 object Motion {
     const val Fast = 150
     const val Quick = 200

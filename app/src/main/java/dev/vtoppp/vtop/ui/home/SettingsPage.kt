@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,16 +27,21 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -135,7 +138,7 @@ internal fun SettingsPage(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(8.dp))
-                    ThemeChips(themeMode = themeMode, onThemeModeChange = onThemeModeChange)
+                    ThemeModeChips(themeMode = themeMode, onThemeModeChange = onThemeModeChange)
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 14.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
@@ -206,25 +209,42 @@ internal fun SettingsPage(
     }
 
     if (confirmSignOut) {
-        AlertDialog(
-            onDismissRequest = { confirmSignOut = false },
-            title = { Text("Sign out?") },
-            text = { Text("Your cached VTOP data stays on this device. You will need to sign in again.") },
-            confirmButton = {
+        SignOutSheet(onDismiss = { confirmSignOut = false }, onSignOut = onSignOut)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SignOutSheet(onDismiss: () -> Unit, onSignOut: () -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 24.dp)) {
+            Text(
+                text = "Sign out?",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Your cached VTOP data stays on this device. You will need to sign in again.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
                 TextButton(
                     onClick = {
-                        confirmSignOut = false
+                        onDismiss()
                         onSignOut()
                     },
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
                 ) { Text("Sign out") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") }
-            },
-        )
+            }
+        }
     }
 }
 
@@ -302,45 +322,38 @@ private fun IdentityCard(authorizedId: String, userProfile: UserProfile?, onSign
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ThemeChips(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        listOf(
-            ThemeMode.SYSTEM to "System",
-            ThemeMode.DARK to "Dark",
-            ThemeMode.AMOLED to "AMOLED",
-            ThemeMode.LIGHT to "Light",
-        ).forEach { (mode, label) ->
-            val selected = mode == themeMode
-            val chipColor by animateColorAsState(
-                targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                animationSpec = spring(),
-                label = "modeChip",
-            )
-            val chipContent by animateColorAsState(
-                targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                animationSpec = spring(),
-                label = "modeChipContent",
-            )
-            Surface(
+private fun ThemeModeChips(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
+    val modes = ThemeMode.entries
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        modes.forEachIndexed { index, mode ->
+            SegmentedButton(
+                selected = mode == themeMode,
                 onClick = { onThemeModeChange(mode) },
-                shape = RoundedCornerShape(12.dp),
-                color = chipColor,
-            ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    color = chipContent,
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                )
-            }
+                shape = SegmentedButtonDefaults.itemShape(index, modes.size),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    inactiveContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    inactiveContentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+                label = {
+                    Text(
+                        text = labelOf(mode),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (mode == themeMode) FontWeight.Bold else FontWeight.Medium,
+                    )
+                },
+            )
         }
     }
+}
+
+private fun labelOf(mode: ThemeMode): String = when (mode) {
+    ThemeMode.SYSTEM -> "System"
+    ThemeMode.DARK -> "Dark"
+    ThemeMode.AMOLED -> "AMOLED"
+    ThemeMode.LIGHT -> "Light"
 }
 
 /** Two choices: the platform's Material colours, or a colour the user picks. */

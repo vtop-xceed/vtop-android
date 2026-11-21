@@ -53,12 +53,12 @@ class FakeTransport(
 /** Canonical HTML fixtures for the two-phase establish-then-post chain. */
 object VtopPages {
 
-    /** Login page marker: stdForm, no page-wrapper ([looksLikeLoginPage] true). */
+    /** Login page marker: stdForm, no page-wrapper ([isLoginPage] true). */
     fun loginForm(csrf: String): String =
         """<html><body><form id="vtopLoginForm" class="stdForm">""" +
             """<input type="hidden" name="_csrf" value="$csrf"/></form></body></html>"""
 
-    /** Dashboard marker page ([looksLikeLoginPage] false, [deriveFromDashboard] happy). */
+    /** Dashboard marker page ([isDashboardPage] true, [deriveFromDashboard] happy). */
     fun dashboard(csrfValue: String, authId: String): String = """
         <html><body class="page-wrapper">
             <input name="authorizedID" value="$authId"/>
