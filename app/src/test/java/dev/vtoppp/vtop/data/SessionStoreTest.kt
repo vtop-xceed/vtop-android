@@ -107,4 +107,13 @@ class SessionStoreTest {
         s.save(mapOf("JSESSIONID" to "abc"), "csrf-1", "")
         assertNull(s.loadFresh())
     }
+
+    @Test
+    fun `lastAuthorizedId returns identity even when snapshot is stale`() {
+        val saver = store(nowMs = 1_000L)
+        saver.save(mapOf("JSESSIONID" to "abc"), "csrf-1", "ST1234")
+        val reader = store(nowMs = 1_000L + 90_999L)
+        assertNull(reader.loadFresh())
+        assertEquals("ST1234", reader.lastAuthorizedId)
+    }
 }

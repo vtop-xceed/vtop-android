@@ -17,15 +17,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -41,11 +47,13 @@ import androidx.compose.ui.unit.sp
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.SemesterAttended
 import dev.vtoppp.vtop.data.TimetableEntry
+import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.ui.theme.AmoledCoursePalettes
 import dev.vtoppp.vtop.ui.theme.CoursePalette
 import dev.vtoppp.vtop.ui.theme.DarkCoursePalettes
 import dev.vtoppp.vtop.ui.theme.LightCoursePalettes
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TimetableDetailsPage(
     timetable: List<TimetableEntry>,
@@ -54,15 +62,18 @@ internal fun TimetableDetailsPage(
     semesterOptions: List<SemesterAttended> = emptyList(),
     selectedSemesterId: String? = null,
     onSemesterChange: (String) -> Unit = {},
+    onRefresh: () -> Unit = {},
 ) {
+    val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
+    val lastUpdatedMs = remember(timetable) { timetable.maxOfOrNull { it.updatedAtMs } ?: 0L }
     val courses = remember(timetable) {
         timetable.groupBy { it.courseCode }.map { (code, entries) ->
             CourseRow(
                 code = code,
                 title = entries.firstOrNull { it.courseTitle.isNotBlank() }?.courseTitle.orEmpty(),
                 slots = entries.flatMap { it.slots }.distinct().joinToString(" + "),
-                venue = entries.firstOrNull { it.roomNumber.isNotBlank() }
-                    ?.let { "${it.roomBlock}-${it.roomNumber}" }.orEmpty(),
+                venue = entries.map { cleanVenue(it.roomBlock, it.roomNumber) }
+                    .firstOrNull { it.isNotBlank() }.orEmpty(),
             )
         }.sortedBy { it.code }
     }
@@ -86,8 +97,9 @@ internal fun TimetableDetailsPage(
         }.toMap()
     }
     val timeColumns = remember(timetable) {
-        val allStarts = (listOf("08:30") + timetable.map { it.startTime }).distinct()
-        allStarts.sortedBy { parseTime(it) }
+        val starts = timetable.map { normalizeTime(it.startTime) }.filter { it.isNotBlank() }
+        // ponytail: always show all standard VIT periods from 08:30 to 18:00 (ends 19:30) even when empty
+        (StandardTimeSlots + starts).distinct().sortedBy { parseTime(it) }
     }
     val morningColumns = remember(timeColumns) {
         timeColumns.filter { parseTime(it) < 13 * 60 }
@@ -99,8 +111,17 @@ internal fun TimetableDetailsPage(
         morningColumns.isNotEmpty() && afternoonColumns.isNotEmpty()
     }
     val byDayAndTime = remember(timetable) {
-        timetable.associateBy { "${it.dayOfWeek}|${it.startTime}" }
+        timetable.associateBy { "${it.dayOfWeek}|${normalizeTime(it.startTime)}" }
     }
+    Column(modifier = Modifier.fillMaxSize()) {
+        SyncingBar(visible = isSyncing)
+        PullToRefreshBox(
+            state = rememberPullToRefreshState(),
+            isRefreshing = isSyncing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {},
+        ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -108,7 +129,10 @@ internal fun TimetableDetailsPage(
             .padding(horizontal = 20.dp)
             .padding(top = 12.dp, bottom = 24.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Surface(
                 onClick = onBack,
                 shape = CircleShape,
@@ -130,6 +154,14 @@ internal fun TimetableDetailsPage(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = formatLastRefreshTimestamp(lastUpdatedMs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.85f),
+                maxLines = 1,
+                textAlign = TextAlign.End,
             )
         }
         if (semesterOptions.isNotEmpty()) {
@@ -160,7 +192,7 @@ internal fun TimetableDetailsPage(
         ) {
             Column {
                 courses.forEachIndexed { index, course ->
-                    val faculty = faculties[course.code]?.takeIf { it.isNotBlank() } ?: "—"
+                    val faculty = faculties[course.code.trim().uppercase()] ?: faculties[course.code] ?: "—"
                     val defaultPalette = if (!isDark) LightCoursePalettes[0] else if (isAmoled) AmoledCoursePalettes[0] else DarkCoursePalettes[0]
                     val palette = courseColorMap[course.code.trim().uppercase()] ?: defaultPalette
                     Row(
@@ -209,6 +241,7 @@ internal fun TimetableDetailsPage(
                         Column(
                             horizontalAlignment = Alignment.End,
                             verticalArrangement = Arrangement.spacedBy(3.dp),
+                            modifier = Modifier.widthIn(max = 130.dp),
                         ) {
                             if (course.slots.isNotBlank()) {
                                 Surface(
@@ -261,45 +294,58 @@ internal fun TimetableDetailsPage(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isAmoled) 0.35f else 0.18f)),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-            ) {
-                Row(modifier = Modifier.height(36.dp)) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                // Fixed sticky DAY column on the left
+                Column(modifier = Modifier.width(52.dp)) {
                     GridHead("DAY", 52.dp)
-                    morningColumns.forEach { time ->
-                        GridTimeHead(
-                            startTime = time,
-                            endTime = getEndTimeForStart(time, timetable),
-                            width = 92.dp,
-                        )
-                    }
-                    if (hasLunchSplit) {
-                        LunchHead(28.dp)
-                    }
-                    afternoonColumns.forEach { time ->
-                        GridTimeHead(
-                            startTime = time,
-                            endTime = getEndTimeForStart(time, timetable),
-                            width = 92.dp,
-                        )
+                    (1..6).forEach { dayOfWeek ->
+                        DayCell(dayName(dayOfWeek), isAmoled)
                     }
                 }
-                (1..6).forEach { dayOfWeek ->
-                    Row {
-                        DayCell(dayName(dayOfWeek), isAmoled)
+
+                // Horizontally scrollable timetable grid
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                ) {
+                    Row(modifier = Modifier.height(36.dp)) {
                         morningColumns.forEach { time ->
-                            GridCell(byDayAndTime["$dayOfWeek|$time"], courseColorMap, isDark, isAmoled)
+                            GridTimeHead(
+                                startTime = time,
+                                endTime = getEndTimeForStart(time, timetable),
+                                width = 92.dp,
+                            )
                         }
                         if (hasLunchSplit) {
-                            LunchCell(28.dp)
+                            LunchHead(28.dp)
                         }
                         afternoonColumns.forEach { time ->
-                            GridCell(byDayAndTime["$dayOfWeek|$time"], courseColorMap, isDark, isAmoled)
+                            GridTimeHead(
+                                startTime = time,
+                                endTime = getEndTimeForStart(time, timetable),
+                                width = 92.dp,
+                            )
+                        }
+                    }
+                    (1..6).forEach { dayOfWeek ->
+                        Row {
+                            morningColumns.forEach { time ->
+                                GridCell(byDayAndTime["$dayOfWeek|$time"], courseColorMap, isDark, isAmoled)
+                            }
+                            if (hasLunchSplit) {
+                                LunchCell(28.dp)
+                            }
+                            afternoonColumns.forEach { time ->
+                                GridCell(byDayAndTime["$dayOfWeek|$time"], courseColorMap, isDark, isAmoled)
+                            }
                         }
                     }
                 }
             }
         }
+    }
+    }
     }
 }
 
@@ -314,27 +360,76 @@ private fun SectionTitle(text: String) {
 }
 
 private fun parseTime(time: String): Int {
-    val parts = time.split(":").mapNotNull { it.toIntOrNull() }
-    return if (parts.size == 2) parts[0] * 60 + parts[1] else Int.MAX_VALUE
+    val clean = time.trim().uppercase()
+    val isPm = clean.endsWith("PM")
+    val isAm = clean.endsWith("AM")
+    val digitsOnly = clean.replace("AM", "").replace("PM", "").trim()
+    val parts = digitsOnly.split(":").mapNotNull { it.toIntOrNull() }
+    if (parts.size != 2) return Int.MAX_VALUE
+    var hours = parts[0]
+    val minutes = parts[1]
+    if (isPm && hours < 12) hours += 12
+    if (isAm && hours == 12) hours = 0
+    return hours * 60 + minutes
+}
+
+private fun normalizeTime(time: String): String {
+    val mins = parseTime(time)
+    if (mins == Int.MAX_VALUE) return time.trim()
+    val h = mins / 60
+    val m = mins % 60
+    return "%02d:%02d".format(h, m)
+}
+
+private fun cleanVenue(block: String, room: String): String {
+    val b = block.trim()
+    val r = room.trim()
+    val raw = if (b.isNotBlank() && r.isNotBlank()) "$b-$r" else b.ifBlank { r }
+    if (raw.length > 12 || !isRealVenue(raw)) return ""
+    return raw
+}
+
+private fun isRealVenue(text: String): Boolean {
+    val t = text.trim()
+    if (t.length > 12) return false
+    return t.matches(Regex("""^(AB\d*|LC|AR|CR|SJT|TT|MB|CB|SMV)[\s-]*\d{2,4}[A-Za-z]?$""", RegexOption.IGNORE_CASE))
 }
 
 private fun dayName(dayOfWeek: Int) = when (dayOfWeek) {
     1 -> "MON"; 2 -> "TUE"; 3 -> "WED"; 4 -> "THU"; 5 -> "FRI"; 6 -> "SAT"; else -> "SUN"
 }
 
+private val StandardTimeSlots = listOf(
+    "08:30",
+    "10:05",
+    "11:40",
+    "13:15",
+    "14:50",
+    "16:25",
+    "18:00",
+)
+
 private val StandardEndTimes = mapOf(
+    "08:00" to "08:50",
     "08:30" to "10:00",
+    "09:00" to "09:50",
     "10:05" to "11:35",
+    "11:00" to "12:30",
     "11:40" to "13:10",
     "13:15" to "14:45",
+    "14:00" to "14:50",
     "14:50" to "16:20",
+    "15:00" to "15:50",
+    "16:00" to "16:50",
     "16:25" to "17:55",
     "18:00" to "19:30",
 )
 
 private fun getEndTimeForStart(startTime: String, timetable: List<TimetableEntry>): String {
-    return timetable.firstOrNull { it.startTime == startTime && it.endTime.isNotBlank() }?.endTime
-        ?: StandardEndTimes[startTime].orEmpty()
+    val normStart = normalizeTime(startTime)
+    val entry = timetable.firstOrNull { normalizeTime(it.startTime) == normStart && it.endTime.isNotBlank() }
+    val endRaw = entry?.endTime
+    return if (!endRaw.isNullOrBlank()) normalizeTime(endRaw) else StandardEndTimes[normStart].orEmpty()
 }
 
 @Composable
@@ -343,7 +438,7 @@ private fun GridHead(label: String, width: androidx.compose.ui.unit.Dp) {
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .width(width)
-            .fillMaxHeight()
+            .height(36.dp)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
     ) {
         Text(
@@ -474,7 +569,7 @@ private fun GridCell(
     }
     val defaultPalette = if (!isDark) LightCoursePalettes[0] else if (isAmoled) AmoledCoursePalettes[0] else DarkCoursePalettes[0]
     val palette = courseColorMap[entry.courseCode.trim().uppercase()] ?: defaultPalette
-    val venue = listOf(entry.roomBlock, entry.roomNumber).filter { it.isNotBlank() }.joinToString("-")
+    val venue = cleanVenue(entry.roomBlock, entry.roomNumber)
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier

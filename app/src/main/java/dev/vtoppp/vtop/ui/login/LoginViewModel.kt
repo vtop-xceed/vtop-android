@@ -7,11 +7,13 @@ import dev.vtoppp.vtop.data.AppLog
 import dev.vtoppp.vtop.data.AutoCaptchaClient
 import dev.vtoppp.vtop.data.CredentialVault
 import dev.vtoppp.vtop.data.SessionStore
+import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.data.VtopClient
 import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.WarmState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +39,7 @@ class LoginViewModel(
     private val autoCaptcha: AutoCaptchaClient,
     private val sessionStore: SessionStore? = null,
     private val savedStateHandle: SavedStateHandle? = null,
+    private val isOnline: () -> Boolean = UserDatabase::isOnline,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<LoginUiState>(LoginUiState.Idle)
@@ -85,10 +88,31 @@ class LoginViewModel(
 
     /** lifecycle gate: the warm loop only runs while the app is foregrounded. */
     private val foregrounded = MutableStateFlow(true)
+    private val networkTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    fun onNetworkAvailable() {
+        viewModelScope.launch(Dispatchers.Main.immediate) {
+            if (!hasLiveSession() && foregrounded.value) {
+                _warmGaveUp.value = false
+                networkTrigger.tryEmit(Unit)
+                val currentState = _state.value
+                if (currentState is LoginUiState.Failure && currentState.error is VtopError.Network) {
+                    val user = vault.username
+                    val pass = vault.password
+                    if (user != null && pass != null) {
+                        submit(user, pass, false)
+                    }
+                }
+            }
+        }
+    }
 
     /** Wired from the Activity's ON_START/ON_STOP in MainActivity. */
     fun setForeground(value: Boolean) {
         foregrounded.value = value
+        if (value && isOnline()) {
+            networkTrigger.tryEmit(Unit)
+        }
     }
 
     /**: warm failures allowed per foreground resume before the loop goes quiet. */
@@ -143,6 +167,12 @@ class LoginViewModel(
                     _state.first { it !is LoginUiState.Loading }
                     continue
                 }
+                if (!isOnline()) {
+                    client.failWarm("No connection")
+                    networkTrigger.first()
+                    failures = 0
+                    continue
+                }
                 val warmNow = warm.value
                 when {
                     client.hasSession || warmNow == WarmState.CaptchaReady -> return@launch
@@ -191,6 +221,11 @@ class LoginViewModel(
         lastUsername = username
         savedStateHandle?.set(SavedKeys.LAST_REMEMBER.name, rememberCredentials)
         savedStateHandle?.set(SavedKeys.LAST_USERNAME.name, username)
+        if (!isOnline()) {
+            client.failWarm("No connection")
+            _state.value = LoginUiState.Failure(VtopError.Network, "No internet connection")
+            return
+        }
         _state.value = LoginUiState.Loading("Connecting to VTOP…")
         viewModelScope.launch(Dispatchers.IO) {
             val clientNow = client

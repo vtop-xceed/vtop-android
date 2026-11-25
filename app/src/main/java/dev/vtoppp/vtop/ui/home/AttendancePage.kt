@@ -29,13 +29,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,10 +62,16 @@ import dev.vtoppp.vtop.data.AttendanceEntry
 import dev.vtoppp.vtop.data.AttendanceSession
 import dev.vtoppp.vtop.data.SemesterAttended
 import dev.vtoppp.vtop.data.TimetableEntry
+import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.ui.theme.AttendanceGreen
 import dev.vtoppp.vtop.ui.theme.Motion
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AttendancePage(
     entries: List<AttendanceEntry>,
@@ -71,70 +82,106 @@ internal fun AttendancePage(
     semesterOptions: List<SemesterAttended> = emptyList(),
     selectedSemesterId: String? = null,
     onSemesterChange: (String) -> Unit = {},
+    onRefresh: () -> Unit = {},
+    onLoadCourseDetails: (AttendanceEntry) -> Unit = {},
+    loadingCourseKeys: Set<String> = emptySet(),
 ) {
+    val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
     val sessionsByCourse = remember(sessions) {
         sessions.groupBy { it.courseCode.uppercase() }
     }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp)
-            .padding(top = 12.dp, bottom = 24.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                onClick = onBack,
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.size(40.dp),
+    val lastUpdatedMs = remember(entries, sessions, selectedSemesterId) {
+        val entryMax = entries.maxOfOrNull { it.updatedAtMs } ?: 0L
+        val semId = selectedSemesterId ?: entries.firstOrNull()?.semesterSubId.orEmpty()
+        val sessionMax = if (semId.isNotBlank()) {
+            sessions.filter { it.semesterSubId == semId }.maxOfOrNull { it.updatedAtMs } ?: 0L
+        } else 0L
+        maxOf(entryMax, sessionMax)
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        SyncingBar(visible = isSyncing)
+        PullToRefreshBox(
+            state = rememberPullToRefreshState(),
+            isRefreshing = isSyncing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {},
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp)
+                    .padding(top = 12.dp, bottom = 24.dp),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_arrow_back),
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(22.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Surface(
+                        onClick = onBack,
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_arrow_back),
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Text(
+                        text = "Attendance",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = formatLastRefreshTimestamp(lastUpdatedMs),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.85f),
+                        maxLines = 1,
+                        textAlign = TextAlign.End,
                     )
                 }
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Attendance",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-        if (semesterOptions.isNotEmpty()) {
-            Spacer(Modifier.height(14.dp))
-            SemesterFilterRow(
-                options = semesterOptions,
-                selectedId = selectedSemesterId,
-                onSelect = onSemesterChange,
-            )
-        }
-        Spacer(Modifier.height(14.dp))
-        if (entries.isEmpty()) {
-            Text(
-                text = "Nothing cached yet — pull down to sync.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@Column
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            entries.forEach { entry ->
-                val courseSessions = sessionsByCourse[entry.courseCode.uppercase()].orEmpty()
-                    .filter { it.semesterSubId.isBlank() || entry.semesterSubId.isBlank() || it.semesterSubId == entry.semesterSubId }
-                val faculty = faculties[entry.courseCode]?.takeIf { it.isNotBlank() } ?: entry.facultyName
-                AttendanceDetailCard(
-                    entry = entry,
-                    faculty = faculty,
-                    sessions = courseSessions,
-                )
+                if (semesterOptions.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    SemesterFilterRow(
+                        options = semesterOptions,
+                        selectedId = selectedSemesterId,
+                        onSelect = onSemesterChange,
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                if (entries.isEmpty()) {
+                    Text(
+                        text = "Nothing cached yet — pull down to sync.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    return@Column
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    entries.forEach { entry ->
+                        val courseSessions = sessionsByCourse[entry.courseCode.uppercase()].orEmpty()
+                            .filter { it.semesterSubId.isBlank() || entry.semesterSubId.isBlank() || it.semesterSubId == entry.semesterSubId }
+                        val faculty = faculties[entry.courseCode]?.takeIf { it.isNotBlank() } ?: entry.facultyName
+                        val courseKey = "${entry.semesterSubId}_${entry.courseCode.uppercase()}"
+                        AttendanceDetailCard(
+                            entry = entry,
+                            faculty = faculty,
+                            sessions = courseSessions,
+                            isLoadingDetails = courseKey in loadingCourseKeys,
+                            onExpandLoad = { onLoadCourseDetails(entry) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -146,8 +193,15 @@ private fun AttendanceDetailCard(
     entry: AttendanceEntry,
     faculty: String,
     sessions: List<AttendanceSession>,
+    isLoadingDetails: Boolean = false,
+    onExpandLoad: () -> Unit = {},
 ) {
-    var expanded by rememberSaveable(entry.courseCode) { mutableStateOf(false) }
+    var expanded by rememberSaveable(entry.semesterSubId, entry.courseCode) { mutableStateOf(false) }
+    LaunchedEffect(expanded, entry.semesterSubId, entry.courseCode) {
+        if (expanded && sessions.isEmpty()) {
+            onExpandLoad()
+        }
+    }
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
@@ -354,7 +408,7 @@ private fun AttendanceDetailCard(
 
                 if (sessions.isEmpty()) {
                     Text(
-                        text = "No class records cached for this course.",
+                        text = if (isLoadingDetails) "Loading class history…" else "No class records cached for this course.",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier.padding(vertical = 4.dp),
@@ -464,4 +518,18 @@ private fun formatSessionDate(dateIso: String): String {
         val monthName = date.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
         "$dayName, ${date.dayOfMonth} $monthName"
     }.getOrDefault(dateIso)
+}
+
+internal fun formatLastRefreshTimestamp(updatedAtMs: Long): String {
+    if (updatedAtMs <= 0L) return "Not synced"
+    val zone = ZoneId.systemDefault()
+    val updated = Instant.ofEpochMilli(updatedAtMs).atZone(zone)
+    val today = LocalDate.now(zone)
+    return if (updated.toLocalDate() == today) {
+        val fmt = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+        "Updated ${fmt.format(updated)}"
+    } else {
+        val fmt = DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US)
+        "Updated ${fmt.format(updated)}"
+    }
 }

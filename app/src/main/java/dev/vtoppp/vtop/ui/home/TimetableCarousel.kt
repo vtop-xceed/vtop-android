@@ -324,17 +324,17 @@ internal fun ClassSubCard(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                if (item.isOngoing || item.isNext) {
+                if (item.isNext) {
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = if (item.isOngoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+                        color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier.padding(bottom = 1.dp),
                     ) {
                         Text(
-                            text = if (item.isOngoing) "● LIVE" else "NEXT",
+                            text = "NEXT",
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
                             fontWeight = FontWeight.Black,
-                            color = if (item.isOngoing) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                         )
                     }

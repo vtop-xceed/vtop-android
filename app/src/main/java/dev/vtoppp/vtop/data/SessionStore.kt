@@ -55,6 +55,15 @@ class SessionStore(
         }
     }
 
+    /** Latest authorized ID saved, regardless of snapshot staleness. */
+    val lastAuthorizedId: String?
+        get() = try {
+            prefs.getString(KEY_AUTH_ID, null)?.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            AppLog.d("session-store: lastAuthorizedId failed (${e.javaClass.simpleName})")
+            null
+        }
+
     /** Latest snapshot, or null when absent, unreadable, or older than [maxAgeMs]. */
     fun loadFresh(): Snapshot? = try {
         val savedAt = prefs.getLong(KEY_SAVED_AT, 0L)

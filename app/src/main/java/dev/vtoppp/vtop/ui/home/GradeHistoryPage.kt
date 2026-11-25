@@ -79,101 +79,103 @@ fun GradeHistoryPage(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp)
-            .padding(top = 12.dp, bottom = 24.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                onClick = onBack,
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.size(40.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_arrow_back),
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Grades",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "${courses.size} courses · ${freshness.label}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                onClick = { sortByGrade = !sortByGrade },
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_expand_more),
-                        contentDescription = "Toggle sort order",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = sortIconAngle },
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (sortByGrade) "Grade" else "Recent",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
+    Column(modifier = Modifier.fillMaxSize()) {
         SyncingBar(visible = isSyncing)
-
-        if (courses.isEmpty()) {
-            EmptyState(
-                title = "No grades yet",
-                body = "Courses with grades appear here after the first sync.",
-                onRefresh = onRefresh,
-                isSyncing = isSyncing,
-            )
-            return@Column
-        }
-
         androidx.compose.material3.pulltorefresh.PullToRefreshBox(
             state = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState(),
             isRefreshing = isSyncing,
             onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
             indicator = {},
         ) {
-        LazyColumn(
-            state = rememberLazyListState(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 2.dp),
-        ) {
-            itemsIndexed(displayedCourses, key = { _, c -> c.courseCode }) { _, course ->
-                Box(modifier = Modifier.animateItem()) {
-                    CourseRow(
-                        grade = course,
-                        components = marksByCourse[course.courseCode].orEmpty(),
-                        stateKey = course.courseCode,
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 12.dp, bottom = 24.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        onClick = onBack,
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_arrow_back),
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Grades",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "${courses.size} courses · ${freshness.label}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        onClick = { sortByGrade = !sortByGrade },
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_expand_more),
+                                contentDescription = "Toggle sort order",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = sortIconAngle },
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = if (sortByGrade) "Grade" else "Recent",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+
+                if (courses.isEmpty()) {
+                    EmptyState(
+                        title = "No grades yet",
+                        body = "Courses with grades appear here after the first sync.",
+                        onRefresh = onRefresh,
+                        isSyncing = isSyncing,
                     )
+                } else {
+                    LazyColumn(
+                        state = rememberLazyListState(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(top = 2.dp),
+                    ) {
+                        itemsIndexed(displayedCourses, key = { _, c -> c.courseCode }) { _, course ->
+                            Box(modifier = Modifier.animateItem()) {
+                                CourseRow(
+                                    grade = course,
+                                    components = marksByCourse[course.courseCode].orEmpty(),
+                                    stateKey = course.courseCode,
+                                )
+                            }
+                        }
+                    }
                 }
             }
-        }
         }
     }
 }

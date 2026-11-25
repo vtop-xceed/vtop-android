@@ -143,8 +143,41 @@ internal fun AttendanceSection(
 
         Spacer(Modifier.height(10.dp))
 
-        // Horizontal Pager with Card Deck Layering (matching Timeline carousel effect)
-        HorizontalPager(
+        if (subjects.isEmpty()) {
+            Surface(
+                onClick = onOpenAttendance,
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .height(96.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "No attendance cached yet",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Sync when online to load attendance",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        } else {
+            // Horizontal Pager with Card Deck Layering (matching Timeline carousel effect)
+            HorizontalPager(
             state = pagerState,
             contentPadding = PaddingValues(horizontal = 40.dp),
             beyondViewportPageCount = 1,
@@ -443,6 +476,7 @@ internal fun AttendanceSection(
                 }
             }
         }
+    }
     }
 }
 

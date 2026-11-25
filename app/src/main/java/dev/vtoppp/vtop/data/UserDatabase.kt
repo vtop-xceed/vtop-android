@@ -4,6 +4,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,6 +52,8 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
                 course_type TEXT,
                 slot TEXT,
                 faculty_name TEXT,
+                course_id TEXT NOT NULL DEFAULT '',
+                course_type_a TEXT NOT NULL DEFAULT '',
                 attended_classes INTEGER NOT NULL DEFAULT 0,
                 total_classes INTEGER NOT NULL DEFAULT 0,
                 attendance_percentage REAL NOT NULL DEFAULT 0.0,
@@ -233,6 +237,12 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
         if (oldVersion < 11) {
             step(db) { createIndexes(db) }
         }
+        if (oldVersion < 12) {
+            step(db) {
+                runCatching { db.execSQL("ALTER TABLE student_attendance ADD COLUMN course_id TEXT NOT NULL DEFAULT ''") }
+                runCatching { db.execSQL("ALTER TABLE student_attendance ADD COLUMN course_type_a TEXT NOT NULL DEFAULT ''") }
+            }
+        }
     }
 
     private fun step(db: SQLiteDatabase, action: () -> Unit) {
@@ -359,7 +369,7 @@ class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, 
 
     companion object {
         const val DB_NAME = "vtop_user_data.db"
-        const val DB_VERSION = 11
+        const val DB_VERSION = 12
     }
 }
 
@@ -398,11 +408,62 @@ object UserDatabase {
     private val _isSyncingFlow = MutableStateFlow(false)
     val isSyncingFlow: StateFlow<Boolean> = _isSyncingFlow.asStateFlow()
 
+    private val _dbVersionFlow = MutableStateFlow(0L)
+    val dbVersionFlow: StateFlow<Long> = _dbVersionFlow.asStateFlow()
+
+    private fun bumpRevision() {
+        _dbVersionFlow.value += 1L
+    }
+
     fun setSyncing(syncing: Boolean) {
         _isSyncingFlow.value = syncing
     }
 
     private var appContext: Context? = null
+
+    fun isOnline(): Boolean {
+        val ctx = appContext ?: return true
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    fun getLastKnownRegNo(): String? {
+        val db = helper?.readableDatabase ?: return null
+        return try {
+            val fromProfile = db.rawQuery(
+                "SELECT reg_no FROM user_profile ORDER BY updated_at_ms DESC LIMIT 1",
+                null,
+            ).use { c ->
+                if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() } else null
+            }
+            if (fromProfile != null) return fromProfile
+
+            db.rawQuery(
+                "SELECT reg_no FROM semesters_attended LIMIT 1",
+                null,
+            ).use { c ->
+                if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() } else null
+            }
+        } catch (e: Exception) {
+            AppLog.d("db: getLastKnownRegNo failed: ${e.message}")
+            null
+        }
+    }
+
+    fun loadAllCached(regNo: String) {
+        if (regNo.isBlank()) return
+        loadProfile(regNo)
+        loadSemesters(regNo)
+        loadTimetable(regNo)
+        loadAttendance(regNo)
+        loadAttendanceSessions(regNo)
+        loadGradeHistory(regNo)
+        loadMarks(regNo)
+        loadSemesterResults(regNo)
+        loadCalendarEvents()
+    }
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -545,6 +606,8 @@ object UserDatabase {
                     put("course_type", item.courseType)
                     put("slot", item.slot)
                     put("faculty_name", item.facultyName)
+                    put("course_id", item.courseId)
+                    put("course_type_a", item.courseTypeA)
                     put("attended_classes", item.attendedClasses)
                     put("total_classes", item.totalClasses)
                     put("attendance_percentage", item.attendancePercentage)
@@ -560,6 +623,7 @@ object UserDatabase {
         if (latestSem == null || semId == latestSem) {
             _attendanceFlow.value = entries
         }
+        bumpRevision()
     }
 
     fun loadAttendance(regNo: String, semesterSubId: String? = null): List<AttendanceEntry> {
@@ -569,6 +633,8 @@ object UserDatabase {
         val args = if (semId.isNullOrBlank()) arrayOf(regNo) else arrayOf(regNo, semId)
         val list = mutableListOf<AttendanceEntry>()
         db.query("student_attendance", null, selection, args, null, null, "course_code ASC").use { c ->
+            val courseIdIdx = c.getColumnIndex("course_id")
+            val courseTypeAIdx = c.getColumnIndex("course_type_a")
             while (c.moveToNext()) {
                 list.add(
                     AttendanceEntry(
@@ -580,6 +646,8 @@ object UserDatabase {
                         courseType = c.getString(c.getColumnIndexOrThrow("course_type")) ?: "",
                         slot = c.getString(c.getColumnIndexOrThrow("slot")) ?: "",
                         facultyName = c.getString(c.getColumnIndexOrThrow("faculty_name")) ?: "",
+                        courseId = if (courseIdIdx >= 0) c.getString(courseIdIdx) ?: "" else "",
+                        courseTypeA = if (courseTypeAIdx >= 0) c.getString(courseTypeAIdx) ?: "" else "",
                         attendedClasses = c.getInt(c.getColumnIndexOrThrow("attended_classes")),
                         totalClasses = c.getInt(c.getColumnIndexOrThrow("total_classes")),
                         attendancePercentage = c.getDouble(c.getColumnIndexOrThrow("attendance_percentage")),
@@ -593,6 +661,29 @@ object UserDatabase {
             _attendanceFlow.value = list
         }
         return list
+    }
+
+    fun loadAllFaculties(regNo: String): Map<String, String> {
+        val db = helper?.readableDatabase ?: return emptyMap()
+        val map = mutableMapOf<String, String>()
+        db.query(
+            "student_attendance",
+            arrayOf("course_code", "faculty_name"),
+            "reg_no = ? AND faculty_name != ''",
+            arrayOf(regNo),
+            null,
+            null,
+            null,
+        ).use { c ->
+            while (c.moveToNext()) {
+                val code = c.getString(0)?.trim()?.uppercase().orEmpty()
+                val name = c.getString(1)?.trim().orEmpty()
+                if (code.isNotBlank() && name.isNotBlank() && !map.containsKey(code)) {
+                    map[code] = name
+                }
+            }
+        }
+        return map
     }
 
     fun saveTimetable(regNo: String, entries: List<TimetableEntry>, semesterSubId: String? = null) {
@@ -630,6 +721,7 @@ object UserDatabase {
         if (latestSem == null || semId == latestSem) {
             _timetableFlow.value = entries
         }
+        bumpRevision()
     }
 
     fun loadTimetable(regNo: String, semesterSubId: String? = null): List<TimetableEntry> {
@@ -650,19 +742,35 @@ object UserDatabase {
             val list = mutableListOf<TimetableEntry>()
             while (c.moveToNext()) {
                 val slotsStr = c.getString(c.getColumnIndexOrThrow("slots")) ?: ""
+                val rawBlock = c.getString(c.getColumnIndexOrThrow("room_block")) ?: ""
+                val rawRoom = c.getString(c.getColumnIndexOrThrow("room_number")) ?: ""
+                val isCorruptVenue = rawRoom.length > 12 || rawRoom.contains("Lecture", ignoreCase = true)
+                val block = if (isCorruptVenue) "" else rawBlock
+                val room = if (isCorruptVenue) "" else rawRoom
+                val rawStart = c.getString(c.getColumnIndexOrThrow("start_time"))
+                val rawEnd = c.getString(c.getColumnIndexOrThrow("end_time"))
+                val rawDay = c.getInt(c.getColumnIndexOrThrow("day_of_week"))
+                val activeSlot = c.getString(c.getColumnIndexOrThrow("active_slot")) ?: ""
+                // ponytail: remap legacy cached entries with bogus 50-min times to authentic FFCS slot timings
+                val slotTiming = if (rawStart in listOf("08:00", "09:00", "11:00", "14:00", "15:00", "16:00") && activeSlot.isNotBlank()) {
+                    SlotTimings.getTimings(activeSlot).firstOrNull()
+                } else null
+                val dayOfWeek = slotTiming?.dayOfWeek ?: rawDay
+                val startTime = slotTiming?.startTime ?: rawStart
+                val endTime = slotTiming?.endTime ?: rawEnd
                 list.add(
                     TimetableEntry(
                         regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
                         semesterSubId = c.getString(c.getColumnIndexOrThrow("semester_sub_id")) ?: "",
-                        dayOfWeek = c.getInt(c.getColumnIndexOrThrow("day_of_week")),
-                        startTime = c.getString(c.getColumnIndexOrThrow("start_time")),
-                        endTime = c.getString(c.getColumnIndexOrThrow("end_time")),
-                        roomBlock = c.getString(c.getColumnIndexOrThrow("room_block")),
-                        roomNumber = c.getString(c.getColumnIndexOrThrow("room_number")),
+                        dayOfWeek = dayOfWeek,
+                        startTime = startTime,
+                        endTime = endTime,
+                        roomBlock = block,
+                        roomNumber = room,
                         courseCode = c.getString(c.getColumnIndexOrThrow("course_code")),
                         courseTitle = c.getString(c.getColumnIndexOrThrow("course_title")),
                         slots = if (slotsStr.isBlank()) emptyList() else slotsStr.split(","),
-                        activeSlot = c.getString(c.getColumnIndexOrThrow("active_slot")) ?: "",
+                        activeSlot = activeSlot,
                         updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
                     ),
                 )
@@ -1110,6 +1218,16 @@ object UserDatabase {
         }
         // Publish what is actually stored, so a partial sync keeps the other months on screen
         _calendarEventsFlow.value = loadCalendarEvents(semesterSubId)
+        bumpRevision()
+    }
+
+    /** Latest calendar sync timestamp (epoch ms), or 0L if empty. */
+    fun loadCalendarUpdatedAtMs(semesterSubId: String = CALENDAR_SEMESTER_ID): Long {
+        val db = helper?.readableDatabase ?: return 0L
+        return db.rawQuery(
+            "SELECT MAX(updated_at_ms) FROM academic_calendar WHERE semester_sub_id = ?",
+            arrayOf(semesterSubId),
+        ).use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
     }
 
     /** Name of one semester, branch suffix removed. */
@@ -1153,4 +1271,85 @@ object UserDatabase {
         return list
     }
 
+    /** Returns true when no profile, attendance, or timetable records exist for this user. */
+    fun isDatabaseEmpty(regNo: String): Boolean {
+        if (regNo.isBlank()) return true
+        val db = helper?.readableDatabase ?: return true
+        return try {
+            val profileCount = db.rawQuery("SELECT COUNT(*) FROM user_profile WHERE reg_no = ?", arrayOf(regNo)).use { c ->
+                if (c.moveToFirst()) c.getInt(0) else 0
+            }
+            val attCount = db.rawQuery("SELECT COUNT(*) FROM student_attendance WHERE reg_no = ?", arrayOf(regNo)).use { c ->
+                if (c.moveToFirst()) c.getInt(0) else 0
+            }
+            val ttCount = db.rawQuery("SELECT COUNT(*) FROM timetable_classes WHERE reg_no = ?", arrayOf(regNo)).use { c ->
+                if (c.moveToFirst()) c.getInt(0) else 0
+            }
+            val semCount = db.rawQuery("SELECT COUNT(*) FROM semesters_attended WHERE reg_no = ?", arrayOf(regNo)).use { c ->
+                if (c.moveToFirst()) c.getInt(0) else 0
+            }
+            val gradeCount = db.rawQuery("SELECT COUNT(*) FROM grade_history WHERE reg_no = ?", arrayOf(regNo)).use { c ->
+                if (c.moveToFirst()) c.getInt(0) else 0
+            }
+            val marksCount = db.rawQuery("SELECT COUNT(*) FROM student_marks WHERE reg_no = ?", arrayOf(regNo)).use { c ->
+                if (c.moveToFirst()) c.getInt(0) else 0
+            }
+            profileCount == 0 && attCount == 0 && ttCount == 0 && semCount == 0 && gradeCount == 0 && marksCount == 0
+        } catch (_: Exception) {
+            true
+        }
+    }
+
+    /**
+     * Wipes local tables and clears memory StateFlows.
+     * When [regNo] is null or blank, clears all user records.
+     */
+    fun purgeDatabase(regNo: String? = null) {
+        val db = helper?.writableDatabase ?: return
+        try {
+            db.beginTransaction()
+            try {
+                if (regNo.isNullOrBlank()) {
+                    db.delete("user_profile", null, null)
+                    db.delete("semesters_attended", null, null)
+                    db.delete("student_attendance", null, null)
+                    db.delete("attendance_sessions", null, null)
+                    db.delete("timetable_classes", null, null)
+                    db.delete("student_marks", null, null)
+                    db.delete("academic_summary", null, null)
+                    db.delete("grade_history", null, null)
+                    db.delete("semester_results", null, null)
+                    db.delete("academic_calendar", null, null)
+                } else {
+                    val args = arrayOf(regNo)
+                    db.delete("user_profile", "reg_no = ?", args)
+                    db.delete("semesters_attended", "reg_no = ?", args)
+                    db.delete("student_attendance", "reg_no = ?", args)
+                    db.delete("attendance_sessions", "reg_no = ?", args)
+                    db.delete("timetable_classes", "reg_no = ?", args)
+                    db.delete("student_marks", "reg_no = ?", args)
+                    db.delete("academic_summary", "reg_no = ?", args)
+                    db.delete("grade_history", "reg_no = ?", args)
+                    db.delete("semester_results", "reg_no = ?", args)
+                    db.delete("academic_calendar", null, null)
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        } catch (e: Exception) {
+            AppLog.d("db: purgeDatabase failed: ${e.message}")
+        }
+        _profileFlow.value = null
+        _timetableFlow.value = emptyList()
+        _academicSummaryFlow.value = null
+        _gradeHistoryFlow.value = emptyList()
+        _marksFlow.value = emptyList()
+        _semesterResultsFlow.value = emptyList()
+        _attendanceSessionsFlow.value = emptyList()
+        _attendanceFlow.value = emptyList()
+        _calendarEventsFlow.value = emptyList()
+        _semestersFlow.value = emptyList()
+        bumpRevision()
+    }
 }

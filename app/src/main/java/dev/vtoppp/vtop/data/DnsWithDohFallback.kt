@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
 import java.net.InetAddress
 import java.net.UnknownHostException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -13,9 +14,12 @@ import java.util.concurrent.TimeUnit
  * 464XLAT routes them, while raw IPv4 can be unroutable on v6-only carriers);
  * DoH (1.1.1.1) only when the system resolver yields nothing.
  */
-class DnsWithDohFallback : Dns {
+class DnsWithDohFallback(
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+    dohOverride: Dns? = null,
+) : Dns {
 
-    private val doh: DnsOverHttps = DnsOverHttps.Builder()
+    private val doh: Dns = dohOverride ?: DnsOverHttps.Builder()
         .client(
             OkHttpClient.Builder()
                 .connectTimeout(5, TimeUnit.SECONDS)
@@ -29,6 +33,8 @@ class DnsWithDohFallback : Dns {
         )
         .build()
 
+    private val dohCache = ConcurrentHashMap<String, Pair<List<InetAddress>, Long>>()
+
     override fun lookup(hostname: String): List<InetAddress> {
         val sys = try {
             Dns.SYSTEM.lookup(hostname)
@@ -37,6 +43,12 @@ class DnsWithDohFallback : Dns {
             emptyList()
         }
         if (sys.isNotEmpty()) return sys
+
+        val now = nowMs()
+        val cached = dohCache[hostname]
+        if (cached != null && now < cached.second) {
+            return cached.first
+        }
 
         val dohResult = try {
             doh.lookup(hostname)
@@ -47,11 +59,16 @@ class DnsWithDohFallback : Dns {
         if (dohResult.isEmpty()) {
             throw UnknownHostException("no usable addresses for $hostname")
         }
+        dohCache[hostname] = dohResult to (now + TTL_MS)
         // A-only DoH answers on v6-only networks still ride 464XLAT via clat.
         if (dohResult.all { it.address.size == 4 }) {
             AppLog.d("dns doh v4 fallback for $hostname (${dohResult.size})")
         }
         return dohResult
+    }
+
+    companion object {
+        const val TTL_MS = 5 * 60 * 1000L
     }
 }
 

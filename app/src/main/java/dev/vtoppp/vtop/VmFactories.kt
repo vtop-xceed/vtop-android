@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import dev.vtoppp.vtop.data.AutoCaptchaClient
 import dev.vtoppp.vtop.data.CredentialVault
 import dev.vtoppp.vtop.data.SessionStore
+import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.data.VtopClient
 import dev.vtoppp.vtop.ui.home.HomeViewModel
 import dev.vtoppp.vtop.ui.login.LoginViewModel
@@ -16,24 +17,26 @@ class LoginVmFactory(
     private val vault: CredentialVault,
     private val autoCaptcha: AutoCaptchaClient,
     private val sessionStore: SessionStore? = null,
+    private val isOnline: () -> Boolean = UserDatabase::isOnline,
 ) : ViewModelProvider.Factory {
     //: SavedStateHandle must come from the CreationExtras the owning
     // ViewModelStore supplies; falling back to a fresh handle keeps direct
     // constructions (tests) compile-safe without persistence.
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T =
-        LoginViewModel(vault, autoCaptcha, sessionStore, extras.createSavedStateHandle()) as T
+        LoginViewModel(vault, autoCaptcha, sessionStore, extras.createSavedStateHandle(), isOnline) as T
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T =
-        LoginViewModel(vault, autoCaptcha, sessionStore, SavedStateHandle()) as T
+        LoginViewModel(vault, autoCaptcha, sessionStore, SavedStateHandle(), isOnline) as T
 }
 
 class HomeVmFactory(
     private val client: VtopClient,
     private val authorizedId: String,
+    private val isOnline: () -> Boolean = UserDatabase::isOnline,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T =
-        HomeViewModel(client, authorizedId) as T
+        HomeViewModel(client, authorizedId, isOnline) as T
 }

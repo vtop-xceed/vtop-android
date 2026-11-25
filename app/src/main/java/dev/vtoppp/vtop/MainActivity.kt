@@ -25,6 +25,8 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import android.Manifest
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +54,7 @@ import dev.vtoppp.vtop.data.UsagePing
 import dev.vtoppp.vtop.data.CredentialVault
 import dev.vtoppp.vtop.data.PinVault
 import dev.vtoppp.vtop.data.SessionCache
+import dev.vtoppp.vtop.data.SessionKeepAliveManager
 import dev.vtoppp.vtop.data.SessionStore
 import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.UserDatabase
@@ -159,6 +162,22 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
     }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CODE_NOTIF) {
+            val granted = grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
+            AppLog.d("permission: POST_NOTIFICATIONS granted = $granted")
+        }
+    }
+
+    companion object {
+        const val REQUEST_CODE_NOTIF = 1001
+    }
 }
 
 /** Boot phase: straight into the cached app (saved profile) or the login gate. */
@@ -185,9 +204,16 @@ private fun Root(
     val scope = rememberCoroutineScope()
 
     val loginVm: LoginViewModel = viewModel(factory = LoginVmFactory(vault, autoCaptcha, sessionStore))
-    var authorizedId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Offline entry: a fresh seeded snapshot carries the id the Room/SQLite
+    // caches are keyed under, so the cached dashboard can open without net.
+    val cachedOfflineId = remember {
+        sessionStore.lastAuthorizedId
+            ?: vault.username?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+            ?: if (vault.state == dev.vtoppp.vtop.data.VaultState.TemporarilyLocked) UserDatabase.getLastKnownRegNo() else null
+    }
+    var authorizedId by rememberSaveable { mutableStateOf(cachedOfflineId) }
     var phase by rememberSaveable {
-        mutableStateOf(if (vault.hasCredentials) BootPhase.Auto else BootPhase.Login)
+        mutableStateOf(if (vault.hasCredentials || cachedOfflineId != null) BootPhase.Auto else BootPhase.Login)
     }
 
     // App Lock: if saved credentials exist, user must unlock using fingerprint scan or lockscreen PIN
@@ -200,14 +226,33 @@ private fun Root(
 
     val loginState by loginVm.state.collectAsStateWithLifecycle()
     val warm by loginVm.warm.collectAsStateWithLifecycle()
-    // Offline entry: a fresh seeded snapshot carries the id the Room/SQLite
-    // caches are keyed under, so the cached dashboard can open without net.
-    val cachedOfflineId = remember { sessionStore.loadFresh()?.authorizedId }
     // fix: the warm give-up must be visible to composition even when no
     // NEW LoginUiState arrives (a stale Failure already occupies _state).
     val warmGaveUp by loginVm.warmGaveUp.collectAsStateWithLifecycle()
 
     var vaultBanner by remember { mutableStateOf<String?>(null) }
+
+    fun requestNotificationPermission() {
+        val act = activity as? android.app.Activity ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            androidx.core.app.ActivityCompat.requestPermissions(
+                act,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                MainActivity.REQUEST_CODE_NOTIF,
+            )
+        }
+    }
+
+    LaunchedEffect(authorizedId, phase, loginState) {
+        if (authorizedId != null && phase != BootPhase.Login && loginVm.hasLiveSession()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                !SessionKeepAliveManager.hasNotificationPermission(activity)
+            ) {
+                requestNotificationPermission()
+            }
+            SessionKeepAliveManager.start(activity, loginVm.currentClient, scope)
+        }
+    }
 
     // Self-update gate: silent startup ping (opt-out remembered), then the
     // popup drives download with a loading animation and the final Update tap.
@@ -266,53 +311,80 @@ private fun Root(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    DisposableEffect(Unit) {
+        val cm = activity.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                loginVm.onNetworkAvailable()
+            }
+        }
+        try {
+            cm?.registerDefaultNetworkCallback(callback)
+        } catch (e: Exception) {
+            AppLog.d("network-callback: register failed (${e.javaClass.simpleName})")
+        }
+        onDispose {
+            try {
+                cm?.unregisterNetworkCallback(callback)
+            } catch (e: Exception) {
+                AppLog.d("network-callback: unregister failed (${e.javaClass.simpleName})")
+            }
+        }
+    }
+
     // Auto sign-in effects (only run when unlocked and in Auto phase).
     if (phase == BootPhase.Auto && isUnlocked) {
-        if (authorizedId == null) {
-            val autoPass = remember { mutableStateOf<String?>(null) }
-            LaunchedEffect(Unit) {
-                val user = vault.username
-                val pass = vault.password
-                if (user != null && pass != null) {
-                    autoPass.value = pass
+        val autoPass = remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(Unit) {
+            val user = vault.username
+            val pass = vault.password
+            if (user != null && pass != null) {
+                autoPass.value = pass
+                if (!loginVm.hasLiveSession()) {
                     loginVm.submit(user, pass, false)
-                } else {
-                    vaultBanner = vault.stateNotice
-                    phase = BootPhase.Login
                 }
+            } else if (authorizedId == null) {
+                vaultBanner = vault.stateNotice
+                phase = BootPhase.Login
             }
-            // Recover on network ready
-            LaunchedEffect(warm, loginState) {
-                val w = warm
-                if (w is WarmState.CaptchaReady && !loginVm.hasLiveSession()) {
-                    val user = vault.username
-                    val pass = autoPass.value
-                    if (user != null && pass != null &&
-                        (loginState as? LoginUiState.Failure)?.error is VtopError.Network
-                    ) {
-                        loginVm.submit(user, pass, false)
-                    }
+        }
+        // Recover on network ready
+        LaunchedEffect(warm, loginState) {
+            val w = warm
+            if (w is WarmState.CaptchaReady && !loginVm.hasLiveSession()) {
+                val user = vault.username
+                val pass = autoPass.value
+                if (user != null && pass != null &&
+                    (loginState as? LoginUiState.Failure)?.error is VtopError.Network
+                ) {
+                    loginVm.submit(user, pass, false)
                 }
             }
         }
         var autoNetworkFailures by rememberSaveable { mutableStateOf(0) }
         LaunchedEffect(loginState, warmGaveUp) {
             val s = loginState
-            if (s is LoginUiState.Failure && !loginVm.hasLiveSession() && authorizedId == null) {
-                if (s.error is VtopError.Network || s.error is VtopError.Unknown) {
-                    // Offline: open the app against the cache instead of the login wall;
-                    // the bridge keeps retrying in the background and flips the pill.
-                    val offlineId = cachedOfflineId
-                    if (offlineId != null) {
-                        AppLog.d("offline: opening cached app with seeded identity")
-                        authorizedId = offlineId
-                        phase = BootPhase.Auto
-                        return@LaunchedEffect
-                    }
-                    autoNetworkFailures++
-                    if (autoNetworkFailures >= 2 || warmGaveUp) phase = BootPhase.Login
-                } else {
+            if (s is LoginUiState.Failure && !loginVm.hasLiveSession()) {
+                if (s.error is VtopError.CredentialsRejected) {
+                    authorizedId = null
+                    vaultBanner = s.error.message
                     phase = BootPhase.Login
+                } else if (authorizedId == null) {
+                    if (s.error is VtopError.Network || s.error is VtopError.Unknown) {
+                        // Offline: open the app against the cache instead of the login wall;
+                        // the bridge keeps retrying in the background and flips the pill.
+                        val offlineId = cachedOfflineId
+                        if (offlineId != null) {
+                            AppLog.d("offline: opening cached app with seeded identity")
+                            authorizedId = offlineId
+                            phase = BootPhase.Auto
+                            return@LaunchedEffect
+                        }
+                        autoNetworkFailures++
+                        if (autoNetworkFailures >= 2 || warmGaveUp) phase = BootPhase.Login
+                    } else {
+                        phase = BootPhase.Login
+                    }
                 }
             }
         }
@@ -387,9 +459,13 @@ private fun Root(
                                 // recovered, so the account leaves this
                                 // device instead of unlocking silently.
                                 DeviceAuthResult.NotAvailable -> {
+                                    val currId = authorizedId
                                     pinVault.clearPin()
                                     vault.clear()
                                     sessionStore.clear()
+                                    SessionCache.clear()
+                                    UserDatabase.purgeDatabase(currId)
+                                    authorizedId = null
                                     isUnlocked = true
                                     phase = BootPhase.Login
                                 }
@@ -419,9 +495,13 @@ private fun Root(
                                         // Nothing can open this lock, so the
                                         // account leaves the device rather
                                         // than staying stuck behind it.
+                                        val currId = authorizedId
                                         pinVault.clearPin()
                                         vault.clear()
                                         sessionStore.clear()
+                                        SessionCache.clear()
+                                        UserDatabase.purgeDatabase(currId)
+                                        authorizedId = null
                                         isUnlocked = true
                                         phase = BootPhase.Login
                                     }
@@ -465,10 +545,20 @@ private fun Root(
                     factory = HomeVmFactory(loginVm.currentClient, id),
                     key = id,
                 )
+                LaunchedEffect(loginState) {
+                    if (loginState is LoginUiState.Success) {
+                        homeVm.onSessionReady()
+                    }
+                }
                 val state by homeVm.state.collectAsStateWithLifecycle()
                 val lastSectionTitle by homeVm.lastSectionTitle.collectAsStateWithLifecycle()
                 val staleNotice by homeVm.staleNotice.collectAsStateWithLifecycle()
                 val marksNotice by homeVm.marksNotice.collectAsStateWithLifecycle()
+                val isRebuilding by homeVm.isRebuilding.collectAsStateWithLifecycle()
+                val rebuildStep by homeVm.rebuildStep.collectAsStateWithLifecycle()
+                val rebuildProgress by homeVm.rebuildProgress.collectAsStateWithLifecycle()
+                val rebuildLogs by homeVm.rebuildLogs.collectAsStateWithLifecycle()
+                val loadingAttendanceKeys by homeVm.loadingAttendanceKeys.collectAsStateWithLifecycle()
                 Box(
                     modifier = Modifier.fillMaxSize().padding(bottom = innerPadding.calculateBottomPadding()),
                 ) {
@@ -496,12 +586,33 @@ private fun Root(
                             updater.autoCheckEnabled = enabled
                         },
                         onBridgeRetry = { loginVm.rebridge() },
-                        onRefresh = { homeVm.refreshMarksAndGrades() },
+                        onRefresh = { homeVm.refreshOverview(force = true) },
                         marksNotice = marksNotice,
                         onMarksNoticeShown = { homeVm.consumeMarksNotice() },
+                        isRebuilding = isRebuilding,
+                        rebuildStep = rebuildStep,
+                        rebuildProgress = rebuildProgress,
+                        rebuildLogs = rebuildLogs,
+                        onPurgeAndRebuild = { homeVm.purgeAndRebuild() },
+                        onEnsureOverview = { homeVm.refreshOverview(force = false) },
+                        onRefreshOverview = { homeVm.refreshOverview(force = true) },
+                        onEnsureAttendance = { homeVm.refreshAttendance(it, force = false) },
+                        onRefreshAttendance = { homeVm.refreshAttendance(it, force = true) },
+                        onLoadCourseAttendanceDetails = { homeVm.loadAttendanceDetails(it) },
+                        loadingAttendanceCourseKeys = loadingAttendanceKeys,
+                        onEnsureTimetable = { homeVm.refreshTimetable(it, force = false) },
+                        onRefreshTimetable = { homeVm.refreshTimetable(it, force = true) },
+                        onEnsureCalendar = { homeVm.refreshCalendar(force = false) },
+                        onRefreshCalendar = { homeVm.refreshCalendar(force = true) },
+                        onEnsureMarks = { homeVm.refreshMarksAndGrades(it, force = false) },
+                        onRefreshMarks = { homeVm.refreshMarksAndGrades(it, force = true) },
                         onSignOut = {
+                            SessionKeepAliveManager.stop(activity)
+                            val currId = authorizedId
                             vault.clear()
                             sessionStore.clear()
+                            SessionCache.clear()
+                            UserDatabase.purgeDatabase(currId)
                             authorizedId = null
                             loginVm.reset()
                             isUnlocked = true
@@ -510,6 +621,10 @@ private fun Root(
                         },
                         currentPalette = currentPalette,
                         onPaletteChange = onPaletteChange,
+                        client = loginVm.currentClient,
+                        onRequestNotificationPermission = {
+                            requestNotificationPermission()
+                        },
                     )
                     AutoUpdateDialog(updater)
                 }
@@ -559,8 +674,12 @@ private fun Root(
                             }
                         },
                         onForgetSaved = {
+                            val currId = authorizedId
                             vault.clear()
                             sessionStore.clear()
+                            SessionCache.clear()
+                            UserDatabase.purgeDatabase(currId)
+                            authorizedId = null
                             vaultBanner = null
                             isUnlocked = true
                             phase = BootPhase.Login

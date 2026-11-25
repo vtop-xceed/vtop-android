@@ -2,8 +2,12 @@ package dev.vtoppp.vtop.ui.home
 
 import dev.vtoppp.vtop.data.AutoCaptchaClient
 import dev.vtoppp.vtop.data.PillKind
+import dev.vtoppp.vtop.data.SessionCache
+import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.WarmState
 import dev.vtoppp.vtop.data.pillOf
+import java.io.File
+import java.nio.file.Files
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -26,14 +30,18 @@ import org.junit.Test
 class HomeViewModelT14T18Test {
 
     private val testDispatcher = UnconfinedTestDispatcher()
+    private var tempDir: File? = null
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        tempDir = Files.createTempDirectory("session_cache_test").toFile()
+        SessionCache.init(tempDir!!)
     }
 
     @After
     fun tearDown() {
+        tempDir?.deleteRecursively()
         // T-test-leak (observed 2026-10-27): do NOT resetMain. vm.open()
         // launches the real client on the global IO pool, and a straggler
         // continuation that outlives the test evaluates Dispatchers.Main;
@@ -77,8 +85,8 @@ class HomeViewModelT14T18Test {
         // Direct evidence for the T14 contract: openJob is cancelled and
         // openGeneration is bumped (static check mirrored in the diff).
         val source = java.io.File(
-            "src/main/java/dev/vtoppp/vtop/ui/home/HomeViewModel.kt",
-        ).readText()
+            "app/src/main/java/dev/vtoppp/vtop/ui/home/HomeViewModel.kt",
+        ).let { if (it.exists()) it.readText() else java.io.File("src/main/java/dev/vtoppp/vtop/ui/home/HomeViewModel.kt").readText() }
         assertTrue(source.contains("openJob?.cancel()\n        openGeneration++"))
     }
 
@@ -112,5 +120,102 @@ class HomeViewModelT14T18Test {
         // Deterministic: the Loading publication is synchronous before the
         // IO coroutine can publish cached/network content.
         assertTrue(vm.state.value is HomeUiState.Loading)
+    }
+
+    @Test
+    fun loadAttendanceDetailsHandlesBlankCourseId() {
+        val vm = newVm()
+        vm.loadAttendanceDetails("BL20262701", "", "LT", "CSE1001")
+    }
+
+    // ------------------------------------------------------------- Offline Fail-Fast & Rebuild Guard
+
+    @Test
+    fun offlineStartupDoesNotEnterRebuildingAndFailsFast() = runTest {
+        val vm = HomeViewModel(
+            client = dev.vtoppp.vtop.data.VtopClient(AutoCaptchaClient()),
+            authorizedId = "EMPTY_USER_OFFLINE",
+            isOnline = { false },
+        )
+        // Does not enter isRebuilding on offline init
+        assertTrue(!vm.isRebuilding.value)
+
+        // refresh methods fail-fast without network calls
+        vm.refreshOverview(force = true)
+        vm.refreshMarksAndGrades(force = true)
+        vm.refreshCalendar(force = true)
+        vm.loadAttendanceDetails("BL20262701", "CSE1001", "LT", "CSE1001")
+
+        assertTrue(!vm.isRebuilding.value)
+        assertEquals("Offline — showing cached copy", vm.marksNotice.value)
+    }
+
+    @Test
+    fun offlineOpenUncachedEmitsNetworkFailureImmediately() = runTest {
+        SessionCache.clear()
+        val uncachedItem = MenuItem("Uncached Section", "examinations/UncachedEndpoint", "COE")
+        val vm = HomeViewModel(
+            client = dev.vtoppp.vtop.data.VtopClient(AutoCaptchaClient()),
+            authorizedId = "EXAMPLE0000001",
+            isOnline = { false },
+        )
+        vm.open(uncachedItem)
+        var attempts = 0
+        while (attempts++ < 50 && vm.state.value is HomeUiState.Loading) {
+            kotlinx.coroutines.delay(20)
+        }
+        val state = vm.state.value
+        assertTrue("Expected Failure state, got $state", state is HomeUiState.Failure)
+        val failure = state as HomeUiState.Failure
+        assertEquals(VtopError.Network, failure.error)
+        assertEquals(uncachedItem, failure.item)
+    }
+
+    @Test
+    fun offlineOpenCachedKeepsSectionReadyWithOfflineNotice() = runTest {
+        val cachedItem = MenuItem("Cached Section", "academics/common/Curriculum", "Academics")
+        SessionCache.save(cachedItem.endpoint, "<html><body>Cached Curriculum Content</body></html>")
+        val vm = HomeViewModel(
+            client = dev.vtoppp.vtop.data.VtopClient(AutoCaptchaClient()),
+            authorizedId = "EXAMPLE0000001",
+            isOnline = { false },
+        )
+        vm.open(cachedItem)
+        var attempts = 0
+        while (attempts++ < 50 && (vm.state.value is HomeUiState.Loading || vm.staleNotice.value == null)) {
+            kotlinx.coroutines.delay(20)
+        }
+        val state = vm.state.value
+        assertTrue("Expected SectionReady state, got $state", state is HomeUiState.SectionReady)
+        val ready = state as HomeUiState.SectionReady
+        assertTrue(ready.fromCache)
+        assertEquals("Offline — showing the cached copy", vm.staleNotice.value)
+    }
+
+    @Test
+    fun offlineManualPurgeAndRebuildDoesNotClearCacheOrDatabase() = runTest {
+        SessionCache.save("test_key_preserve", "test_data_to_preserve")
+        val vm = HomeViewModel(
+            client = dev.vtoppp.vtop.data.VtopClient(AutoCaptchaClient()),
+            authorizedId = "EXAMPLE0000001",
+            isOnline = { false },
+        )
+        vm.purgeAndRebuild(isInitialStartup = false)
+        // Cache is preserved and not cleared
+        assertEquals("test_data_to_preserve", SessionCache.load("test_key_preserve")?.first)
+        assertEquals("Offline — cached data preserved", vm.rebuildStep.value)
+        assertTrue(!vm.isRebuilding.value)
+    }
+
+    @Test
+    fun onSessionReadyClearsStaleAndMarksNotices() {
+        val vm = HomeViewModel(
+            client = dev.vtoppp.vtop.data.VtopClient(AutoCaptchaClient()),
+            authorizedId = "EXAMPLE0000001",
+            isOnline = { false },
+        )
+        vm.onSessionReady()
+        assertNull(vm.staleNotice.value)
+        assertNull(vm.marksNotice.value)
     }
 }

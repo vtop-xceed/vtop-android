@@ -144,16 +144,23 @@ class AutoUpdater(context: Context) {
                             val buf = ByteArray(BUFFER_SIZE)
                             var read: Int
                             var received = 0L
+                            var lastProgressTime = 0L
+                            val totalBytes = response.body.contentLength().takeIf { it > 0 }
                             while (src.read(buf).also { read = it } != -1) {
                                 sink.write(buf, 0, read)
                                 received += read
                                 sink.flush()
-                                mainHandler.post {
-                                    if (state is AutoUpdateState.Downloading) {
-                                        state = AutoUpdateState.Downloading(
-                                            received = received,
-                                            total = response.body.contentLength().takeIf { it > 0 },
-                                        )
+                                val now = System.currentTimeMillis()
+                                if (now - lastProgressTime >= 100L) {
+                                    lastProgressTime = now
+                                    val currentReceived = received
+                                    mainHandler.post {
+                                        if (state is AutoUpdateState.Downloading) {
+                                            state = AutoUpdateState.Downloading(
+                                                received = currentReceived,
+                                                total = totalBytes,
+                                            )
+                                        }
                                     }
                                 }
                             }

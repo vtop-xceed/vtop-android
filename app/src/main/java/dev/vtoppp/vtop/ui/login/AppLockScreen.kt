@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,7 +61,10 @@ import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.PinVault
 import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.ui.theme.Motion
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The app lock VTOP owns, in two pieces:
@@ -117,6 +121,8 @@ fun AppLockScreen(
 ) {
     val context = LocalContext.current
     val vault = remember { PinVault(context) }
+    val scope = rememberCoroutineScope()
+    var isChecking by remember { mutableStateOf(false) }
     var digits by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
     var shakeKey by remember { mutableIntStateOf(0) }
@@ -160,13 +166,21 @@ fun AppLockScreen(
     }
 
     fun submit(pin: String) {
-        if (vault.verify(pin)) {
-            message = null
-            onUnlocked()
-        } else {
-            message = "Wrong PIN. Try again."
-            attempts++
-            shakeKey++
+        if (isChecking) return
+        isChecking = true
+        scope.launch {
+            val ok = withContext(Dispatchers.Default) {
+                vault.verify(pin)
+            }
+            isChecking = false
+            if (ok) {
+                message = null
+                onUnlocked()
+            } else {
+                message = "Wrong PIN. Try again."
+                attempts++
+                shakeKey++
+            }
         }
     }
 
@@ -219,7 +233,7 @@ fun AppLockScreen(
             Keypad(
                 showFingerprint = biometricAvailable,
                 onDigit = { digit ->
-                    if (lockedSeconds > 0) return@Keypad
+                    if (isChecking || lockedSeconds > 0) return@Keypad
                     if (digits.length >= PinVault.PIN_LENGTH) return@Keypad
                     val next = digits + digit
                     digits = next
@@ -227,7 +241,7 @@ fun AppLockScreen(
                     // submits itself.
                     if (next.length == PinVault.PIN_LENGTH) submit(next)
                 },
-                onDelete = { if (digits.isNotEmpty()) digits = digits.dropLast(1) },
+                onDelete = { if (!isChecking && digits.isNotEmpty()) digits = digits.dropLast(1) },
                 onDeviceAuth = onDeviceAuth,
             )
         } else {

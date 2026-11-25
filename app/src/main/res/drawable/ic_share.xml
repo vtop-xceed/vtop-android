@@ -1,0 +1,9 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M720 840 q-50 0 -85 -35 t-35 -85 q0 -7 1 -14.5 t3 -13.5 L322 531 q-17 19 -40 29 t-42 10 q-50 0 -85 -35 t-35 -85 q0 -50 35 -85 t85 -35 q19 0 42 10 t40 29 l277 -161 q-2 -6 -3 -13.5 t-1 -14.5 q0 -50 35 -85 t85 -35 q50 0 85 35 t35 85 q0 50 -35 85 t-85 35 q-19 0 -42 -10 t-40 -29 L361 429 q2 6 3 13.5 t1 14.5 q0 8 -1 15 t-3 14 l277 161 q17 -19 40 -29 t42 -10 q50 0 85 35 t35 85 q0 50 -35 85 t-85 35 Z" />
+</vector>

@@ -76,10 +76,11 @@ import dev.vtoppp.vtop.ui.theme.StatusColors
 fun MarksGradesPage(
     authorizedId: String,
     onOpenGrades: () -> Unit,
-    onRefresh: () -> Unit,
+    onRefresh: (String?) -> Unit,
     marksNotice: String?,
     onMarksNoticeShown: () -> Unit,
     modifier: Modifier = Modifier,
+    onEnsureSemesterMarks: (String) -> Unit = {},
 ) {
     val grades by UserDatabase.gradeHistoryFlow.collectAsState()
     val summary by UserDatabase.academicSummaryFlow.collectAsState()
@@ -130,10 +131,12 @@ fun MarksGradesPage(
         }
     }
 
+    var selectedSemesterForRefresh by rememberSaveable { mutableStateOf<String?>(null) }
+
     PullToRefreshBox(
         state = rememberPullToRefreshState(),
         isRefreshing = isSyncing,
-        onRefresh = onRefresh,
+        onRefresh = { onRefresh(selectedSemesterForRefresh) },
         modifier = modifier
             .fillMaxSize(),
         indicator = {},
@@ -162,7 +165,7 @@ fun MarksGradesPage(
                     EmptyState(
                     title = "No marks yet",
                     body = "Marks and grades sync from VTOP when you're online.",
-                    onRefresh = onRefresh,
+                    onRefresh = { onRefresh(selectedSemesterForRefresh) },
                     isSyncing = isSyncing,
                 )
                 }
@@ -186,6 +189,10 @@ fun MarksGradesPage(
                     picks = semesterPicks,
                     marksBySemester = marksBySemester,
                     gradeHistory = grades,
+                    onSemesterSelected = { semId ->
+                        selectedSemesterForRefresh = semId
+                        onEnsureSemesterMarks(semId)
+                    },
                 )
             }
         }
@@ -199,11 +206,15 @@ private fun MarksSemesterSection(
     picks: List<SemesterPick>,
     marksBySemester: Map<String, List<MarkEntry>>,
     gradeHistory: List<dev.vtoppp.vtop.data.GradeHistoryEntry>,
+    onSemesterSelected: (String) -> Unit = {},
 ) {
     var selectedId by rememberSaveable(picks.map { it.id }) {
         mutableStateOf(picks.firstOrNull()?.id)
     }
     val selected = picks.firstOrNull { it.id == selectedId } ?: picks.firstOrNull() ?: return
+    LaunchedEffect(selected.id) {
+        onSemesterSelected(selected.id)
+    }
     val rows = marksBySemester[selected.id].orEmpty()
     val results by UserDatabase.semesterResultsFlow.collectAsState()
     val gpas = remember(picks, results) {

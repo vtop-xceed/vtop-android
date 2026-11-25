@@ -4,10 +4,13 @@ import android.os.Build
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,18 +25,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -43,13 +53,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -58,14 +71,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.vtoppp.vtop.BuildConfig
 import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.data.SessionKeepAliveManager
 import dev.vtoppp.vtop.data.ThirdPartyServices
 import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.data.UserProfile
+import dev.vtoppp.vtop.data.VtopClient
 import dev.vtoppp.vtop.ui.theme.AccentColorSheet
 import dev.vtoppp.vtop.ui.theme.AppPalette
 import dev.vtoppp.vtop.ui.theme.ThemeMode
@@ -92,10 +109,22 @@ internal fun SettingsPage(
     onCheckUpdate: () -> Unit,
     onSignOut: () -> Unit,
     onRefresh: () -> Unit = {},
+    client: VtopClient? = null,
+    onRequestNotificationPermission: () -> Unit = {},
+    isRebuilding: Boolean = false,
+    rebuildStep: String = "",
+    rebuildProgress: Float = 0f,
+    rebuildLogs: List<String> = emptyList(),
+    onPurgeAndRebuild: () -> Unit = {},
 ) {
     val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var confirmSignOut by remember { mutableStateOf(false) }
+    var showShareSheet by remember { mutableStateOf(false) }
+    var showContributeSheet by remember { mutableStateOf(false) }
+    var showContributorsSheet by remember { mutableStateOf(false) }
+    var keepAliveEnabled by remember { mutableStateOf(SessionKeepAliveManager.isEnabled(context)) }
 
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         state = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState(),
@@ -179,6 +208,19 @@ internal fun SettingsPage(
                         onCheckedChange = onBlurEnabledChange,
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingToggleRow(
+                        title = "Session keep-alive",
+                        subtitle = "Ask OS to ping VTOP every 10–15 mins when awake",
+                        checked = keepAliveEnabled,
+                        onCheckedChange = { enabled ->
+                            keepAliveEnabled = enabled
+                            if (enabled && !SessionKeepAliveManager.hasNotificationPermission(context)) {
+                                onRequestNotificationPermission()
+                            }
+                            SessionKeepAliveManager.setEnabled(context, enabled, client, scope)
+                        },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     UpdateCheckRow(
                         autoUpdateEnabled = autoUpdateEnabled,
                         onAutoUpdateEnabledChange = onAutoUpdateEnabledChange,
@@ -191,8 +233,39 @@ internal fun SettingsPage(
                 AddOnCard()
 
                 Spacer(Modifier.height(18.dp))
-                SectionLabel("About")
+                SectionLabel("Data & Storage")
+                PurgeAndRebuildCard(
+                    isRebuilding = isRebuilding,
+                    rebuildStep = rebuildStep,
+                    rebuildProgress = rebuildProgress,
+                    rebuildLogs = rebuildLogs,
+                    onPurgeAndRebuild = onPurgeAndRebuild,
+                )
+
+                Spacer(Modifier.height(18.dp))
+                SectionLabel("Community & About")
                 SettingsCard {
+                    ActionRow(
+                        icon = R.drawable.ic_share,
+                        label = "Share VTOP",
+                        trailing = R.drawable.ic_chevron_right,
+                        onClick = { showShareSheet = true },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    ActionRow(
+                        icon = R.drawable.ic_code,
+                        label = "Contribute to VTOP",
+                        trailing = R.drawable.ic_chevron_right,
+                        onClick = { showContributeSheet = true },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    ActionRow(
+                        icon = R.drawable.ic_group,
+                        label = "Project Contributors",
+                        trailing = R.drawable.ic_chevron_right,
+                        onClick = { showContributorsSheet = true },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     InfoRow(label = "Version", value = "v${BuildConfig.VERSION_NAME}")
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     ActionRow(
@@ -208,8 +281,275 @@ internal fun SettingsPage(
         }
     }
 
+    if (showShareSheet) {
+        ShareAppSheet(onDismiss = { showShareSheet = false })
+    }
+    if (showContributeSheet) {
+        ContributeSheet(onDismiss = { showContributeSheet = false })
+    }
+    if (showContributorsSheet) {
+        ContributorsSheet(onDismiss = { showContributorsSheet = false })
+    }
+
     if (confirmSignOut) {
         SignOutSheet(onDismiss = { confirmSignOut = false }, onSignOut = onSignOut)
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun PurgeAndRebuildCard(
+    isRebuilding: Boolean,
+    rebuildStep: String,
+    rebuildProgress: Float,
+    rebuildLogs: List<String>,
+    onPurgeAndRebuild: () -> Unit,
+) {
+    var showConfirmDialog by remember { mutableStateOf(false) }
+    var dismissed by remember { mutableStateOf(false) }
+    val logListState = rememberLazyListState()
+
+    LaunchedEffect(isRebuilding) {
+        if (isRebuilding) dismissed = false
+    }
+
+    LaunchedEffect(rebuildLogs.size) {
+        if (rebuildLogs.isNotEmpty()) {
+            logListState.animateScrollToItem(rebuildLogs.size - 1)
+        }
+    }
+
+    val showVisualizer = isRebuilding || (rebuildLogs.isNotEmpty() && !dismissed)
+
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = if (isRebuilding) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+        } else if (showVisualizer) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        } else null,
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+        ) {
+            if (!showVisualizer) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_update),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "Purge & rebuild database",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "Reset local cache and re-crawl all records from VTOP",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { showConfirmDialog = true },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text("Purge & Rebuild", fontWeight = FontWeight.SemiBold)
+                    }
+                    if (rebuildLogs.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = { dismissed = false },
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Text("View Logs")
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isRebuilding) {
+                        CircularWavyProgressIndicator(
+                            progress = { rebuildProgress.coerceIn(0f, 1f) },
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_check),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = if (isRebuilding) "Rebuilding VTOP database…" else "Database rebuild complete",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = if (isRebuilding) {
+                                rebuildStep.ifBlank { "Crawling records…" }
+                            } else {
+                                "All records synced into SQLite"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Text(
+                        text = "${(rebuildProgress * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+                LinearWavyProgressIndicator(
+                    progress = { rebuildProgress.coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                ) {
+                    LazyColumn(
+                        state = logListState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                    ) {
+                        items(rebuildLogs) { line ->
+                            Text(
+                                text = line,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                if (!isRebuilding) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(
+                            onClick = { dismissed = true },
+                        ) {
+                            Text("Dismiss logs")
+                        }
+                        OutlinedButton(
+                            onClick = { showConfirmDialog = true },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Text("Rebuild again", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showConfirmDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showConfirmDialog = false },
+            title = {
+                Text(
+                    text = "Purge & rebuild database?",
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Text(
+                    text = "This will clear all cached attendance, timetable, marks, and profile data, and re-fetch everything fresh from VTOP. Your login credentials will remain saved.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showConfirmDialog = false
+                        onPurgeAndRebuild()
+                    },
+                ) {
+                    Text("Purge & Rebuild", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }
 

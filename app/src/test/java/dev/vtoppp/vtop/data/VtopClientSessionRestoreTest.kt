@@ -146,4 +146,84 @@ class VtopClientSessionRestoreTest {
         assertTrue(result.isFailure)
         assertTrue(client.warm.value is WarmState.Failed)
     }
+
+    @Test
+    fun silentReAuthSuccessClearsWarmState() = runTest {
+        var loggedIn = false
+        val dashboardHtml = VtopPages.dashboard("new-csrf", "EXAMPLE0000001")
+        val http = FakeTransport { req ->
+            when {
+                req.method == Method.Get && req.url.endsWith("/vtop/content") ->
+                    if (loggedIn) HttpResponse(200, dashboardHtml, emptyList(), null)
+                    else HttpResponse(200, VtopPages.loginForm("content-csrf"), emptyList(), null)
+                req.method == Method.Get && req.url.endsWith("/vtop/login") ->
+                    HttpResponse(200, VtopPages.loginForm("role-csrf"), emptyList(), null)
+                req.method == Method.PostForm && req.url.endsWith("/vtop/prelogin/setup") ->
+                    HttpResponse(200, "", emptyList(), null)
+                req.method == Method.Get && req.url.endsWith("/vtop/init/page") ->
+                    if (loggedIn) HttpResponse(200, dashboardHtml, emptyList(), null)
+                    else HttpResponse(200, VtopPages.loginForm("warm-csrf"), emptyList(), null)
+                req.url.endsWith("/vtop/get/new/captcha") ->
+                    HttpResponse(200, VtopPages.captchaPage(), emptyList(), null)
+                req.method == Method.PostForm && req.url.endsWith("/vtop/login") -> {
+                    loggedIn = true
+                    HttpResponse(302, "", emptyList(), "/vtop/init/page")
+                }
+                req.method == Method.PostForm && req.url.endsWith("/vtop/fake") ->
+                    HttpResponse(200, "ok", emptyList(), null)
+                else -> HttpResponse(404, "", emptyList(), null)
+            }
+        }
+        val client = VtopClient(
+            SteadySolver("AAA"),
+            { 0L },
+            credentialsProvider = { "user" to "pass" },
+            transportOverride = http,
+        )
+        seedCookies(client)
+
+        val result = client.fetchSection("/vtop/fake")
+
+        assertTrue(result.isSuccess)
+        assertEquals(WarmState.Idle, client.warm.value)
+    }
+
+    @Test
+    fun keepAlivePingReturnsFalseWhenNoSession() = runTest {
+        val client = VtopClient(
+            SteadySolver("AAA"),
+            { 0L },
+            transportOverride = FakeTransport { HttpResponse(200, "ok", emptyList(), null) },
+        )
+        assertFalse(client.keepAlivePing())
+    }
+
+    @Test
+    fun keepAlivePingReturnsTrueWhenSessionActive() = runTest {
+        val http = FakeTransport { req ->
+            if (req.url.endsWith("/vtop/content")) {
+                HttpResponse(200, VtopPages.dashboard("CSRF_VAL", "24BCE10001"), emptyList(), null)
+            } else {
+                HttpResponse(404, "", emptyList(), null)
+            }
+        }
+        val client = VtopClient(
+            SteadySolver("AAA"),
+            { 0L },
+            transportOverride = http,
+        )
+        seedSession(client)
+        assertTrue(client.keepAlivePing())
+    }
+
+    @Test
+    fun loginFailureOnNetworkErrorSetsWarmToFailed() = runTest {
+        val http = FakeTransport { throw java.io.IOException("connection refused") }
+        val client = VtopClient(SteadySolver("AAA"), { 0L }, transportOverride = http)
+        val result = client.login("user", "pass")
+        assertTrue(result.isFailure)
+        val warm = client.warm.value
+        assertTrue(warm is WarmState.Failed)
+        assertEquals("No connection", (warm as WarmState.Failed).message)
+    }
 }

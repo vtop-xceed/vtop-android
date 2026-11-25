@@ -38,7 +38,10 @@ object SessionCache {
         val file = fileFor(endpoint) ?: return
         try {
             file.writeText(html)
-            prune()
+            val htmlCount = root?.list { _, name -> name.endsWith(".html") }?.size ?: 0
+            if (htmlCount > MAX_ENTRIES) {
+                prune()
+            }
         } catch (e: Exception) {
             AppLog.d("cache: save $endpoint failed: ${e.message}")
         }
@@ -73,6 +76,16 @@ object SessionCache {
             mins < 60 -> "${mins}m ago"
             mins < 1440 -> "${mins / 60}h ago"
             else -> "${mins / 1440}d ago"
+        }
+    }
+
+    /** Clears all cached HTML files. */
+    fun clear() {
+        val dir = root ?: return
+        try {
+            dir.listFiles { f -> f.isFile && f.name.endsWith(".html") }?.forEach { it.delete() }
+        } catch (e: Exception) {
+            AppLog.d("cache: clear failed: ${e.message}")
         }
     }
 }

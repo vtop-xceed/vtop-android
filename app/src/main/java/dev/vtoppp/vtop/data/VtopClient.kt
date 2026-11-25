@@ -71,6 +71,10 @@ class VtopClient(
     private val _warm = MutableStateFlow<WarmState>(WarmState.Idle)
     val warm: StateFlow<WarmState> = _warm.asStateFlow()
 
+    fun failWarm(message: String) {
+        _warm.value = WarmState.Failed(message)
+    }
+
     /** True when a persisted snapshot seeded a full session this boot and it has not been network-validated yet. */
     private var seedValidationPending = false
 
@@ -386,7 +390,7 @@ class VtopClient(
 
     private fun warmFailureText(e: Exception): String = when (e) {
         VtopError.RateLimited -> "VTOP is not offering a captcha right now"
-        VtopError.Network -> "No connection"
+        VtopError.Network, is java.io.IOException -> "No connection"
         is VtopError -> e.message ?: "VTOP error"
         else -> "Could not prepare the session"
     }
@@ -448,11 +452,13 @@ class VtopClient(
                     clearWarm()
                     res
                 } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e } catch (e: Exception) {
-                    //: a dead manual login must not leave warm wedged in
-                    // Working, or the prewarm waiter would wait forever.
-                    clearWarm()
-                    throw e }
+                    throw e
+                } catch (e: Exception) {
+                    warmCsrf = null
+                    warmSolution = null
+                    _warm.value = WarmState.Failed(warmFailureText(e))
+                    throw e
+                }
             }
         }
 
@@ -735,6 +741,7 @@ class VtopClient(
                 _warm.value = WarmState.Working("Signing in…")
                 authenticate(creds.first.uppercase(), creds.second)
                 sessionGeneration++
+                clearWarm()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e } catch (e: Exception) {
                 AppLog.d("session: re-auth failed: ${e.javaClass.simpleName} ${e.message}")
@@ -743,6 +750,18 @@ class VtopClient(
             }
         }
         AppLog.d("session: re-authenticated successfully")
+    }
+
+    /**
+     * Heartbeat ping to keep the 20-minute server session alive without pulling heavy data.
+     * Hits /vtop/content; returns true if the portal confirms an active authenticated session.
+     */
+    suspend fun keepAlivePing(): Boolean = withContext(Dispatchers.IO) {
+        if (!hasSession) return@withContext false
+        runCatching {
+            val (code, body) = get("content", referer = BASE)
+            code in 200..299 && !isLoginPage(body)
+        }.getOrDefault(false)
     }
 
     override fun close() {

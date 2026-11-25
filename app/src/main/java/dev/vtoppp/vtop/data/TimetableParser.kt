@@ -291,22 +291,24 @@ object TimetableParser {
     /** Extracts block and room number from a venue string like "AB-330" or "SJT 711". */
     fun parseVenue(venue: String): Pair<String, String> {
         val clean = venue.trim()
-        val match = Regex("""^([A-Za-z0-9_-]+?)[\s-]*([0-9]{3,4}[A-Za-z]?)$""").find(clean)
+        val match = Regex("""^([A-Za-z0-9_]+?)[\s-]*([0-9]{2,4}[A-Za-z]?)$""").find(clean)
         return if (match != null) {
             Pair(match.groupValues[1].replace("-", "").uppercase(), match.groupValues[2])
         } else {
             val letters = clean.takeWhile { it.isLetter() }.uppercase()
             val digits = clean.dropWhile { it.isLetter() }.replace("-", "").trim()
-            Pair(letters.ifBlank { "AB" }, digits.ifBlank { "101" })
+            if (letters.isNotBlank() && digits.isNotBlank() && digits.length <= 4) {
+                Pair(letters, digits)
+            } else {
+                Pair("", "")
+            }
         }
     }
 
-    private fun isVenue(text: String): Boolean {
+    fun isVenue(text: String): Boolean {
         val t = text.trim()
-        return (t.startsWith("AB") || t.startsWith("SJT") || t.startsWith("TT") ||
-            t.startsWith("MB") || t.startsWith("LC") || t.startsWith("AR") ||
-            t.startsWith("CB") || t.startsWith("SMV") || t.contains("-")) &&
-            t.any { it.isDigit() }
+        if (t.length > 12) return false
+        return t.matches(Regex("""^(AB\d*|LC|AR|CR|SJT|TT|MB|CB|SMV)[\s-]*\d{2,4}[A-Za-z]?$""", RegexOption.IGNORE_CASE))
     }
 }
 
@@ -322,66 +324,56 @@ object SlotTimings {
             t.matches(Regex("""^[A-G]\d{2}$"""))
     }
 
+    // ponytail: standard VIT FFCS slot timing mapping
     fun getTimings(slot: String): List<Timing> {
         val s = slot.trim().uppercase()
         return when (s) {
-            "A1", "A11" -> listOf(
-                Timing(1, "08:00 AM", "08:50 AM"), // Monday
-                Timing(3, "09:00 AM", "09:50 AM"), // Wednesday
-            )
-            "B1", "B11" -> listOf(
-                Timing(2, "08:00 AM", "08:50 AM"), // Tuesday
-                Timing(4, "09:00 AM", "09:50 AM"), // Thursday
-            )
-            "C1", "C11" -> listOf(
-                Timing(3, "08:00 AM", "08:50 AM"), // Wednesday
-                Timing(5, "09:00 AM", "09:50 AM"), // Friday
-            )
-            "D1", "D11" -> listOf(
-                Timing(4, "08:00 AM", "08:50 AM"), // Thursday
-                Timing(1, "10:00 AM", "10:50 AM"), // Monday
-            )
-            "E1", "E11" -> listOf(
-                Timing(5, "08:00 AM", "08:50 AM"), // Friday
-                Timing(2, "10:00 AM", "10:50 AM"), // Tuesday
-            )
-            "F1", "F11" -> listOf(
-                Timing(1, "09:00 AM", "09:50 AM"), // Monday
-                Timing(3, "10:00 AM", "10:50 AM"), // Wednesday
-            )
-            "G1", "G11" -> listOf(
-                Timing(2, "09:00 AM", "09:50 AM"), // Tuesday
-                Timing(4, "10:00 AM", "10:50 AM"), // Thursday
-            )
-            "A2", "A14", "A21" -> listOf(
-                Timing(1, "14:00 PM", "14:50 PM"), // Monday
-                Timing(3, "15:00 PM", "15:50 PM"), // Wednesday
-            )
-            "B2", "B14", "B21" -> listOf(
-                Timing(2, "14:00 PM", "14:50 PM"), // Tuesday
-                Timing(4, "15:00 PM", "15:50 PM"), // Thursday
-            )
-            "C2", "C14", "C21" -> listOf(
-                Timing(3, "14:00 PM", "14:50 PM"), // Wednesday
-                Timing(5, "15:00 PM", "15:50 PM"), // Friday
-            )
-            "D2", "D14", "D21" -> listOf(
-                Timing(4, "14:00 PM", "14:50 PM"), // Thursday
-                Timing(1, "16:00 PM", "16:50 PM"), // Monday
-            )
-            "E2", "E14", "E21" -> listOf(
-                Timing(5, "14:00 PM", "14:50 PM"), // Friday
-                Timing(2, "16:00 PM", "16:50 PM"), // Tuesday
-            )
-            "L31", "L32" -> listOf(Timing(1, "14:00 PM", "15:50 PM"))
-            "L33", "L34" -> listOf(Timing(1, "16:00 PM", "17:50 PM"))
-            "L37", "L38" -> listOf(Timing(2, "14:00 PM", "15:50 PM"))
-            "L43", "L44" -> listOf(Timing(3, "14:00 PM", "15:50 PM"))
-            "L49", "L50" -> listOf(Timing(4, "14:00 PM", "15:50 PM"))
-            "L55", "L56" -> listOf(Timing(5, "14:00 PM", "15:50 PM"))
-            else -> listOf(
-                Timing(1, "11:00 AM", "12:30 PM"),
-            )
+            "A1", "A11" -> listOf(Timing(1, "08:30", "10:00"))
+            "A12" -> listOf(Timing(3, "08:30", "10:00"))
+            "A13" -> listOf(Timing(5, "08:30", "10:00"))
+            "B1", "B11" -> listOf(Timing(1, "10:05", "11:35"))
+            "B12" -> listOf(Timing(3, "10:05", "11:35"))
+            "B13" -> listOf(Timing(5, "10:05", "11:35"))
+            "C1", "C11" -> listOf(Timing(1, "11:40", "13:10"))
+            "C12" -> listOf(Timing(3, "11:40", "13:10"))
+            "C13" -> listOf(Timing(5, "11:40", "13:10"))
+            "D1", "D11" -> listOf(Timing(2, "08:30", "10:00"))
+            "D12" -> listOf(Timing(4, "08:30", "10:00"))
+            "D13" -> listOf(Timing(6, "08:30", "10:00"))
+            "E1", "E11" -> listOf(Timing(2, "10:05", "11:35"))
+            "E12" -> listOf(Timing(4, "10:05", "11:35"))
+            "E13" -> listOf(Timing(6, "10:05", "11:35"))
+            "F1", "F11" -> listOf(Timing(2, "11:40", "13:10"))
+            "F12" -> listOf(Timing(4, "11:40", "13:10"))
+            "F13" -> listOf(Timing(6, "11:40", "13:10"))
+            "A2", "A21" -> listOf(Timing(1, "13:15", "14:45"))
+            "A22" -> listOf(Timing(3, "13:15", "14:45"))
+            "A23" -> listOf(Timing(5, "13:15", "14:45"))
+            "D2", "D21" -> listOf(Timing(2, "13:15", "14:45"))
+            "D22" -> listOf(Timing(4, "13:15", "14:45"))
+            "D23" -> listOf(Timing(6, "13:15", "14:45"))
+            "A14" -> listOf(Timing(1, "14:50", "16:20"))
+            "E14" -> listOf(Timing(2, "14:50", "16:20"))
+            "B14" -> listOf(Timing(3, "14:50", "16:20"))
+            "F14" -> listOf(Timing(4, "14:50", "16:20"))
+            "C14" -> listOf(Timing(5, "14:50", "16:20"))
+            "B2", "B21" -> listOf(Timing(1, "16:25", "17:55"))
+            "E2", "E21" -> listOf(Timing(2, "16:25", "17:55"))
+            "B22" -> listOf(Timing(3, "16:25", "17:55"))
+            "E22" -> listOf(Timing(4, "16:25", "17:55"))
+            "B23" -> listOf(Timing(5, "16:25", "17:55"))
+            "C2", "C21" -> listOf(Timing(1, "18:00", "19:30"))
+            "F2", "F21" -> listOf(Timing(2, "18:00", "19:30"))
+            "A24" -> listOf(Timing(3, "18:00", "19:30"))
+            "F22" -> listOf(Timing(4, "18:00", "19:30"))
+            "B24" -> listOf(Timing(5, "18:00", "19:30"))
+            "L31", "L32" -> listOf(Timing(1, "14:50", "16:20"))
+            "L33", "L34" -> listOf(Timing(1, "16:25", "17:55"))
+            "L37", "L38" -> listOf(Timing(2, "14:50", "16:20"))
+            "L43", "L44" -> listOf(Timing(3, "14:50", "16:20"))
+            "L49", "L50" -> listOf(Timing(4, "14:50", "16:20"))
+            "L55", "L56" -> listOf(Timing(5, "14:50", "16:20"))
+            else -> emptyList()
         }
     }
 }

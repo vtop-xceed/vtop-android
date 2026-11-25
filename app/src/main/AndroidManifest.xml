@@ -2,7 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Sideload self-updates: the system installer dialog is user-gated, this
          permission only lets the app hand a downloaded APK to PackageInstaller. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -27,6 +29,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".data.KeepAliveJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
