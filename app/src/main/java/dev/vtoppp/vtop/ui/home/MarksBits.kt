@@ -29,11 +29,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
@@ -477,20 +483,36 @@ internal fun MarksLine(entry: MarkEntry) {
 
 internal data class Freshness(val label: String, val partial: Boolean)
 
-internal fun freshnessOf(stamps: List<Long>): Freshness {
+/** Lifecycle-aware wall clock ticking every [intervalMs] while RESUMED so relative age labels stay live. */
+@Composable
+internal fun rememberLiveClockMs(intervalMs: Long = 30_000L): Long {
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                nowMs = System.currentTimeMillis()
+                delay(intervalMs)
+            }
+        }
+    }
+    return nowMs
+}
+
+internal fun freshnessOf(stamps: List<Long>, nowMs: Long = System.currentTimeMillis()): Freshness {
     val present = stamps.filter { it > 0L }
     if (present.isEmpty()) return Freshness("Never synced", false)
-    val oldest = present.min()
-    val skewMs = present.max() - present.min()
-    val ageMs = System.currentTimeMillis() - oldest
+    // ponytail: use newest sync stamp so an older/empty semester never pins the whole page to stale age
+    val latest = present.max()
+    val skewMs = latest - present.min()
+    val ageMs = (nowMs - latest).coerceAtLeast(0L)
     val label = when {
         ageMs < 60_000 -> "Synced from VTOP just now"
         ageMs < 3_600_000 -> "Synced from VTOP ${ageMs / 60_000}m ago"
         ageMs < 86_400_000 -> "Synced from VTOP ${ageMs / 3_600_000}h ago"
         else -> "Synced from VTOP ${ageMs / 86_400_000}d ago"
-
     }
-    val partial = skewMs > 60_000 || present.size < stamps.size
+    val partial = present.size > 1 && skewMs > 60_000
     return Freshness(label, partial)
 }
 

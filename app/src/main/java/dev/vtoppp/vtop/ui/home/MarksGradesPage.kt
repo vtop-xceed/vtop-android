@@ -93,15 +93,7 @@ fun MarksGradesPage(
             }
             .sortedByDescending { examEpochDay(it.examMonth) }
     }
-    val stamps = remember(summary, grades, marks) {
-        listOf(
-            summary?.updatedAtMs ?: 0L,
-            grades.maxOfOrNull { it.updatedAtMs } ?: 0L,
-            marks.maxOfOrNull { it.updatedAtMs } ?: 0L,
-        )
-    }
-    val freshness = remember(stamps) { freshnessOf(stamps) }
-    val isEmpty = courses.isEmpty() && marks.isEmpty()
+    var selectedSemesterForRefresh by rememberSaveable { mutableStateOf<String?>(null) }
     val attendedSemesters by UserDatabase.semestersFlow.collectAsState()
     LaunchedEffect(authorizedId) {
         if (attendedSemesters.isEmpty()) {
@@ -114,6 +106,22 @@ fun MarksGradesPage(
         attendedSemesters.associate { it.semesterSubId to it.semesterName }
     }
     val marksBySemester = remember(marks) { marks.groupBy { it.semesterSubId } }
+    val semesterResults by UserDatabase.semesterResultsFlow.collectAsState()
+    val nowMs = rememberLiveClockMs()
+    val stamps = remember(summary, grades, marksBySemester, semesterResults, selectedSemesterForRefresh) {
+        val activeSemMarks = selectedSemesterForRefresh?.let { marksBySemester[it] } ?: marks
+        val activeResultTs = selectedSemesterForRefresh?.let { semId ->
+            semesterResults.firstOrNull { it.semesterSubId == semId }?.updatedAtMs
+        } ?: semesterResults.maxOfOrNull { it.updatedAtMs }
+        listOf(
+            summary?.updatedAtMs ?: 0L,
+            grades.maxOfOrNull { it.updatedAtMs } ?: 0L,
+            activeSemMarks.maxOfOrNull { it.updatedAtMs } ?: 0L,
+            activeResultTs ?: 0L,
+        )
+    }
+    val freshness = remember(stamps, nowMs) { freshnessOf(stamps, nowMs) }
+    val isEmpty = courses.isEmpty() && marks.isEmpty()
     val semesterPicks = remember(marksBySemester, semesterNames) {
         val validIds = if (semesterNames.isNotEmpty()) {
             semesterNames.keys
@@ -130,8 +138,6 @@ fun MarksGradesPage(
             )
         }
     }
-
-    var selectedSemesterForRefresh by rememberSaveable { mutableStateOf<String?>(null) }
 
     PullToRefreshBox(
         state = rememberPullToRefreshState(),

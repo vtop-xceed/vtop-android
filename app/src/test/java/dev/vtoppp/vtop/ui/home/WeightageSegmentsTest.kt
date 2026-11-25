@@ -2,6 +2,7 @@ package dev.vtoppp.vtop.ui.home
 
 import dev.vtoppp.vtop.data.MarkEntry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -117,5 +118,24 @@ class WeightageSegmentsTest {
             ),
         )
         assertEquals(6.0f, earned, 0.01f)
+    }
+
+    @Test
+    fun freshnessOf_tracksNewestSyncAndAdvancesWithNow() {
+        assertEquals(Freshness("Never synced", false), freshnessOf(listOf(0L, 0L), nowMs = 1_000_000L))
+
+        // Single populated table does not mark partial
+        val single = freshnessOf(listOf(0L, 0L, 1_000_000L), nowMs = 1_010_000L)
+        assertEquals("Synced from VTOP just now", single.label)
+        assertFalse(single.partial)
+
+        // Newer sync wins over an older historical semester stamp, while skew still marks partial
+        val mixed = freshnessOf(listOf(1_000_000L, 500_000L), nowMs = 1_020_000L)
+        assertEquals("Synced from VTOP just now", mixed.label)
+        assertTrue(mixed.partial)
+
+        // Advancing clock updates label cleanly
+        assertEquals("Synced from VTOP 5m ago", freshnessOf(listOf(1_000_000L), nowMs = 1_000_000L + 5 * 60_000L).label)
+        assertEquals("Synced from VTOP 2h ago", freshnessOf(listOf(1_000_000L), nowMs = 1_000_000L + 2 * 3_600_000L).label)
     }
 }

@@ -57,14 +57,15 @@ fun GradeHistoryPage(
             }
             .sortedByDescending { examEpochDay(it.examMonth) }
     }
+    val nowMs = rememberLiveClockMs()
     val stamps = remember(summary, grades, marks) {
-        listOf(
+        val gradeStamps = listOf(
             summary?.updatedAtMs ?: 0L,
             grades.maxOfOrNull { it.updatedAtMs } ?: 0L,
-            marks.maxOfOrNull { it.updatedAtMs } ?: 0L,
         )
+        if (gradeStamps.any { it > 0L }) gradeStamps else listOf(marks.maxOfOrNull { it.updatedAtMs } ?: 0L)
     }
-    val freshness = remember(stamps) { freshnessOf(stamps) }
+    val freshness = remember(stamps, nowMs) { freshnessOf(stamps, nowMs) }
     var sortByGrade by rememberSaveable { mutableStateOf(false) }
     val sortIconAngle by animateFloatAsState(
         targetValue = if (sortByGrade) 180f else 0f,

@@ -545,7 +545,7 @@ fun MainDashboardScreen(
             } else
                     when (contentKey) {
                         "calendar" -> {
-                                LaunchedEffect(Unit) { onEnsureCalendar() }
+                                LaunchedEffect(pill.kind == PillKind.Ready) { onEnsureCalendar() }
                                 AcademicCalendarPage(
                                         events = liveCalendarEvents,
                                         onRefresh = onRefreshCalendar
@@ -553,7 +553,9 @@ fun MainDashboardScreen(
                         }
                         "attendance" -> {
                                 val activeAttSem = attendanceSemesterId ?: latestSemesterId
-                                LaunchedEffect(activeAttSem) { onEnsureAttendance(activeAttSem) }
+                                LaunchedEffect(activeAttSem, pill.kind == PillKind.Ready) {
+                                        onEnsureAttendance(activeAttSem)
+                                }
                                 AttendancePage(
                                         entries = pageAttendance,
                                         sessions = liveSessions,
@@ -570,7 +572,9 @@ fun MainDashboardScreen(
                         }
                         "timetable" -> {
                                 val activeTtSem = timetableSemesterId ?: latestSemesterId
-                                LaunchedEffect(activeTtSem) { onEnsureTimetable(activeTtSem) }
+                                LaunchedEffect(activeTtSem, pill.kind == PillKind.Ready) {
+                                        onEnsureTimetable(activeTtSem)
+                                }
                                 TimetableDetailsPage(
                                         timetable = pageTimetable,
                                         faculties = faculties,
@@ -582,14 +586,14 @@ fun MainDashboardScreen(
                                 )
                         }
                         "grades" -> {
-                                LaunchedEffect(Unit) { onEnsureMarks(null) }
+                                LaunchedEffect(pill.kind == PillKind.Ready) { onEnsureMarks(null) }
                                 GradeHistoryPage(
                                         onBack = { showGradesPage = false },
                                         onRefresh = { onRefreshMarks(null) },
                                 )
                         }
                         "marks" -> {
-                                LaunchedEffect(Unit) { onEnsureMarks(null) }
+                                LaunchedEffect(pill.kind == PillKind.Ready) { onEnsureMarks(null) }
                                 MarksGradesPage(
                                         authorizedId = authorizedId,
                                         onOpenGrades = { showGradesPage = true },
