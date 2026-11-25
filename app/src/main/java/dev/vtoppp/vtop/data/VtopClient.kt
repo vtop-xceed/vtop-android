@@ -1,5 +1,6 @@
 package dev.vtoppp.vtop.data
 
+import dev.vtoppp.vtop.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,8 +79,10 @@ class VtopClient(
     /** True when a persisted snapshot seeded a full session this boot and it has not been network-validated yet. */
     private var seedValidationPending = false
 
+    @Volatile
     var authorizedId: String? = null
         private set
+    @Volatile
     var csrf: String? = null
         private set
 
@@ -93,11 +96,13 @@ class VtopClient(
     private var warmSolvedAtMs = 0L
 
     /** Session credentials, held in memory only (never logged, never persisted here). */
+    @Volatile
     private var sessionCredentials: Pair<String, String>? = null
 
     private var lastLoginPostAt = 0L
 
     private val sessionLock = Mutex()
+    @Volatile
     private var sessionGeneration = 0 /**
      * Cookie store stapled into the transport jar (name → value,
      * replace-on-set). The portal's WAF cookie (`cookiesession1` — issued
@@ -223,12 +228,6 @@ class VtopClient(
         return r.httpCode to r.body
     }
 
-    /** Matches a `Max-Age=0` attribute (server-side deletion directive). */
-    private val MAX_AGE_ZERO = Regex(
-        """(?:^|;)\s*max-age\s*=\s*0(?:\s*;|$)""",
-        RegexOption.IGNORE_CASE,
-    )
-
     /**
      * Merges raw `Set-Cookie` values (already case-insensitively extracted)
      * into the cookie map: `name=value` before the first `;` (no-space
@@ -251,10 +250,7 @@ class VtopClient(
     }
 
     private fun csrfOf(html: String): String? =
-        Regex("""name="_csrf" value=["']([^"']+)["']""").find(html)?.groupValues?.get(1)
-
-    /** Captcha embedded as data URI inside the login page HTML (Jira flavor). */
-    private val DATA_URI = Regex("""data:image/jpeg;base64,([A-Za-z0-9+/=]+)""")
+        CSRF_REGEX.find(html)?.groupValues?.get(1)
 
     // ---------------------------------------------------------------- prewarm
 
@@ -384,7 +380,9 @@ class VtopClient(
         warmSolution = solution
         warmSolvedAtMs = nowMs()
         _warm.value = WarmState.CaptchaReady
-        AppLog.dump("c-${solution.replace(Regex("[^A-Za-z0-9]"), "")}", java.util.Base64.getEncoder().encodeToString(bytes))
+        if (BuildConfig.DEBUG) {
+            AppLog.dump("c-${solution.replace(NON_ALNUM_REGEX, "")}", java.util.Base64.getEncoder().encodeToString(bytes))
+        }
         AppLog.d("prewarm: captcha solved")
     }
 
@@ -509,10 +507,11 @@ class VtopClient(
             // the empty body.: fetched ONCE, shared by both classifiers.
             val rejectPage = get("login/error", referer = "$BASE/vtop/login").second
             AppLog.dump("rejection-$attempt", rejectPage)
-            val reason = RejectionClassifier.messages(rejectPage).firstOrNull()
+            val messages = RejectionClassifier.messages(rejectPage)
+            val reason = messages.firstOrNull()
                 ?: location.substringAfterLast('/')
             AppLog.d("login: attempt $attempt bounced (VTOP said: $reason)")
-            classifyCredentialRejection(rejectPage)
+            RejectionClassifier.classifyMessages(messages)?.let { throw it }
             if (attempt == MAX_LOGIN_ATTEMPTS) throw VtopError.CaptchaRejected
             prepareCaptcha()
             csrfNow = warmCsrf ?: fail("no csrf")
@@ -634,13 +633,13 @@ class VtopClient(
     /** authorizedID + csrfValue + label from dashboard HTML; establishes hasSession. */
     private fun deriveFromDashboard(html: String): LoginResult? {
         if (!isDashboardPage(html)) return null
-        val authId = Regex("""name="authorizedID"[\s\S]{0,120}?value="([^"]+)"""").find(html)?.groupValues?.get(1)
-            ?: Regex("""id="authorizedIDX"[\s\S]{0,120}?value="([^"]+)"""").find(html)?.groupValues?.get(1)
+        val authId = AUTH_ID_NAME_REGEX.find(html)?.groupValues?.get(1)
+            ?: AUTH_ID_IDX_REGEX.find(html)?.groupValues?.get(1)
             ?: return null
         authorizedId = authId
-        csrf = Regex("""var csrfValue = "([^"]+)"""").find(html)?.groupValues?.get(1)
+        csrf = JS_CSRF_REGEX.find(html)?.groupValues?.get(1)
             ?: csrfOf(html) ?: csrf
-        val label = Regex("""([A-Z0-9]{6,20})\s*\((?:STUDENT|EMPLOYEE)\)""").find(html)?.value
+        val label = USER_LABEL_REGEX.find(html)?.value
             ?: "$authId (STUDENT)"
         persistSession()
         return LoginResult(authId, label.trim())
@@ -654,7 +653,7 @@ class VtopClient(
         val store = sessionStore ?: return
         val authId = authorizedId ?: return
         val c = csrf ?: return
-        store.save(cookiePairs().toMap(), c, authId)
+        store.save(HashMap(cookies), c, authId)
     }
 
     // ---------------------------------------------------------------- section
@@ -766,6 +765,24 @@ class VtopClient(
 
     override fun close() {
         sessionCredentials = null
+    }
+
+    private companion object {
+        /** Matches a `Max-Age=0` attribute (server-side deletion directive). */
+        val MAX_AGE_ZERO = Regex(
+            """(?:^|;)\s*max-age\s*=\s*0(?:\s*;|$)""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Captcha embedded as data URI inside the login page HTML (Jira flavor). */
+        val DATA_URI = Regex("""data:image/jpeg;base64,([A-Za-z0-9+/=]+)""")
+
+        val CSRF_REGEX = Regex("""name="_csrf" value=["']([^"']+)["']""")
+        val NON_ALNUM_REGEX = Regex("[^A-Za-z0-9]")
+        val AUTH_ID_NAME_REGEX = Regex("""name="authorizedID"[\s\S]{0,120}?value="([^"]+)"""")
+        val AUTH_ID_IDX_REGEX = Regex("""id="authorizedIDX"[\s\S]{0,120}?value="([^"]+)"""")
+        val JS_CSRF_REGEX = Regex("""var csrfValue = "([^"]+)"""")
+        val USER_LABEL_REGEX = Regex("""([A-Z0-9]{6,20})\s*\((?:STUDENT|EMPLOYEE)\)""")
     }
 }
 

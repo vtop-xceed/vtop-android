@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -30,10 +32,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.ui.theme.AppDimens
 import dev.vtoppp.vtop.ui.theme.Motion
 import androidx.compose.ui.unit.dp
 
 // ponytail: one empty-state shell for every "nothing here yet"; callers pass the copy
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun EmptyState(
     title: String,
@@ -47,7 +51,7 @@ internal fun EmptyState(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 64.dp),
+            .padding(top = 64.dp, start = AppDimens.ScreenHorizontal, end = AppDimens.ScreenHorizontal),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         AnimatedVisibility(
@@ -61,7 +65,7 @@ internal fun EmptyState(
                 modifier = Modifier.size(56.dp),
             )
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(AppDimens.CardPadding))
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
@@ -74,7 +78,7 @@ internal fun EmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(AppDimens.CardPadding))
         val pulse = remember { Animatable(1f) }
         LaunchedEffect(isSyncing) {
             if (isSyncing) {
@@ -87,6 +91,7 @@ internal fun EmptyState(
         }
         FilledTonalButton(
             onClick = onRefresh,
+            shapes = ButtonDefaults.shapes(),
             enabled = !isSyncing,
             modifier = Modifier.graphicsLayer { scaleX = pulse.value; scaleY = pulse.value },
         ) {

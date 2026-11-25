@@ -42,8 +42,11 @@ object RejectionClassifier {
     }
 
     /** [VtopError.CredentialsRejected] with the first matching message, else null. */
-    fun classify(page: String): VtopError? {
-        for (message in messages(page)) {
+    fun classify(page: String): VtopError? = classifyMessages(messages(page))
+
+    /** Classifies already-extracted [messages] without rescanning the HTML page. */
+    internal fun classifyMessages(messages: List<String>): VtopError? {
+        for (message in messages) {
             val normalized = message.lowercase().replace('/', ' ')
             if (credentialPhrases.any { normalized.contains(it) }) {
                 return VtopError.CredentialsRejected(message)
@@ -54,9 +57,14 @@ object RejectionClassifier {
 
     private fun collect(out: MutableList<String>, raw: String) {
         val t = raw.trim()
-        out += try {
-            java.net.URLDecoder.decode(t.replace('+', ' '), "UTF-8")
-        } catch (_: Exception) {
-            t }
+        out += if ('%' in t || '+' in t) {
+            try {
+                java.net.URLDecoder.decode(t.replace('+', ' '), "UTF-8")
+            } catch (_: Exception) {
+                t
+            }
+        } else {
+            t
+        }
     }
 }

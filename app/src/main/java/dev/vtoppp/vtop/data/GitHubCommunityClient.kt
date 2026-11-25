@@ -5,7 +5,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
-import java.util.concurrent.TimeUnit
 
 data class GitHubIssue(
     val id: Long,
@@ -35,11 +34,11 @@ object GitHubCommunityClient {
     private const val CONTRIBUTORS_URL = "https://api.github.com/repos/vtop-xceed/vtop-android/contributors?per_page=50"
 
     private val http: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .dns(sharedDnsWithDohFallback)
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .build()
+        sharedLightweightHttpClient(
+            connectTimeoutSec = 10,
+            readTimeoutSec = 15,
+            useDohFallback = true,
+        )
     }
 
     suspend fun fetchOpenIssues(): Result<List<GitHubIssue>> = withContext(Dispatchers.IO) {

@@ -8,12 +8,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.security.MessageDigest
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import java.time.LocalDate
+import java.time.ZoneOffset
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 
 /**
  * Anonymous daily usage ping. Sends { v, d, h } where
@@ -50,10 +47,7 @@ object UsagePing {
                     .put("d", today)
                     .put("h", hash)
                     .toString()
-                val ok = OkHttpClient.Builder()
-                    .connectTimeout(5, TimeUnit.SECONDS)
-                    .readTimeout(5, TimeUnit.SECONDS)
-                    .build()
+                val ok = http
                     .newCall(
                         Request.Builder()
                             .url(PING_URL)
@@ -68,9 +62,11 @@ object UsagePing {
         }
     }
 
-    private fun utcDay(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        .apply { timeZone = TimeZone.getTimeZone("UTC") }
-        .format(Date())
+    private val http: OkHttpClient by lazy {
+        sharedLightweightHttpClient(connectTimeoutSec = 5, readTimeoutSec = 5)
+    }
+
+    private fun utcDay(): String = LocalDate.now(ZoneOffset.UTC).toString()
 
     /**
      * The whole gate, as one pure decision: a disabled service never sends,

@@ -24,15 +24,9 @@ object SectionParser {
         "script", "style", "noscript", "meta", "link", "option", "head", "title",
     )
 
-    private val hiddenClasses = setOf("modal", "offcanvas")
-
     private val inlineTags = setOf(
         "span", "i", "b", "strong", "em", "u", "s", "small", "font", "br", "a",
         "abbr", "cite", "code", "kbd", "mark", "q", "sub", "sup", "time", "del", "ins",
-    )
-
-    private val structuralKinds = setOf(
-        Kind.HEADING, Kind.LABEL, Kind.SELECT, Kind.FIELD, Kind.ACTION, Kind.TABLE, Kind.BLOCK,
     )
 
     private val whitespace = Regex("[\\s\\u00A0\\u2007\\u202F\\u200B]+")
@@ -61,6 +55,7 @@ object SectionParser {
         val pending = StringBuilder()
 
         fun flush() {
+            if (pending.isEmpty()) return
             val text = normalize(pending.toString())
             pending.setLength(0)
             if (text.isNotEmpty()) blocks += SectionBlock.Text(text)
@@ -113,54 +108,73 @@ object SectionParser {
         flush()
     }
 
+    private fun isHidden(element: Element): Boolean =
+        element.hasClass("modal") || element.hasClass("offcanvas")
+
     private fun kindOf(element: Element): Kind {
         val tag = element.normalName()
-        if (tag in skipTags) return Kind.SKIP
-        if (hiddenClasses.any(element::hasClass)) return Kind.SKIP
+        if (tag in skipTags || isHidden(element)) return Kind.SKIP
         if (tag == "br") return Kind.INLINE
         if (headingLevel(element) != null) return Kind.HEADING
-        if (tag == "table") return Kind.TABLE
-        if (tag == "select") return Kind.SELECT
-        if (tag == "label") return Kind.LABEL
-        if (tag == "button") return Kind.ACTION
-        if (tag == "input") {
-            return when (element.attr("type").trim().lowercase().ifEmpty { "text" }) {
+        return when (tag) {
+            "table" -> Kind.TABLE
+            "select" -> Kind.SELECT
+            "label" -> Kind.LABEL
+            "button" -> Kind.ACTION
+            "input" -> when (element.attr("type").trim().lowercase().ifEmpty { "text" }) {
                 "hidden" -> Kind.SKIP
                 "button", "submit" -> Kind.ACTION
                 "text", "date", "number", "password" -> Kind.FIELD
                 else -> Kind.SKIP
             }
+            else -> when {
+                element.hasAttr("onclick") -> Kind.ACTION
+                tag in inlineTags -> if (isInlineOnly(element)) Kind.INLINE else Kind.BLOCK
+                else -> Kind.BLOCK
+            }
         }
-        if (element.hasAttr("onclick")) return Kind.ACTION
-        if (tag in inlineTags) {
-            return if (isInlineOnly(element)) Kind.INLINE else Kind.BLOCK
-        }
-        return Kind.BLOCK
     }
 
+    // Non-recursive structural check: avoids O(depth * N) repeated subtree scans on nested inline tags.
     private fun isInlineOnly(element: Element): Boolean {
-        if (element.normalName() !in inlineTags) return false
-        if (element.hasAttr("onclick")) return false
-        return element.allElements.none { descendant ->
-            descendant !== element && kindOf(descendant) in structuralKinds
+        if (element.normalName() !in inlineTags || element.hasAttr("onclick")) return false
+        for (descendant in element.allElements) {
+            if (descendant === element) continue
+            val tag = descendant.normalName()
+            if (tag in skipTags || isHidden(descendant) || tag == "br") continue
+            if (headingLevel(descendant) != null || descendant.hasAttr("onclick")) return false
+            when (tag) {
+                "table", "select", "label", "button" -> return false
+                "input" -> when (descendant.attr("type").trim().lowercase().ifEmpty { "text" }) {
+                    "button", "submit", "text", "date", "number", "password" -> return false
+                }
+                else -> if (tag !in inlineTags) return false
+            }
         }
+        return true
     }
 
     private fun headingLevel(element: Element): Int? {
         headingLevelOf(element.normalName())?.let { return it }
-        for (className in element.classNames()) {
-            headingLevelOf(className.lowercase())?.let { return it }
+        val cls = element.attr("class")
+        if (cls.isEmpty()) return null
+        // Scan whitespace-delimited tokens without allocating a LinkedHashSet via element.classNames().
+        var i = 0
+        val len = cls.length
+        while (i < len) {
+            while (i < len && cls[i].isWhitespace()) i++
+            val start = i
+            while (i < len && !cls[i].isWhitespace()) i++
+            if (i - start == 2 && (cls[start] == 'h' || cls[start] == 'H')) {
+                val d = cls[start + 1]
+                if (d in '1'..'6') return d - '0'
+            }
         }
         return null
     }
 
-    private fun headingLevelOf(name: String): Int? {
-        if (name.length != 2 || name[0] != 'h') return null
-        return when (name[1]) {
-            in '1'..'6' -> name[1] - '0'
-            else -> null
-        }
-    }
+    private fun headingLevelOf(name: String): Int? =
+        if (name.length == 2 && name[0] == 'h' && name[1] in '1'..'6') name[1] - '0' else null
 
     private fun emitHeading(element: Element): SectionBlock.Heading? {
         val text = normalize(element.text())
@@ -175,23 +189,22 @@ object SectionParser {
     }
 
     private fun emitSelect(element: Element): SectionBlock.Select? {
-        val options = element.select("option").mapNotNull { option ->
+        val optionElements = element.getElementsByTag("option")
+        val options = ArrayList<SectionBlock.Select.Option>(optionElements.size)
+        var selected: String? = null
+        for (option in optionElements) {
             val label = normalize(option.text())
-            val value = if (option.hasAttr("value")) option.attr("value") else label
-            if (value.isEmpty() && label.isEmpty()) {
-                null
-            } else {
-                SectionBlock.Select.Option(value, label)
+            val hasValue = option.hasAttr("value")
+            val value = if (hasValue) option.attr("value") else label
+            if (value.isNotEmpty() || label.isNotEmpty()) {
+                options += SectionBlock.Select.Option(value, label)
+            }
+            if (selected == null && option.hasAttr("selected")) {
+                selected = value
             }
         }
         if (options.isEmpty()) return null
-        val selectedOption = element.select("option[selected]").firstOrNull()
-        val selected = when {
-            selectedOption == null -> ""
-            selectedOption.hasAttr("value") -> selectedOption.attr("value")
-            else -> normalize(selectedOption.text())
-        }
-        return SectionBlock.Select(actionIndex(element), options, selected)
+        return SectionBlock.Select(actionIndex(element), options, selected ?: "")
     }
 
     private fun emitField(element: Element): SectionBlock.Field? {
@@ -230,8 +243,11 @@ object SectionParser {
         val rows = mutableListOf<Element>()
         for (child in table.children()) {
             when (child.normalName()) {
-                "thead", "tbody", "tfoot" ->
-                    child.children().filter { it.normalName() == "tr" }.forEach { rows += it }
+                "thead", "tbody", "tfoot" -> {
+                    for (tr in child.children()) {
+                        if (tr.normalName() == "tr") rows += tr
+                    }
+                }
                 "tr" -> rows += child
             }
         }
@@ -243,30 +259,47 @@ object SectionParser {
             row.parent()?.normalName() == "thead"
         }
 
-        val headers = headerRow?.children()
-            ?.filter { it.normalName() == "th" || it.normalName() == "td" }
-            ?.map(::cellText)
-            ?: emptyList()
-
-        val dataRows = rows.asSequence().filter { it !== headerRow }.map { row ->
-                row.children().filter { it.normalName() == "td" || it.normalName() == "th" }.map(::cellText)
-            }.filter { row -> row.any { it.isNotEmpty() } }.toList()
+        val headers = headerRow?.let(::rowCells) ?: emptyList()
+        val dataRows = ArrayList<List<String>>(rows.size)
+        for (row in rows) {
+            if (row === headerRow) continue
+            val cells = rowCells(row)
+            if (cells.any { it.isNotEmpty() }) dataRows += cells
+        }
 
         if (headers.all { it.isEmpty() } && dataRows.isEmpty()) return null
         return SectionBlock.Table(headers, dataRows)
     }
 
+    private fun rowCells(row: Element): List<String> {
+        val children = row.children()
+        val out = ArrayList<String>(children.size)
+        for (cell in children) {
+            val tag = cell.normalName()
+            if (tag == "td" || tag == "th") out += cellText(cell)
+        }
+        return out
+    }
+
     private fun cellText(cell: Element): String {
+        if (cell.childrenSize() == 0 || cell.getElementsByTag("table").isEmpty()) {
+            return normalize(cell.text())
+        }
         val clone = cell.clone()
-        clone.select("table").remove()
+        clone.getElementsByTag("table").remove()
         return normalize(clone.text())
     }
 
     private fun actionIndex(element: Element): Int? =
         element.attr("data-vtop-act").trim().toIntOrNull()
 
-    private fun firstNonBlank(vararg values: String): String =
-        values.map(::normalize).firstOrNull { it.isNotEmpty() } ?: ""
+    private fun firstNonBlank(vararg values: String): String {
+        for (raw in values) {
+            val clean = normalize(raw)
+            if (clean.isNotEmpty()) return clean
+        }
+        return ""
+    }
 
     private fun normalize(raw: String): String =
         raw.replace(whitespace, " ").trim()

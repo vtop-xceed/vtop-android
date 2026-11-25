@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,18 +16,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -42,38 +38,31 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.ui.theme.AppDimens
+import dev.vtoppp.vtop.ui.theme.AppModalBottomSheet
 
 private const val LATEST_RELEASE_URL = "https://github.com/vtop-xceed/vtop-android/releases/latest"
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ShareAppSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Generated strictly lazily when this sheet opens
     val qrBitmap = remember {
         QrCodeGenerator.createQrBitmap(LATEST_RELEASE_URL, 512)
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
                 text = "Share VTOP",
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.headlineMediumEmphasized,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -83,18 +72,18 @@ fun ShareAppSheet(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
+                modifier = Modifier.padding(top = AppDimens.CompactGap, bottom = AppDimens.SectionGap),
             )
 
             // High-contrast QR Container
             Surface(
-                shape = RoundedCornerShape(20.dp),
+                shape = MaterialTheme.shapes.largeIncreased,
                 color = Color.White,
                 shadowElevation = 4.dp,
                 modifier = Modifier.size(240.dp),
             ) {
                 Box(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(AppDimens.CardPadding),
                     contentAlignment = Alignment.Center,
                 ) {
                     Image(
@@ -105,11 +94,11 @@ fun ShareAppSheet(
                 }
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(AppDimens.SectionGap))
 
             // URL badge
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -119,16 +108,16 @@ fun ShareAppSheet(
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = AppDimens.CardPadding, vertical = 10.dp),
                     textAlign = TextAlign.Center,
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(AppDimens.CardPadding))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
             ) {
                 OutlinedButton(
                     onClick = {
@@ -136,7 +125,10 @@ fun ShareAppSheet(
                         cm.setPrimaryClip(ClipData.newPlainText("VTOP APK Link", LATEST_RELEASE_URL))
                         Toast.makeText(context, "Link copied to clipboard", Toast.LENGTH_SHORT).show()
                     },
-                    modifier = Modifier.weight(1f),
+                    shapes = ButtonDefaults.shapes(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(AppDimens.ButtonHeightPrimary),
                 ) {
                     Text("Copy Link")
                 }
@@ -152,17 +144,20 @@ fun ShareAppSheet(
                         }
                         context.startActivity(Intent.createChooser(sendIntent, "Share VTOP via"))
                     },
+                    shapes = ButtonDefaults.shapes(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                     ),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(AppDimens.ButtonHeightPrimary),
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_share),
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(AppDimens.CompactGap))
                     Text("Share")
                 }
             }

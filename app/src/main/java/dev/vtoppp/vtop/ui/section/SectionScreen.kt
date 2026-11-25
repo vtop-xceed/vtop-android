@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.vtoppp.vtop.ui.section
 
 import android.view.View
@@ -23,7 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -38,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,17 +76,20 @@ fun SectionScreen(
     val targetHtml = remember { MutableStateFlow(html) }
     var blocks by remember { mutableStateOf(emptyList<SectionBlock>()) }
 
-    val host = remember { HiddenSectionHost(context, cookies) }
+    val host = remember {
+        HiddenSectionHost(context.applicationContext ?: context, cookies).apply {
+            onSnapshot = { snapshot -> targetHtml.value = snapshot }
+        }
+    }
     // Cookie copy is cheap; keeps the next open() re-apply current.
-    host.updateCookies(cookies)
-    host.onSnapshot = { snapshot -> targetHtml.value = snapshot }
+    SideEffect { host.updateCookies(cookies) }
 
     // jsoup parse is ALWAYS off the main thread; stale targets are dropped.
     LaunchedEffect(host) {
         targetHtml.filter { it.isNotBlank() }.distinctUntilChanged().collectLatest { target ->
-                val parsed = SectionParser.parseOffMain(target)
-                if (targetHtml.value == target) blocks = parsed
-            }
+            val parsed = SectionParser.parseOffMain(target)
+            if (targetHtml.value == target) blocks = parsed
+        }
     }
 
     // The PARAM html is authority on arrival: open re-loads with the fresh
@@ -110,10 +116,9 @@ fun SectionScreen(
         ) { empty ->
             if (empty) {
                 Column(
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier.align(Alignment.Center).padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
                     LoadingIndicator(modifier = Modifier.size(48.dp))
                     Spacer(Modifier.height(12.dp))
                     Text(
@@ -125,7 +130,7 @@ fun SectionScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(20.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(blocks) { block ->
@@ -229,7 +234,7 @@ private fun SelectView(
             onClick = { expanded = true },
             enabled = enabled,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
+            shape = MaterialTheme.shapes.largeIncreased,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             ),
@@ -273,6 +278,7 @@ private fun ActionView(
     FilledTonalButton(
         onClick = { block.actionIndex?.let(onAction) },
         enabled = block.actionIndex != null,
+        shapes = ButtonDefaults.shapes(),
     ) {
         Text(block.label)
     }
@@ -286,18 +292,20 @@ private fun TableView(block: SectionBlock.Table) {
     )
     if (columnCount == 0) return
 
-    val widths = List(columnCount) { index ->
-        val maxCellChars = maxOf(
-            block.headers.getOrNull(index).orEmpty().length,
-            block.rows.maxOfOrNull { it.getOrNull(index).orEmpty().length } ?: 0,
-        )
-        (maxCellChars * 8 + 32).coerceIn(64, 360).dp
+    val (widths, totalWidth) = remember(block) {
+        val cols = List(columnCount) { index ->
+            val maxCellChars = maxOf(
+                block.headers.getOrNull(index).orEmpty().length,
+                block.rows.maxOfOrNull { it.getOrNull(index).orEmpty().length } ?: 0,
+            )
+            (maxCellChars * 8 + 32).coerceIn(64, 360).dp
+        }
+        cols to cols.fold(0.dp) { total, width -> total + width }
     }
-    val totalWidth = widths.fold(0.dp) { total, width -> total + width }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),

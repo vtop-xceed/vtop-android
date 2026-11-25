@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -26,7 +27,8 @@ class HiddenSectionHost(
         private const val SCRAPE_INTERVAL_MS = 250L
     }
 
-    val view: WebView = WebView(context)
+    // Use applicationContext so Chromium's static WebView caches never retain an Activity reference.
+    val view: WebView = WebView(context.applicationContext ?: context)
 
     var onSnapshot: ((String) -> Unit)? = null
 
@@ -37,10 +39,14 @@ class HiddenSectionHost(
      * login-page version.
      */
     private var cookies: List<Pair<String, String>> = cookies
+    private var cookiesDirty = true
 
     /** Keeps the re-applied cookies current; cheap field copy on the main thread. */
     fun updateCookies(newCookies: List<Pair<String, String>>) {
-        cookies = newCookies
+        if (cookies != newCookies) {
+            cookies = newCookies
+            cookiesDirty = true
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -64,13 +70,17 @@ class HiddenSectionHost(
         view.isVerticalScrollBarEnabled = false
         view.isHorizontalScrollBarEnabled = false
         view.addJavascriptInterface(Bridge(), SectionBridge.INTERFACE_NAME)
+        CookieManager.getInstance().setAcceptCookie(true)
     }
 
     fun open(fragmentHtml: String) {
         if (closed) {
             return
         }
-        applySessionCookies()
+        if (cookiesDirty) {
+            applySessionCookies()
+            cookiesDirty = false
+        }
         handler.removeCallbacks(scrapeRunnable)
         pendingScrape = false
         lastScrapeAt = 0L
@@ -105,6 +115,10 @@ class HiddenSectionHost(
         }
         try {
             view.stopLoading()
+            view.loadUrl("about:blank")
+            view.clearHistory()
+            (view.parent as? ViewGroup)?.removeView(view)
+            view.removeAllViews()
         } catch (_: Throwable) {
         }
         try {
@@ -115,7 +129,6 @@ class HiddenSectionHost(
 
     private fun applySessionCookies() {
         CookieManager.getInstance().apply {
-            setAcceptCookie(true)
             for ((name, value) in cookies) {
                 setCookie(BASE_URL, "$name=$value; Path=/vtop; Secure")
             }

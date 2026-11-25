@@ -1,8 +1,6 @@
 package dev.vtoppp.vtop.data
 
 import java.io.IOException
-import java.nio.charset.CodingErrorAction
-import java.nio.ByteBuffer
 import java.util.concurrent.TimeUnit
 import okhttp3.Call
 import okhttp3.Callback
@@ -16,6 +14,28 @@ import okhttp3.Response
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+
+/**
+ * Process-wide root [OkHttpClient] holding the shared [okhttp3.ConnectionPool]
+ * and [okhttp3.Dispatcher]. Derive per-caller clients via `.newBuilder()` or
+ * [sharedLightweightHttpClient] so timeouts, DNS, and cookies stay isolated
+ * without spinning up separate thread pools and connection pools.
+ */
+val sharedRootHttpClient: OkHttpClient by lazy { OkHttpClient() }
+
+/**
+ * Shared lightweight [OkHttpClient] builder derived from [sharedRootHttpClient]
+ * (reuses its ConnectionPool and Dispatcher) for auxiliary API/ping calls.
+ */
+fun sharedLightweightHttpClient(
+    connectTimeoutSec: Long = 10,
+    readTimeoutSec: Long = 15,
+    useDohFallback: Boolean = false,
+): OkHttpClient = sharedRootHttpClient.newBuilder()
+    .apply { if (useDohFallback) dns(sharedDnsWithDohFallback) }
+    .connectTimeout(connectTimeoutSec, TimeUnit.SECONDS)
+    .readTimeout(readTimeoutSec, TimeUnit.SECONDS)
+    .build()
 
 /**
  * OkHttp transport for the VTOP login pipeline, ported from the decompiled
@@ -54,7 +74,7 @@ class OkHttpHttpClient(
     dns: Dns = sharedDnsWithDohFallback,
 ) : HttpTransport {
 
-    private val base = OkHttpClient.Builder()
+    private val base = sharedRootHttpClient.newBuilder()
         .cookieJar(JarBridge())
         .connectTimeout(baseTimeoutSec.toLong(), TimeUnit.SECONDS)
         .readTimeout(baseTimeoutSec.toLong(), TimeUnit.SECONDS)
@@ -207,6 +227,7 @@ class OkHttpHttpClient(
 
     /** Set-Cookie values from every hop of the follow chain, in hop order. */
     private fun collectSetCookies(final: Response): List<String> {
+        if (final.priorResponse == null) return final.headers("Set-Cookie")
         val hops = mutableListOf<Response>()
         var cur: Response? = final
         while (cur != null) {
@@ -221,10 +242,6 @@ class OkHttpHttpClient(
     private fun lastLocation(resp: Response): String? =
         resp.headers("Location").lastOrNull()?.takeIf { it.isNotBlank() }
 
-    private fun ByteArray.decodeLenientUtf8(): String =
-        Charsets.UTF_8.newDecoder()
-            .onMalformedInput(CodingErrorAction.REPLACE)
-            .onUnmappableCharacter(CodingErrorAction.REPLACE)
-            .decode(ByteBuffer.wrap(this))
-            .toString()
+    // String(ByteArray, UTF_8) uses U+FFFD replacement per Java spec without allocating CharsetDecoder/ByteBuffer.
+    private fun ByteArray.decodeLenientUtf8(): String = String(this, Charsets.UTF_8)
 }

@@ -39,7 +39,7 @@ class AutoCaptchaClient(
     /** seam: solver endpoint; MockWebServer URL in tests. */
     private val solveUrl: String = CAPTOP_SOLVE,
     /** seam: transport; defaults to the production captop client. */
-    http: OkHttpClient = OkHttpClient.Builder().dns(sharedDnsWithDohFallback).connectTimeout(15, TimeUnit.SECONDS).readTimeout(40, TimeUnit.SECONDS).build(),
+    http: OkHttpClient = defaultHttp,
 ) : CaptchaSolver, AutoCloseable {
     private val http = http
 
@@ -59,10 +59,20 @@ class AutoCaptchaClient(
     }
 
     override fun close() {
-        http.dispatcher.executorService.shutdown()
+        // ponytail: never shut down the shared root dispatcher when sharing pools
+        if (http.dispatcher !== sharedRootHttpClient.dispatcher) {
+            http.dispatcher.executorService.shutdown()
+        }
     }
 
     private companion object {
         const val CAPTOP_SOLVE = "https://captop-server-latest.onrender.com/solve"
+        val defaultHttp: OkHttpClient by lazy {
+            sharedLightweightHttpClient(
+                connectTimeoutSec = 15,
+                readTimeoutSec = 40,
+                useDohFallback = true,
+            )
+        }
     }
 }

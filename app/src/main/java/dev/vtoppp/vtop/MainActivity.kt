@@ -3,6 +3,7 @@ package dev.vtoppp.vtop
 import android.app.KeyguardManager
 import android.content.Context
 import android.os.Bundle
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager
@@ -68,6 +69,7 @@ import dev.vtoppp.vtop.ui.login.LoginScreen
 import dev.vtoppp.vtop.ui.login.LoginUiState
 import dev.vtoppp.vtop.ui.login.LoginViewModel
 import dev.vtoppp.vtop.ui.login.PinSetupScreen
+import dev.vtoppp.vtop.ui.theme.AppDimens
 import dev.vtoppp.vtop.ui.theme.AppPalette
 import dev.vtoppp.vtop.ui.theme.Motion
 import dev.vtoppp.vtop.ui.theme.ThemePreferences
@@ -112,12 +114,19 @@ class MainActivity : FragmentActivity() {
                 dev.vtoppp.vtop.ui.theme.ThemeMode.LIGHT -> false
                 else -> true
             }
-            val decorView = window.decorView
-            val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, decorView)
+            val barStyle = if (isDark) {
+                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            } else {
+                SystemBarStyle.light(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT,
+                )
+            }
             LaunchedEffect(isDark) {
-                insetsController.isAppearanceLightStatusBars = !isDark
-                window.statusBarColor = android.graphics.Color.TRANSPARENT
-                window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                enableEdgeToEdge(
+                    statusBarStyle = barStyle,
+                    navigationBarStyle = barStyle,
+                )
             }
 
             VtopTheme(palette = currentPalette, themeMode = themeMode, blurEnabled = blurEnabled) {
@@ -514,7 +523,7 @@ private fun Root(
             "auto" -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     androidx.compose.material3.Card(
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
                         colors = androidx.compose.material3.CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                         ),
@@ -522,13 +531,13 @@ private fun Root(
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(32.dp),
+                            modifier = Modifier.padding(AppDimens.SheetHorizontal),
                         ) {
                             @OptIn(ExperimentalMaterial3ExpressiveApi::class)
                             LoadingIndicator(
                                 modifier = Modifier.size(48.dp),
                             )
-                            Spacer(Modifier.height(16.dp))
+                            Spacer(Modifier.height(AppDimens.CardPadding))
                             Text(
                                 "Checking your VTOP session…",
                                 style = MaterialTheme.typography.bodyMedium,

@@ -2,17 +2,16 @@ package dev.vtoppp.vtop.ui.home
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -32,6 +31,7 @@ import dev.vtoppp.vtop.ui.theme.StatusColors
  * Bridge & GitHub pill icon. Busy: the pulsing 6dp dot (same colors as the old pill dot).
  * Ready: the check glyph — the dot fades out while `ic_check` fades in and springs into scale.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun MorphingStatusIcon(
     isReady: Boolean,
@@ -53,20 +53,17 @@ internal fun MorphingStatusIcon(
     )
     val dotAlpha by animateFloatAsState(
         targetValue = if (isReady) 0f else 1f,
-        animationSpec = tween(Motion.Quick),
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
         label = "morphDotAlpha",
     )
     val checkAlpha by animateFloatAsState(
         targetValue = if (isReady) 1f else 0f,
-        animationSpec = tween(Motion.Quick),
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
         label = "morphCheckAlpha",
     )
     val checkScale by animateFloatAsState(
         targetValue = if (isReady) 1f else 0.85f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
         label = "morphCheckScale",
     )
 

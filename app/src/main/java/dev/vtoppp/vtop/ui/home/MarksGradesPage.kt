@@ -30,12 +30,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.LinearWavyProgressIndicator
@@ -44,15 +43,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -63,14 +59,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.GradeHistoryEntry
 import dev.vtoppp.vtop.data.MarkEntry
 import dev.vtoppp.vtop.data.UserDatabase
-import java.util.Locale
+import dev.vtoppp.vtop.ui.theme.AppDimens
+import dev.vtoppp.vtop.ui.theme.AppSectionLabel
 import dev.vtoppp.vtop.ui.theme.Motion
 import dev.vtoppp.vtop.ui.theme.StatusColors
+import java.util.Locale
+
+private val GRADE_ORDER = listOf("S", "A", "B", "C", "D", "E", "P", "F")
 
 @Composable
 fun MarksGradesPage(
@@ -82,10 +82,10 @@ fun MarksGradesPage(
     modifier: Modifier = Modifier,
     onEnsureSemesterMarks: (String) -> Unit = {},
 ) {
-    val grades by UserDatabase.gradeHistoryFlow.collectAsState()
-    val summary by UserDatabase.academicSummaryFlow.collectAsState()
-    val marks by UserDatabase.marksFlow.collectAsState()
-    val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
+    val grades by UserDatabase.gradeHistoryFlow.collectAsStateWithLifecycle()
+    val summary by UserDatabase.academicSummaryFlow.collectAsStateWithLifecycle()
+    val marks by UserDatabase.marksFlow.collectAsStateWithLifecycle()
+    val isSyncing by UserDatabase.isSyncingFlow.collectAsStateWithLifecycle()
     val courses = remember(grades) {
         grades.groupBy { it.courseCode }
             .mapNotNull { (_, rows) ->
@@ -94,7 +94,7 @@ fun MarksGradesPage(
             .sortedByDescending { examEpochDay(it.examMonth) }
     }
     var selectedSemesterForRefresh by rememberSaveable { mutableStateOf<String?>(null) }
-    val attendedSemesters by UserDatabase.semestersFlow.collectAsState()
+    val attendedSemesters by UserDatabase.semestersFlow.collectAsStateWithLifecycle()
     LaunchedEffect(authorizedId) {
         if (attendedSemesters.isEmpty()) {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -106,7 +106,7 @@ fun MarksGradesPage(
         attendedSemesters.associate { it.semesterSubId to it.semesterName }
     }
     val marksBySemester = remember(marks) { marks.groupBy { it.semesterSubId } }
-    val semesterResults by UserDatabase.semesterResultsFlow.collectAsState()
+    val semesterResults by UserDatabase.semesterResultsFlow.collectAsStateWithLifecycle()
     val nowMs = rememberLiveClockMs()
     val stamps = remember(summary, grades, marksBySemester, semesterResults, selectedSemesterForRefresh) {
         val activeSemMarks = selectedSemesterForRefresh?.let { marksBySemester[it] } ?: marks
@@ -152,11 +152,11 @@ fun MarksGradesPage(
     LazyColumn(
         state = rememberLazyListState(),
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 84.dp),
+        verticalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
+        contentPadding = PaddingValues(top = AppDimens.ScreenTop, bottom = AppDimens.FloatingNavClearance),
     ) {
         item("header") {
-            Box(Modifier.padding(horizontal = 20.dp)) {
+            Box(Modifier.padding(horizontal = AppDimens.ScreenHorizontal)) {
                 MarksHeader(
                     freshness = freshness,
                     marksNotice = marksNotice,
@@ -167,13 +167,13 @@ fun MarksGradesPage(
 
         if (isEmpty) {
             item("empty") {
-                Box(Modifier.padding(horizontal = 20.dp)) {
+                Box(Modifier.padding(horizontal = AppDimens.ScreenHorizontal)) {
                     EmptyState(
-                    title = "No marks yet",
-                    body = "Marks and grades sync from VTOP when you're online.",
-                    onRefresh = { onRefresh(selectedSemesterForRefresh) },
-                    isSyncing = isSyncing,
-                )
+                        title = "No marks yet",
+                        body = "Marks and grades sync from VTOP when you're online.",
+                        onRefresh = { onRefresh(selectedSemesterForRefresh) },
+                        isSyncing = isSyncing,
+                    )
                 }
             }
             return@LazyColumn
@@ -181,13 +181,13 @@ fun MarksGradesPage(
 
         if (courses.isNotEmpty()) {
             item("hero") {
-                Box(Modifier.padding(horizontal = 20.dp)) {
+                Box(Modifier.padding(horizontal = AppDimens.ScreenHorizontal)) {
                     HeroCard(summary = summary, semesterCount = semesterPicks.size, courses = courses, onOpenGrades = onOpenGrades)
                 }
             }
         }
         item("label") {
-            Box(Modifier.padding(start = 20.dp)) { SectionLabel("Marks") }
+            Box(Modifier.padding(start = AppDimens.ScreenHorizontal)) { AppSectionLabel("Marks") }
         }
         if (semesterPicks.isNotEmpty()) {
             item {
@@ -222,7 +222,7 @@ private fun MarksSemesterSection(
         onSemesterSelected(selected.id)
     }
     val rows = marksBySemester[selected.id].orEmpty()
-    val results by UserDatabase.semesterResultsFlow.collectAsState()
+    val results by UserDatabase.semesterResultsFlow.collectAsStateWithLifecycle()
     val gpas = remember(picks, results) {
         results.associate { it.semesterSubId to it.gpa }
     }
@@ -235,14 +235,14 @@ private fun MarksSemesterSection(
     LaunchedEffect(listState) {
         snapshotFlow(listState::firstVisibleItemIndex).collect { savedIndex = it }
     }
-    val edgeFadeWidth = 20.dp
+    val edgeFadeWidth = AppDimens.ScreenHorizontal
     val edgeFadeBg = MaterialTheme.colorScheme.surface
 
     Box(modifier = Modifier.fillMaxWidth()) {
         LazyRow(
             state = listState,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.CompactGap),
+            contentPadding = PaddingValues(horizontal = AppDimens.ScreenHorizontal, vertical = 4.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
         itemsIndexed(picks, key = { _, it -> it.id }) { index, sem ->
@@ -252,21 +252,26 @@ private fun MarksSemesterSection(
                 animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
                 label = "semCard",
             )
+            val selectedContentColor by animateColorAsState(
+                targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                label = "semCardText",
+            )
             Surface(
                 onClick = { selectedId = sem.id },
-                shape = RoundedCornerShape(16.dp),
+                shape = if (isSelected) MaterialTheme.shapes.large else MaterialTheme.shapes.medium,
                 color = selectedCardColor,
             ) {
                 Column(
                     modifier = Modifier
                         .width(132.dp)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(AppDimens.CompactPadding),
                 ) {
                     Text(
                         text = sem.name,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                        color = selectedContentColor,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -279,15 +284,15 @@ private fun MarksSemesterSection(
                         Text(
                             text = if (sem.courses == 0) "Awaiting marks" else "${sem.courses} courses",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (isSelected) selectedContentColor.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.weight(1f))
                         val gpa = gpas[sem.id]
                         Text(
-                            text = if (gpa != null) String.format(java.util.Locale.US, "%.2f", gpa) else "--",
+                            text = if (gpa != null) String.format(Locale.US, "%.2f", gpa) else "--",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.ExtraBold,
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (isSelected) selectedContentColor else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -321,11 +326,14 @@ private fun MarksSemesterSection(
         )
     }
 
-    Spacer(Modifier.height(8.dp))
+    val marksDefaultEffects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    val marksFastEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    Spacer(Modifier.height(AppDimens.CompactGap))
     AnimatedContent(
         targetState = selected.id,
         transitionSpec = {
-            fadeIn(tween(Motion.Content)) togetherWith fadeOut(tween(Motion.Quick))
+            fadeIn(marksDefaultEffects) togetherWith
+                fadeOut(marksFastEffects)
         },
         label = "semMarks",
     ) { _ ->
@@ -342,7 +350,7 @@ private fun MarksSemesterSection(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                 modifier = Modifier.size(48.dp),
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(AppDimens.ItemGap))
             Text(
                 text = "No marks posted for this semester yet",
                 style = MaterialTheme.typography.titleMedium,
@@ -353,13 +361,13 @@ private fun MarksSemesterSection(
                 text = "FAT-1 and FAT-2 scores appear here once VTOP publishes them.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                textAlign = TextAlign.Center,
             )
         }
     }
     Column(
-        modifier = Modifier.padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(horizontal = AppDimens.ScreenHorizontal),
+        verticalArrangement = Arrangement.spacedBy(AppDimens.CompactGap),
     ) {
         byCourse.forEach { (code, components) ->
             MarksOnlyRow(
@@ -371,16 +379,6 @@ private fun MarksSemesterSection(
         }
     }
     }
-}
-
-@Composable
-private fun SectionLabel(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onSurface,
-    )
 }
 
 private data class SemesterPick(
@@ -399,7 +397,7 @@ private fun MarksHeader(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "Grades",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLargeEmphasized,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -431,9 +429,9 @@ private fun MarksHeader(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .padding(top = 8.dp)
-                .background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(12.dp))
-                .padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
+                .padding(top = AppDimens.CompactGap)
+                .background(MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.shapes.medium)
+                .padding(start = AppDimens.CompactPadding, top = 6.dp, bottom = 6.dp),
         ) {
             Text(
                 text = marksNotice ?: "",
@@ -442,7 +440,11 @@ private fun MarksHeader(
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = onMarksNoticeShown, modifier = Modifier.size(48.dp)) {
+            IconButton(
+                onClick = onMarksNoticeShown,
+                shapes = IconButtonDefaults.shapes(),
+                modifier = Modifier.size(48.dp),
+            ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_check),
                     contentDescription = "Dismiss notice",
@@ -471,10 +473,10 @@ private fun HeroCard(
     val cgpaAnimated by animateFloatAsState(targetValue = cgpa.toFloat(), animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(), label = "cgpa")
 
     Card(
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(AppDimens.CardPadding)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "CGPA",
@@ -518,7 +520,7 @@ private fun HeroCard(
                     exit = fadeOut(tween(Motion.Fast)) + scaleOut(tween(Motion.Fast)),
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = MaterialTheme.shapes.small,
                         color = MaterialTheme.colorScheme.errorContainer,
                     ) {
                         Text(
@@ -537,7 +539,7 @@ private fun HeroCard(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(AppDimens.CompactGap))
             LinearWavyProgressIndicator(
                 progress = { ratio },
                 modifier = Modifier
@@ -553,14 +555,13 @@ private fun HeroCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
-            val order = listOf("S", "A", "B", "C", "D", "E", "P", "F")
             val pills = remember(courses) {
-                order.mapNotNull { g -> courses.count { it.grade.uppercase() == g }.takeIf { it > 0 }?.let { g to it } }
+                GRADE_ORDER.mapNotNull { g -> courses.count { it.grade.uppercase() == g }.takeIf { it > 0 }?.let { g to it } }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 pills.forEach { (g, count) ->
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = MaterialTheme.shapes.small,
                         color = gradeContainer(g),
                     ) {
                         Text(

@@ -3,6 +3,8 @@ package dev.vtoppp.vtop.data
 import org.jsoup.Jsoup
 
 object ProfileParser {
+    private val HEADER_LABEL_REGEX = Regex("""([A-Z0-9\s]{3,40})\s*\((?:STUDENT|EMPLOYEE)\)""")
+
     /**
      * Parses the VTOP `studentsRecord/StudentProfileAllView` HTML or dashboard HTML
      * to extract student name, registration number, programme, branch, school, etc.
@@ -79,7 +81,7 @@ object ProfileParser {
             val name = findValue("student name", "student's name", "name")
                 .ifBlank {
                     // Try dashboard header regex: e.g. "NAME (STUDENT)" or "REGNO (STUDENT)"
-                    Regex("""([A-Z0-9\s]{3,40})\s*\((?:STUDENT|EMPLOYEE)\)""").find(html)?.groupValues?.get(1)?.trim()
+                    HEADER_LABEL_REGEX.find(html)?.groupValues?.get(1)?.trim()
                         ?: fallbackRegNo
                 }
             val programme = findValue("programme and branch", "programme", "program", "degree", "course")

@@ -13,11 +13,11 @@ import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.WarmState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -45,23 +45,18 @@ class LoginViewModel(
     private val _state = MutableStateFlow<LoginUiState>(LoginUiState.Idle)
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
 
-    lateinit var currentClient: VtopClient
-        private set
-
-    private val client: VtopClient by lazy {
-        VtopClient(
-            autoCaptcha,
-            credentialsProvider = {
-                val user = vault.username
-                val pass = vault.password
-                if (user != null && pass != null) user to pass else null
-            },
-            sessionStore = sessionStore,
-        ).also { currentClient = it }
-    }
+    val currentClient: VtopClient = VtopClient(
+        autoCaptcha,
+        credentialsProvider = {
+            val user = vault.username
+            val pass = vault.password
+            if (user != null && pass != null) user to pass else null
+        },
+        sessionStore = sessionStore,
+    )
 
     /** Session warm-up status (captcha pre-solved at launch). */
-    val warm: StateFlow<WarmState> = client.warm
+    val warm: StateFlow<WarmState> = currentClient.warm
 
     private var lastCredentials: Pair<String, String>? = null
     private var lastRemember = false
@@ -84,21 +79,20 @@ class LoginViewModel(
     }
 
     /** True when the client still holds a live VTOP session. */
-    fun hasLiveSession(): Boolean = client.hasSession
+    fun hasLiveSession(): Boolean = currentClient.hasSession
 
     /** lifecycle gate: the warm loop only runs while the app is foregrounded. */
     private val foregrounded = MutableStateFlow(true)
-    private val networkTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val wakeSeq = MutableStateFlow(0L)
 
     fun onNetworkAvailable() {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             if (!hasLiveSession() && foregrounded.value) {
                 _warmGaveUp.value = false
-                networkTrigger.tryEmit(Unit)
+                wakeSeq.update { it + 1 }
                 val currentState = _state.value
                 if (currentState is LoginUiState.Failure && currentState.error is VtopError.Network) {
-                    val user = vault.username
-                    val pass = vault.password
+                    val (user, pass) = withContext(Dispatchers.IO) { vault.username to vault.password }
                     if (user != null && pass != null) {
                         submit(user, pass, false)
                     }
@@ -109,15 +103,20 @@ class LoginViewModel(
 
     /** Wired from the Activity's ON_START/ON_STOP in MainActivity. */
     fun setForeground(value: Boolean) {
+        val wasForegrounded = foregrounded.value
         foregrounded.value = value
-        if (value && isOnline()) {
-            networkTrigger.tryEmit(Unit)
+        if (value && !wasForegrounded) {
+            _warmGaveUp.value = false
+            if (isOnline()) {
+                wakeSeq.update { it + 1 }
+            }
         }
     }
 
     /**: warm failures allowed per foreground resume before the loop goes quiet. */
     private companion object {
-        const val MAX_WARM_FAILURES_PER_FOREGROUND = 5 }
+        const val MAX_WARM_FAILURES_PER_FOREGROUND = 5
+    }
 
     /** fix: true once the warm loop exhausted its per-foreground failure budget
      *  (5 aggregation-worth of network failures already happened; one give-up is
@@ -126,8 +125,6 @@ class LoginViewModel(
      *  LoginUiState gets emitted (an earlier Failure may already be showing). */
     private val _warmGaveUp = MutableStateFlow(false)
     val warmGaveUp: StateFlow<Boolean> = _warmGaveUp.asStateFlow()
-
-    private var lastUsername: String? = null
 
     init {
         //: a process death between "login succeeded (remember me)" and
@@ -142,21 +139,22 @@ class LoginViewModel(
             AppLog.d("login: pending remember-save survived process death")
         }
         savedStateHandle?.get<Boolean>(SavedKeys.LAST_REMEMBER.name)?.let { lastRemember = it }
-        savedStateHandle?.get<String>(SavedKeys.LAST_USERNAME.name)?.let { lastUsername = it }
-    }
 
-    init {
         // Warm the session at launch, bounded: at most
         // [MAX_WARM_FAILURES_PER_FOREGROUND] warm failures per foreground
-        // resume; no prewarm while a manual login is Loading (wait for a // terminal state instead of delay(500)+prewarm fighting it); a // Working warm chain is awaited rather than abandoned; the whole
+        // resume; no prewarm while a manual login is Loading (wait for a
+        // terminal state instead of delay(500)+prewarm fighting it); a
+        // Working warm chain is awaited rather than abandoned; the whole
         // loop pauses while the app is backgrounded. Pacing (10s) stays
         // inside the client.
         viewModelScope.launch(Dispatchers.IO) {
             var failures = 0
-                while (true) {
+            while (true) {
+                val wakeToken = wakeSeq.value
                 if (!foregrounded.value) {
                     foregrounded.first { it }
                     failures = 0 // fresh failure budget on every foreground resume
+                    continue
                 }
                 if (_state.value is LoginUiState.Loading) {
                     // A manual login is running: wait for a terminal _state, never
@@ -168,14 +166,14 @@ class LoginViewModel(
                     continue
                 }
                 if (!isOnline()) {
-                    client.failWarm("No connection")
-                    networkTrigger.first()
+                    currentClient.failWarm("No connection")
+                    wakeSeq.first { it != wakeToken }
                     failures = 0
                     continue
                 }
                 val warmNow = warm.value
                 when {
-                    client.hasSession || warmNow == WarmState.CaptchaReady -> return@launch
+                    currentClient.hasSession || warmNow == WarmState.CaptchaReady -> return@launch
                     warmNow is WarmState.Failed -> {
                         failures++
                         if (failures > MAX_WARM_FAILURES_PER_FOREGROUND) {
@@ -190,17 +188,19 @@ class LoginViewModel(
                                     "VTOP unreachable — $failures connection attempts failed; check your internet",
                                 )
                             }
-                            return@launch
+                            wakeSeq.first { it != wakeToken }
+                            failures = 0
+                            continue
                         }
                         val waitMs = backoffMs(failures)
                         AppLog.d("warm: retry $failures in ${waitMs / 1000}s")
-                        client.announceWarm("Retrying VTOP connection ($failures/$MAX_WARM_FAILURES_PER_FOREGROUND) in ${waitMs / 1000}s…")
+                        currentClient.announceWarm("Retrying VTOP connection ($failures/$MAX_WARM_FAILURES_PER_FOREGROUND) in ${waitMs / 1000}s…")
                         delay(waitMs)
                     }
                     // WarmState.Idle AND the phantom Working("Retrying in …s") left
                     // after our own countdown both land here — the next chain simply
                     // runs; there is never another in-flight owner of warm at loop top.
-                    else -> client.prewarm()
+                    else -> currentClient.prewarm()
                 }
             }
         }
@@ -218,18 +218,20 @@ class LoginViewModel(
         if (_state.value is LoginUiState.Loading) return
         lastCredentials = username to password
         lastRemember = rememberCredentials
-        lastUsername = username
         savedStateHandle?.set(SavedKeys.LAST_REMEMBER.name, rememberCredentials)
         savedStateHandle?.set(SavedKeys.LAST_USERNAME.name, username)
         if (!isOnline()) {
-            client.failWarm("No connection")
+            currentClient.failWarm("No connection")
             _state.value = LoginUiState.Failure(VtopError.Network, "No internet connection")
             return
         }
         _state.value = LoginUiState.Loading("Connecting to VTOP…")
         viewModelScope.launch(Dispatchers.IO) {
-            val clientNow = client
-            val result = clientNow.login(username, password)
+            val result = currentClient.login(username, password)
+            val unchanged = result.isSuccess &&
+                rememberCredentials &&
+                vault.username == username &&
+                vault.password == password
             withContext(Dispatchers.Main) {
                 result.fold(
                     onSuccess = { res ->
@@ -243,7 +245,6 @@ class LoginViewModel(
                         // purpose: they must never re-stage a vault they
                         // themselves read — on gated devices that re-fired the
                         // "Protect your saved password" prompt on every launch.
-                        val unchanged = vault.username == username && vault.password == password
                         if (rememberCredentials && !unchanged) {
                             pendingRemember = username to password
                             //: only the username survives death —
@@ -272,14 +273,16 @@ class LoginViewModel(
 
     /** Tapping the session pill forces a full re-bridge from saved creds; live pill stages show while it runs. */
     fun rebridge() {
-        val user = vault.username
-        val pass = vault.password
-        if (user.isNullOrBlank() || pass.isNullOrBlank()) {
-            AppLog.d("rebridge: no saved credentials")
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            client.invalidateSession()
+        if (_state.value is LoginUiState.Loading) return
+        viewModelScope.launch(Dispatchers.Main.immediate) {
+            val (user, pass) = withContext(Dispatchers.IO) { vault.username to vault.password }
+            if (user.isNullOrBlank() || pass.isNullOrBlank()) {
+                AppLog.d("rebridge: no saved credentials")
+                return@launch
+            }
+            if (isOnline()) {
+                currentClient.invalidateSession()
+            }
             submit(user, pass, false)
         }
     }
@@ -304,6 +307,6 @@ class LoginViewModel(
     }
 
     override fun onCleared() {
-        client.close()
+        currentClient.close()
     }
 }

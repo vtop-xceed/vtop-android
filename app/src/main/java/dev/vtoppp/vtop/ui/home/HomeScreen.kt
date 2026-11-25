@@ -14,7 +14,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
@@ -35,9 +34,10 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import dev.vtoppp.vtop.ui.theme.AppBackButton
+import dev.vtoppp.vtop.ui.theme.AppDimens
 import dev.vtoppp.vtop.ui.theme.AppPalette
 import dev.vtoppp.vtop.ui.theme.Motion
 import dev.vtoppp.vtop.ui.theme.StatusColors
@@ -200,58 +200,33 @@ fun HomeScreen(
                     enter = fadeIn(tween(Motion.Quick)) + scaleIn(tween(Motion.Content)),
                     exit = fadeOut(tween(Motion.Fast)) + scaleOut(tween(Motion.Fast)),
                 ) {
-                    androidx.compose.material3.IconButton(
+                    AppBackButton(
                         onClick = onBackToMenu,
-                        modifier = Modifier.padding(start = 4.dp),
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.size(36.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_arrow_back),
-                                    contentDescription = "Back",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    }
+                        modifier = Modifier.padding(start = AppDimens.CompactGap),
+                    )
                 }
             },
             actions = {
                 SessionPill(pill)
-                Surface(
+                FilledTonalButton(
                     onClick = onCheckUpdate,
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                    ),
-                    modifier = Modifier.height(36.dp).padding(end = 12.dp),
-                    tonalElevation = 2.dp,
+                    shapes = ButtonDefaults.shapes(),
+                    contentPadding = ButtonDefaults.ExtraSmallContentPadding,
+                    modifier = Modifier
+                        .padding(end = AppDimens.CompactPadding)
+                        .height(36.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_update),
-                            contentDescription = "Check for updates",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "Update",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
+                    Icon(
+                        painter = painterResource(R.drawable.ic_update),
+                        contentDescription = "Check for updates",
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Update",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             },
         )
@@ -301,18 +276,15 @@ fun HomeScreen(
         ) { target ->
             when (target) {
                 "loading" -> Column(
-                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    modifier = Modifier.fillMaxSize().padding(AppDimens.SheetHorizontal),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
                     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
                     CircularWavyProgressIndicator(
-                        progress = { 0.5f },
                         modifier = Modifier.size(56.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(AppDimens.ItemGap))
                     Text(
                         text = lastSectionTitle?.let { "Loading $it…" } ?: "Loading…",
                         style = MaterialTheme.typography.bodyMedium,
@@ -356,7 +328,7 @@ private fun SessionPill(pill: PillState) {
     )
     val animatedContainer by animateColorAsState(container, tween(Motion.Color), label = "pillContainer")
     Row(
-        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(50)).background(animatedContainer).padding(horizontal = 10.dp, vertical = 5.dp)
+        modifier = Modifier.padding(end = AppDimens.CompactGap).clip(CircleShape).background(animatedContainer).padding(horizontal = 10.dp, vertical = 5.dp)
             .animateContentSize(tween(Motion.Content)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -372,27 +344,28 @@ private fun SessionPill(pill: PillState) {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FailureContent(
     state: HomeUiState.Failure,
     onRetry: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(AppDimens.ScreenHorizontal),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
+            shape = MaterialTheme.shapes.largeIncreased,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.errorContainer,
             ),
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                modifier = Modifier.fillMaxWidth().padding(AppDimens.ScreenHorizontal),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
             ) {
                 Text(
                     text = failureMessage(state.error),
@@ -409,6 +382,7 @@ private fun FailureContent(
                 }
                 FilledTonalButton(
                     onClick = onRetry,
+                    shapes = ButtonDefaults.shapes(),
                     modifier = Modifier.graphicsLayer { scaleX = pulse.value; scaleY = pulse.value },
                 ) { Text("Try again") }
             }

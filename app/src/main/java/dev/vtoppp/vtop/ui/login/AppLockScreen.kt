@@ -26,15 +26,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -56,10 +58,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.PinVault
 import dev.vtoppp.vtop.data.UserDatabase
+import dev.vtoppp.vtop.ui.theme.AppDimens
 import dev.vtoppp.vtop.ui.theme.Motion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -109,6 +113,7 @@ internal fun pinSetupOutcome(
  * The lock screen. The fingerprint is offered on its own; a PIN, if one was
  * set, is typed on the pad below it.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AppLockScreen(
     pinSet: Boolean,
@@ -130,7 +135,7 @@ fun AppLockScreen(
     var attempts by remember { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    val profile = UserDatabase.profileFlow.collectAsState().value
+    val profile = UserDatabase.profileFlow.collectAsStateWithLifecycle().value
     val greeting = profile?.name?.takeIf { it.isNotBlank() }?.let { "Hi $it" } ?: "VTOP is locked"
 
     // A refused PIN shakes, then the dots empty so the next try starts clean.
@@ -189,7 +194,7 @@ fun AppLockScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .padding(horizontal = AppDimens.SheetHorizontal, vertical = AppDimens.CardPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.weight(0.6f))
@@ -223,7 +228,7 @@ fun AppLockScreen(
         Spacer(Modifier.weight(0.4f))
 
         if (pinSet) {
-            TextButton(onClick = onForgotPin) {
+            TextButton(onClick = onForgotPin, shapes = ButtonDefaults.shapes()) {
                 Text(
                     text = "Forgot PIN?",
                     style = MaterialTheme.typography.labelMedium,
@@ -272,6 +277,7 @@ fun AppLockScreen(
  * Sets a PIN: type it, type it again, done. The fingerprint never appears
  * here, because a PIN is the fallback for when the sensor says no.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PinSetupScreen(
     onDone: () -> Unit,
@@ -320,7 +326,7 @@ fun PinSetupScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .padding(horizontal = AppDimens.SheetHorizontal, vertical = AppDimens.CardPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.weight(0.6f))
@@ -346,7 +352,7 @@ fun PinSetupScreen(
 
         Spacer(Modifier.weight(0.4f))
 
-        TextButton(onClick = onCancel) {
+        TextButton(onClick = onCancel, shapes = ButtonDefaults.shapes()) {
             Text(
                 text = "Not now",
                 style = MaterialTheme.typography.labelMedium,
@@ -459,6 +465,7 @@ private fun PinDots(filled: Int, error: Boolean, shakeKey: Int) {
  * The pad. The fingerprint key sits left of 0 and backspace right of it, and
  * the fourth digit submits itself.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun Keypad(
     showFingerprint: Boolean,
@@ -473,13 +480,13 @@ private fun Keypad(
     )
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.ScreenHorizontal)) {
                 row.forEach { digit -> NumKey(digit) { onDigit(digit) } }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(AppDimens.ItemGap))
         }
         Row(
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.ScreenHorizontal),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
@@ -495,7 +502,7 @@ private fun Keypad(
             }
             NumKey(0) { onDigit(0) }
             Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
-                IconButton(onClick = onDelete) {
+                IconButton(onClick = onDelete, shapes = IconButtonDefaults.shapes()) {
                     Icon(
                         painter = painterResource(R.drawable.ic_backspace),
                         contentDescription = "Delete digit",

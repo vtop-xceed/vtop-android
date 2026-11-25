@@ -23,6 +23,11 @@ internal object HtmlTables {
     fun cells(row: String): List<String> =
         cellRegex.findAll(row).map { sanitize(it.groupValues[1]) }.toList()
 
-    fun sanitize(raw: String): String =
-        tagStripRegex.replace(raw, " ").replace("&nbsp;", " ").replace("&amp;", "&").trim()
+    fun sanitize(raw: String): String {
+        var s = if ('<' in raw) tagStripRegex.replace(raw, " ") else raw
+        if ('&' in s) {
+            s = s.replace("&nbsp;", " ").replace("&amp;", "&")
+        }
+        return s.trim()
+    }
 }

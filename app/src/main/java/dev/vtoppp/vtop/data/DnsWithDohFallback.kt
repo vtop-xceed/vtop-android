@@ -21,7 +21,8 @@ class DnsWithDohFallback(
 
     private val doh: Dns = dohOverride ?: DnsOverHttps.Builder()
         .client(
-            OkHttpClient.Builder()
+            // Share root ConnectionPool/Dispatcher while keeping system DNS for DoH bootstrap IPs.
+            sharedRootHttpClient.newBuilder()
                 .connectTimeout(5, TimeUnit.SECONDS)
                 .readTimeout(5, TimeUnit.SECONDS)
                 .build(),

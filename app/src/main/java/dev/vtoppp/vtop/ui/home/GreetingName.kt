@@ -7,6 +7,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import dev.vtoppp.vtop.R
 
+private val WHITESPACE_REGEX = Regex("\\s+")
+
 internal data class ParsedDisplayName(
     val firstName: String,
     val secondaryName: String?,
@@ -24,7 +26,7 @@ internal fun parseDisplayName(rawName: String?, fallbackId: String = "Student"):
     if (trimmed.any { it.isDigit() }) {
         return ParsedDisplayName(firstName = trimmed.uppercase(), secondaryName = null, secondaryInitials = null)
     }
-    val words = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
+    val words = trimmed.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
     if (words.isEmpty()) {
         return ParsedDisplayName(firstName = fallbackId.ifBlank { "Student" }, secondaryName = null, secondaryInitials = null)
     }

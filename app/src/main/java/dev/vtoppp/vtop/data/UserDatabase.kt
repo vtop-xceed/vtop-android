@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.util.Locale
 
 class UserDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
     override fun onCreate(db: SQLiteDatabase) {
@@ -411,6 +412,22 @@ object UserDatabase {
     private val _dbVersionFlow = MutableStateFlow(0L)
     val dbVersionFlow: StateFlow<Long> = _dbVersionFlow.asStateFlow()
 
+    private val LEGACY_BOGUS_START_TIMES = setOf("08:00", "09:00", "11:00", "14:00", "15:00", "16:00")
+    private val DAY_CUTOFF_TIME: LocalTime = LocalTime.of(22, 0)
+    private val DAY_NAMES = arrayOf("", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+    private val DAY_ABBRS = arrayOf("", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    private val MONTH_ABBRS = arrayOf("", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+    private inline fun SQLiteDatabase.inTransaction(block: () -> Unit) {
+        beginTransaction()
+        try {
+            block()
+            setTransactionSuccessful()
+        } finally {
+            endTransaction()
+        }
+    }
+
     private fun bumpRevision() {
         _dbVersionFlow.value += 1L
     }
@@ -525,36 +542,39 @@ object UserDatabase {
     fun saveSemesters(regNo: String, semesters: List<SemesterAttended>) {
         if (semesters.isEmpty()) return
         val db = helper?.writableDatabase ?: return
-        db.beginTransaction()
-        try {
+        db.inTransaction {
             db.delete("semesters_attended", "reg_no = ?", arrayOf(regNo))
-            for (s in semesters) {
-                val cv = ContentValues().apply {
-                    put("reg_no", s.regNo)
-                    put("semester_sub_id", s.semesterSubId)
-                    put("semester_name", s.semesterName)
-                    put("updated_at_ms", s.updatedAtMs)
+            db.compileStatement(
+                "INSERT OR REPLACE INTO semesters_attended (reg_no, semester_sub_id, semester_name, updated_at_ms) VALUES (?, ?, ?, ?)",
+            ).use { stmt ->
+                for (s in semesters) {
+                    stmt.clearBindings()
+                    stmt.bindString(1, s.regNo)
+                    stmt.bindString(2, s.semesterSubId)
+                    stmt.bindString(3, s.semesterName)
+                    stmt.bindLong(4, s.updatedAtMs)
+                    stmt.executeInsert()
                 }
-                db.insertWithOnConflict("semesters_attended", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
-            db.setTransactionSuccessful()
-            _semestersFlow.value = semesters
-        } finally {
-            db.endTransaction()
         }
+        _semestersFlow.value = semesters
     }
 
     fun loadSemesters(regNo: String): List<SemesterAttended> {
         val db = helper?.readableDatabase ?: return emptyList()
         val list = mutableListOf<SemesterAttended>()
         db.query("semesters_attended", null, "reg_no = ?", arrayOf(regNo), null, null, "semester_sub_id DESC").use { c ->
+            val regNoIdx = c.getColumnIndexOrThrow("reg_no")
+            val semIdIdx = c.getColumnIndexOrThrow("semester_sub_id")
+            val semNameIdx = c.getColumnIndexOrThrow("semester_name")
+            val updatedAtIdx = c.getColumnIndexOrThrow("updated_at_ms")
             while (c.moveToNext()) {
                 list.add(
                     SemesterAttended(
-                        regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
-                        semesterSubId = c.getString(c.getColumnIndexOrThrow("semester_sub_id")),
-                        semesterName = c.getString(c.getColumnIndexOrThrow("semester_name")),
-                        updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
+                        regNo = c.getString(regNoIdx),
+                        semesterSubId = c.getString(semIdIdx),
+                        semesterName = c.getString(semNameIdx),
+                        updatedAtMs = c.getLong(updatedAtIdx),
                     ),
                 )
             }
@@ -594,30 +614,35 @@ object UserDatabase {
         if (entries.isEmpty()) return
         val db = helper?.writableDatabase ?: return
         val semId = entries.first().semesterSubId
-        db.beginTransaction()
-        try {
+        db.inTransaction {
             db.delete("student_attendance", "reg_no = ? AND semester_sub_id = ?", arrayOf(regNo, semId))
-            for (item in entries) {
-                val cv = ContentValues().apply {
-                    put("reg_no", item.regNo)
-                    put("semester_sub_id", item.semesterSubId)
-                    put("course_code", item.courseCode)
-                    put("course_title", item.courseTitle)
-                    put("course_type", item.courseType)
-                    put("slot", item.slot)
-                    put("faculty_name", item.facultyName)
-                    put("course_id", item.courseId)
-                    put("course_type_a", item.courseTypeA)
-                    put("attended_classes", item.attendedClasses)
-                    put("total_classes", item.totalClasses)
-                    put("attendance_percentage", item.attendancePercentage)
-                    put("updated_at_ms", item.updatedAtMs)
+            db.compileStatement(
+                """
+                INSERT INTO student_attendance (
+                    reg_no, semester_sub_id, course_code, course_title, course_type,
+                    slot, faculty_name, course_id, course_type_a,
+                    attended_classes, total_classes, attendance_percentage, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { stmt ->
+                for (item in entries) {
+                    stmt.clearBindings()
+                    stmt.bindString(1, item.regNo)
+                    stmt.bindString(2, item.semesterSubId)
+                    stmt.bindString(3, item.courseCode)
+                    stmt.bindString(4, item.courseTitle)
+                    stmt.bindString(5, item.courseType)
+                    stmt.bindString(6, item.slot)
+                    stmt.bindString(7, item.facultyName)
+                    stmt.bindString(8, item.courseId)
+                    stmt.bindString(9, item.courseTypeA)
+                    stmt.bindLong(10, item.attendedClasses.toLong())
+                    stmt.bindLong(11, item.totalClasses.toLong())
+                    stmt.bindDouble(12, item.attendancePercentage)
+                    stmt.bindLong(13, item.updatedAtMs)
+                    stmt.executeInsert()
                 }
-                db.insert("student_attendance", null, cv)
             }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
         }
         val latestSem = getLatestSemesterId(regNo)
         if (latestSem == null || semId == latestSem) {
@@ -628,35 +653,47 @@ object UserDatabase {
 
     fun loadAttendance(regNo: String, semesterSubId: String? = null): List<AttendanceEntry> {
         val db = helper?.readableDatabase ?: return emptyList()
-        val semId = semesterSubId ?: getLatestSemesterId(regNo)
+        val latestSem = getLatestSemesterId(regNo)
+        val semId = semesterSubId ?: latestSem
         val selection = if (semId.isNullOrBlank()) "reg_no = ?" else "reg_no = ? AND semester_sub_id = ?"
         val args = if (semId.isNullOrBlank()) arrayOf(regNo) else arrayOf(regNo, semId)
         val list = mutableListOf<AttendanceEntry>()
         db.query("student_attendance", null, selection, args, null, null, "course_code ASC").use { c ->
+            val idIdx = c.getColumnIndexOrThrow("id")
+            val regNoIdx = c.getColumnIndexOrThrow("reg_no")
+            val semIdIdx = c.getColumnIndexOrThrow("semester_sub_id")
+            val codeIdx = c.getColumnIndexOrThrow("course_code")
+            val titleIdx = c.getColumnIndexOrThrow("course_title")
+            val typeIdx = c.getColumnIndexOrThrow("course_type")
+            val slotIdx = c.getColumnIndexOrThrow("slot")
+            val facultyIdx = c.getColumnIndexOrThrow("faculty_name")
             val courseIdIdx = c.getColumnIndex("course_id")
             val courseTypeAIdx = c.getColumnIndex("course_type_a")
+            val attendedIdx = c.getColumnIndexOrThrow("attended_classes")
+            val totalIdx = c.getColumnIndexOrThrow("total_classes")
+            val pctIdx = c.getColumnIndexOrThrow("attendance_percentage")
+            val updatedAtIdx = c.getColumnIndexOrThrow("updated_at_ms")
             while (c.moveToNext()) {
                 list.add(
                     AttendanceEntry(
-                        id = c.getLong(c.getColumnIndexOrThrow("id")),
-                        regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
-                        semesterSubId = c.getString(c.getColumnIndexOrThrow("semester_sub_id")),
-                        courseCode = c.getString(c.getColumnIndexOrThrow("course_code")),
-                        courseTitle = c.getString(c.getColumnIndexOrThrow("course_title")),
-                        courseType = c.getString(c.getColumnIndexOrThrow("course_type")) ?: "",
-                        slot = c.getString(c.getColumnIndexOrThrow("slot")) ?: "",
-                        facultyName = c.getString(c.getColumnIndexOrThrow("faculty_name")) ?: "",
+                        id = c.getLong(idIdx),
+                        regNo = c.getString(regNoIdx),
+                        semesterSubId = c.getString(semIdIdx),
+                        courseCode = c.getString(codeIdx),
+                        courseTitle = c.getString(titleIdx),
+                        courseType = c.getString(typeIdx) ?: "",
+                        slot = c.getString(slotIdx) ?: "",
+                        facultyName = c.getString(facultyIdx) ?: "",
                         courseId = if (courseIdIdx >= 0) c.getString(courseIdIdx) ?: "" else "",
                         courseTypeA = if (courseTypeAIdx >= 0) c.getString(courseTypeAIdx) ?: "" else "",
-                        attendedClasses = c.getInt(c.getColumnIndexOrThrow("attended_classes")),
-                        totalClasses = c.getInt(c.getColumnIndexOrThrow("total_classes")),
-                        attendancePercentage = c.getDouble(c.getColumnIndexOrThrow("attendance_percentage")),
-                        updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
+                        attendedClasses = c.getInt(attendedIdx),
+                        totalClasses = c.getInt(totalIdx),
+                        attendancePercentage = c.getDouble(pctIdx),
+                        updatedAtMs = c.getLong(updatedAtIdx),
                     ),
                 )
             }
         }
-        val latestSem = getLatestSemesterId(regNo)
         if (latestSem == null || semId == latestSem) {
             _attendanceFlow.value = list
         }
@@ -689,33 +726,40 @@ object UserDatabase {
     fun saveTimetable(regNo: String, entries: List<TimetableEntry>, semesterSubId: String? = null) {
         val db = helper?.writableDatabase ?: return
         val semId = semesterSubId ?: entries.firstOrNull()?.semesterSubId?.ifBlank { null }
-        db.beginTransaction()
-        try {
+        db.inTransaction {
             if (semId != null) {
                 db.delete("timetable_classes", "reg_no = ? AND semester_sub_id = ?", arrayOf(regNo, semId))
             } else {
                 db.delete("timetable_classes", "reg_no = ?", arrayOf(regNo))
             }
-            for (item in entries) {
-                val cv = ContentValues().apply {
-                    put("reg_no", item.regNo)
-                    put("semester_sub_id", item.semesterSubId.ifBlank { semId.orEmpty() })
-                    put("day_of_week", item.dayOfWeek)
-                    put("start_time", item.startTime)
-                    put("end_time", item.endTime)
-                    put("room_block", item.roomBlock)
-                    put("room_number", item.roomNumber)
-                    put("course_code", item.courseCode)
-                    put("course_title", item.courseTitle)
-                    put("slots", item.slots.joinToString(","))
-                    put("active_slot", item.activeSlot)
-                    put("updated_at_ms", item.updatedAtMs)
+            if (entries.isNotEmpty()) {
+                db.compileStatement(
+                    """
+                    INSERT INTO timetable_classes (
+                        reg_no, semester_sub_id, day_of_week, start_time, end_time,
+                        room_block, room_number, course_code, course_title,
+                        slots, active_slot, updated_at_ms
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent(),
+                ).use { stmt ->
+                    for (item in entries) {
+                        stmt.clearBindings()
+                        stmt.bindString(1, item.regNo)
+                        stmt.bindString(2, item.semesterSubId.ifBlank { semId.orEmpty() })
+                        stmt.bindLong(3, item.dayOfWeek.toLong())
+                        stmt.bindString(4, item.startTime)
+                        stmt.bindString(5, item.endTime)
+                        stmt.bindString(6, item.roomBlock)
+                        stmt.bindString(7, item.roomNumber)
+                        stmt.bindString(8, item.courseCode)
+                        stmt.bindString(9, item.courseTitle)
+                        stmt.bindString(10, item.slots.joinToString(","))
+                        stmt.bindString(11, item.activeSlot)
+                        stmt.bindLong(12, item.updatedAtMs)
+                        stmt.executeInsert()
+                    }
                 }
-                db.insert("timetable_classes", null, cv)
             }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
         }
         val latestSem = getLatestSemesterId(regNo)
         if (latestSem == null || semId == latestSem) {
@@ -726,7 +770,8 @@ object UserDatabase {
 
     fun loadTimetable(regNo: String, semesterSubId: String? = null): List<TimetableEntry> {
         val db = helper?.readableDatabase ?: return emptyList()
-        val semId = semesterSubId ?: getLatestSemesterId(regNo)
+        val latestSem = getLatestSemesterId(regNo)
+        val semId = semesterSubId ?: latestSem
         val selection = if (semId.isNullOrBlank()) "reg_no = ?" else "reg_no = ? AND semester_sub_id = ?"
         val args = if (semId.isNullOrBlank()) arrayOf(regNo) else arrayOf(regNo, semId)
         val cursor = db.query(
@@ -740,19 +785,31 @@ object UserDatabase {
         )
         return cursor.use { c ->
             val list = mutableListOf<TimetableEntry>()
+            val regNoIdx = c.getColumnIndexOrThrow("reg_no")
+            val semIdIdx = c.getColumnIndexOrThrow("semester_sub_id")
+            val dayIdx = c.getColumnIndexOrThrow("day_of_week")
+            val startIdx = c.getColumnIndexOrThrow("start_time")
+            val endIdx = c.getColumnIndexOrThrow("end_time")
+            val blockIdx = c.getColumnIndexOrThrow("room_block")
+            val roomIdx = c.getColumnIndexOrThrow("room_number")
+            val codeIdx = c.getColumnIndexOrThrow("course_code")
+            val titleIdx = c.getColumnIndexOrThrow("course_title")
+            val slotsIdx = c.getColumnIndexOrThrow("slots")
+            val activeSlotIdx = c.getColumnIndexOrThrow("active_slot")
+            val updatedAtIdx = c.getColumnIndexOrThrow("updated_at_ms")
             while (c.moveToNext()) {
-                val slotsStr = c.getString(c.getColumnIndexOrThrow("slots")) ?: ""
-                val rawBlock = c.getString(c.getColumnIndexOrThrow("room_block")) ?: ""
-                val rawRoom = c.getString(c.getColumnIndexOrThrow("room_number")) ?: ""
+                val slotsStr = c.getString(slotsIdx) ?: ""
+                val rawBlock = c.getString(blockIdx) ?: ""
+                val rawRoom = c.getString(roomIdx) ?: ""
                 val isCorruptVenue = rawRoom.length > 12 || rawRoom.contains("Lecture", ignoreCase = true)
                 val block = if (isCorruptVenue) "" else rawBlock
                 val room = if (isCorruptVenue) "" else rawRoom
-                val rawStart = c.getString(c.getColumnIndexOrThrow("start_time"))
-                val rawEnd = c.getString(c.getColumnIndexOrThrow("end_time"))
-                val rawDay = c.getInt(c.getColumnIndexOrThrow("day_of_week"))
-                val activeSlot = c.getString(c.getColumnIndexOrThrow("active_slot")) ?: ""
+                val rawStart = c.getString(startIdx)
+                val rawEnd = c.getString(endIdx)
+                val rawDay = c.getInt(dayIdx)
+                val activeSlot = c.getString(activeSlotIdx) ?: ""
                 // ponytail: remap legacy cached entries with bogus 50-min times to authentic FFCS slot timings
-                val slotTiming = if (rawStart in listOf("08:00", "09:00", "11:00", "14:00", "15:00", "16:00") && activeSlot.isNotBlank()) {
+                val slotTiming = if (rawStart in LEGACY_BOGUS_START_TIMES && activeSlot.isNotBlank()) {
                     SlotTimings.getTimings(activeSlot).firstOrNull()
                 } else null
                 val dayOfWeek = slotTiming?.dayOfWeek ?: rawDay
@@ -760,28 +817,33 @@ object UserDatabase {
                 val endTime = slotTiming?.endTime ?: rawEnd
                 list.add(
                     TimetableEntry(
-                        regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
-                        semesterSubId = c.getString(c.getColumnIndexOrThrow("semester_sub_id")) ?: "",
+                        regNo = c.getString(regNoIdx),
+                        semesterSubId = c.getString(semIdIdx) ?: "",
                         dayOfWeek = dayOfWeek,
                         startTime = startTime,
                         endTime = endTime,
                         roomBlock = block,
                         roomNumber = room,
-                        courseCode = c.getString(c.getColumnIndexOrThrow("course_code")),
-                        courseTitle = c.getString(c.getColumnIndexOrThrow("course_title")),
+                        courseCode = c.getString(codeIdx),
+                        courseTitle = c.getString(titleIdx),
                         slots = if (slotsStr.isBlank()) emptyList() else slotsStr.split(","),
                         activeSlot = activeSlot,
-                        updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
+                        updatedAtMs = c.getLong(updatedAtIdx),
                     ),
                 )
             }
-            val latestSem = getLatestSemesterId(regNo)
             if (latestSem == null || semId == latestSem) {
                 _timetableFlow.value = list
             }
             list
         }
     }
+
+    private class ParsedEntry(
+        val entry: TimetableEntry,
+        val start: LocalTime?,
+        val end: LocalTime?,
+    )
 
     /**
      * Builds dynamic day-wise schedule cards from stored timetable entries,
@@ -795,77 +857,104 @@ object UserDatabase {
     ): List<DaySchedule> {
         if (entries.isEmpty()) return emptyList()
 
-        val days = mutableListOf<DaySchedule>()
+        // Group and sort entries once per dayOfWeek (1..7), parsing each entry's times once.
+        val byDay = arrayOfNulls<MutableList<ParsedEntry>>(8)
+        for (entry in entries) {
+            val dow = entry.dayOfWeek
+            if (dow !in 1..7) continue
+            val bucket = byDay[dow] ?: ArrayList<ParsedEntry>().also { byDay[dow] = it }
+            bucket.add(ParsedEntry(entry, parseTime(entry.startTime), parseTime(entry.endTime)))
+        }
+        for (dow in 1..7) {
+            byDay[dow]?.sortBy { it.start?.toSecondOfDay() ?: Int.MAX_VALUE }
+        }
+
+        // Index only sessions falling in the 7-day window so lookup is O(1) per class instead of O(N*M).
+        val rangeStart = referenceDate.minusDays(1).toString()
+        val rangeEnd = referenceDate.plusDays(5).toString()
+        val sessionIndex: Map<String, Map<String, List<AttendanceSession>>> = if (sessions.isEmpty()) {
+            emptyMap()
+        } else {
+            HashMap<String, HashMap<String, MutableList<AttendanceSession>>>(8).apply {
+                for (s in sessions) {
+                    if (s.date !in rangeStart..rangeEnd) continue
+                    val byCourse = getOrPut(s.date) { HashMap() }
+                    byCourse.getOrPut(s.courseCode.uppercase(Locale.US)) { ArrayList(2) }.add(s)
+                }
+            }
+        }
+
+        // Find the single ongoing (or next upcoming) class across Today..+5 in chronological order.
+        val now = referenceDate.atTime(referenceTime)
+        var runningOffset = Int.MIN_VALUE
+        var runningIdx = -1
+        var nextOffset = Int.MIN_VALUE
+        var nextIdx = -1
+        for (offset in 0..5) {
+            val date = referenceDate.plusDays(offset.toLong())
+            val bucket = byDay[date.dayOfWeek.value] ?: continue
+            for (idx in bucket.indices) {
+                val pe = bucket[idx]
+                val start = pe.start?.let { date.atTime(it) } ?: continue
+                val end = pe.end?.let { date.atTime(it) }?.let { if (it <= start) it.plusDays(1) else it }
+                if (end != null && !now.isBefore(start) && now.isBefore(end)) {
+                    runningOffset = offset
+                    runningIdx = idx
+                    break
+                }
+                if (nextIdx < 0 && now.isBefore(start)) {
+                    nextOffset = offset
+                    nextIdx = idx
+                }
+            }
+            if (runningIdx >= 0) break
+        }
+
+        val days = ArrayList<DaySchedule>(7)
         for (offset in -1..5) {
             val date = referenceDate.plusDays(offset.toLong())
-            val dayOfWeekInt = date.dayOfWeek.value // 1 = Mon .. 7 = Sun
+            val dow = date.dayOfWeek.value // 1 = Mon .. 7 = Sun
             val dayName = when (offset) {
                 -1 -> "Yesterday"
                 0 -> "Today"
                 1 -> "Tomorrow"
-                else -> date.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }
+                else -> DAY_NAMES[dow]
             }
-            val dayAbbr = date.dayOfWeek.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
-            val monthAbbr = date.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
-            val dateLabel = "$dayAbbr, $monthAbbr ${date.dayOfMonth}"
-
-            val dayClasses = entries
-                .filter { it.dayOfWeek == dayOfWeekInt }
-                // clock order, not alphabetical: "1:00 PM" sorts before "12:00 PM"
-                .sortedBy { parseTime(it.startTime)?.toSecondOfDay() ?: Int.MAX_VALUE }
-                .map { entry ->
-                    ClassScheduleItem(
-                        startTime = entry.startTime,
-                        endTime = entry.endTime,
-                        roomBlock = entry.roomBlock,
-                        roomNumber = entry.roomNumber,
-                        courseCode = entry.courseCode,
-                        title = entry.courseTitle,
-                        slots = entry.slots,
-                        activeSlot = entry.activeSlot,
-                        isOngoing = false,
-                        date = date,
-                        attendanceStatus = lookupSessionStatus(date, entry.courseCode, entry.slots, sessions),
-                    )
+            val dateLabel = "${DAY_ABBRS[dow]}, ${MONTH_ABBRS[date.monthValue]} ${date.dayOfMonth}"
+            val dateIso = date.toString()
+            val bucket = byDay[dow]
+            val dayClasses = if (bucket.isNullOrEmpty()) {
+                emptyList()
+            } else {
+                val daySessions = sessionIndex[dateIso]
+                ArrayList<ClassScheduleItem>(bucket.size).apply {
+                    for (idx in bucket.indices) {
+                        val entry = bucket[idx].entry
+                        val isOngoing = offset == runningOffset && idx == runningIdx
+                        val isNext = runningIdx < 0 && offset == nextOffset && idx == nextIdx
+                        add(
+                            ClassScheduleItem(
+                                startTime = entry.startTime,
+                                endTime = entry.endTime,
+                                roomBlock = entry.roomBlock,
+                                roomNumber = entry.roomNumber,
+                                courseCode = entry.courseCode,
+                                title = entry.courseTitle,
+                                slots = entry.slots,
+                                activeSlot = entry.activeSlot,
+                                isOngoing = isOngoing,
+                                isNext = isNext,
+                                date = date,
+                                attendanceStatus = lookupSessionStatus(date, referenceDate, entry.courseCode, entry.slots, daySessions),
+                            ),
+                        )
+                    }
                 }
+            }
 
             days.add(DaySchedule(dayName = dayName, dateLabel = dateLabel, classes = dayClasses))
         }
-        return stampLiveStatus(days, referenceDate.atTime(referenceTime))
-    }
-
-    /** This class as an instant on its own day. */
-    private fun ClassScheduleItem.at(time: String): LocalDateTime? =
-        date?.let { day -> parseTime(time)?.let { day.atTime(it) } }
-
-    /** Stamps the class running at [now], and marks the next upcoming class if none is running. */
-    private fun stampLiveStatus(days: List<DaySchedule>, now: LocalDateTime): List<DaySchedule> {
-        val today = now.toLocalDate()
-        val ahead = days.flatMap { it.classes }
-            .filter { it.date != null && !it.date.isBefore(today) }
-            .sortedWith(compareBy({ it.date }, { parseTime(it.startTime) ?: LocalTime.MAX }))
-
-        val running = ahead.firstOrNull { c ->
-            val start = c.at(c.startTime)
-            val end = c.at(c.endTime)?.let { if (start != null && it <= start) it.plusDays(1) else it }
-            start != null && end != null && !now.isBefore(start) && now.isBefore(end)
-        }
-
-        val nextUp = if (running == null) {
-            ahead.firstOrNull { c ->
-                val start = c.at(c.startTime)
-                start != null && now.isBefore(start)
-            }
-        } else null
-
-        return days.map { day ->
-            day.copy(classes = day.classes.map { c ->
-                c.copy(
-                    isOngoing = c == running,
-                    isNext = c == nextUp,
-                )
-            })
-        }
+        return days
     }
 
     /**
@@ -878,60 +967,104 @@ object UserDatabase {
         val todayIndex = days.indexOfFirst { it.dayName == "Today" }.coerceAtLeast(0)
         val today = days.getOrNull(todayIndex)
         // With classes today, stay on Today until the fixed cutoff of 22:00.
-        if (today != null && today.classes.isNotEmpty()) {
-            val cutoff = LocalTime.of(22, 0)
-            if (now.toLocalTime().isBefore(cutoff)) return todayIndex
+        if (today != null && today.classes.isNotEmpty() && now.toLocalTime().isBefore(DAY_CUTOFF_TIME)) {
+            return todayIndex
         }
         // No class today, or the 22:00 cutoff has passed: move to the next day with classes.
-        return (todayIndex + 1 until days.size).firstOrNull { days[it].classes.isNotEmpty() } ?: todayIndex
+        for (i in todayIndex + 1 until days.size) {
+            if (days[i].classes.isNotEmpty()) return i
+        }
+        return todayIndex
     }
 
     private fun lookupSessionStatus(
         date: LocalDate,
+        referenceDate: LocalDate,
         courseCode: String,
         slots: List<String>,
-        sessions: List<AttendanceSession>,
+        daySessions: Map<String, List<AttendanceSession>>?,
     ): String? {
-        val dateIso = date.toString()
-        val matches = sessions.filter { it.courseCode.equals(courseCode, ignoreCase = true) && it.date == dateIso }
-        if (matches.isEmpty()) {
-            return if (!date.isAfter(LocalDate.now())) "Not marked" else null
+        val matches = daySessions?.get(courseCode.uppercase(Locale.US))
+        if (matches.isNullOrEmpty()) {
+            return if (!date.isAfter(referenceDate)) "Not marked" else null
         }
         for (slot in slots) {
-            matches.firstOrNull { it.slot.equals(slot, ignoreCase = true) }?.let { return it.status }
+            for (m in matches) {
+                if (m.slot.equals(slot, ignoreCase = true)) return m.status
+            }
         }
         return null
     }
 
     fun parseTime(str: String): LocalTime? {
-        return try {
-            val clean = str.trim().uppercase()
-            val parts = clean.split(" ")
-            val timeParts = parts[0].split(":")
-            var hour = timeParts[0].toInt()
-            val minute = if (timeParts.size > 1) timeParts[1].toInt() else 0
-            if (parts.size > 1) {
-                val amPm = parts[1]
-                if (amPm == "PM" && hour < 12) hour += 12
-                if (amPm == "AM" && hour == 12) hour = 0
+        var s = 0
+        var e = str.length
+        while (s < e && str[s].isWhitespace()) s++
+        while (e > s && str[e - 1].isWhitespace()) e--
+        if (s >= e) return null
+
+        var spaceIdx = -1
+        for (i in s until e) {
+            if (str[i] == ' ') {
+                spaceIdx = i
+                break
             }
-            LocalTime.of(hour.coerceIn(0, 23), minute.coerceIn(0, 59))
-        } catch (_: Exception) {
-            null
         }
+        val timeEnd = if (spaceIdx >= 0) spaceIdx else e
+
+        var colonIdx = -1
+        for (i in s until timeEnd) {
+            if (str[i] == ':') {
+                colonIdx = i
+                break
+            }
+        }
+
+        var hour = parseDigits(str, s, if (colonIdx >= 0) colonIdx else timeEnd) ?: return null
+        val minute = if (colonIdx >= 0) {
+            parseDigits(str, colonIdx + 1, timeEnd) ?: return null
+        } else {
+            0
+        }
+
+        if (spaceIdx >= 0) {
+            val amPmStart = spaceIdx + 1
+            var amPmEnd = amPmStart
+            while (amPmEnd < e && str[amPmEnd] != ' ') amPmEnd++
+            if (amPmEnd - amPmStart == 2) {
+                val c0 = str[amPmStart]
+                val c1 = str[amPmStart + 1]
+                if (c1 == 'M' || c1 == 'm') {
+                    if ((c0 == 'P' || c0 == 'p') && hour < 12) hour += 12
+                    else if ((c0 == 'A' || c0 == 'a') && hour == 12) hour = 0
+                }
+            }
+        }
+
+        return LocalTime.of(hour.coerceIn(0, 23), minute.coerceIn(0, 59))
+    }
+
+    private fun parseDigits(str: String, start: Int, end: Int): Int? {
+        if (start >= end) return null
+        var value = 0
+        for (i in start until end) {
+            val d = str[i] - '0'
+            if (d !in 0..9) return null
+            if (value < 1000) value = value * 10 + d
+        }
+        return value
     }
 
     fun saveGradeHistory(regNo: String, summary: AcademicSummary?, grades: List<GradeHistoryEntry>) {
         val db = helper?.writableDatabase ?: return
-        db.beginTransaction()
-        try {
+        db.inTransaction {
             if (summary != null) {
                 val cv = ContentValues().apply {
                     put("reg_no", summary.regNo)
                     put("cgpa", summary.cgpa)
                     put("credits_earned", summary.creditsEarned)
                     put("credits_registered", summary.creditsRegistered)
-                put("curriculum_credits", summary.curriculumCredits)
+                    put("curriculum_credits", summary.curriculumCredits)
                     put("s_count", summary.sCount)
                     put("a_count", summary.aCount)
                     put("b_count", summary.bCount)
@@ -947,25 +1080,30 @@ object UserDatabase {
 
             if (grades.isNotEmpty()) {
                 db.delete("grade_history", "reg_no = ?", arrayOf(regNo))
-                for (g in grades) {
-                    val cv = ContentValues().apply {
-                        put("reg_no", g.regNo)
-                        put("course_code", g.courseCode)
-                        put("course_title", g.courseTitle)
-                        put("course_type", g.courseType)
-                        put("credits", g.credits)
-                        put("grade", g.grade)
-                        put("exam_month", g.examMonth)
-                        put("course_distribution", g.courseDistribution)
-                        put("updated_at_ms", g.updatedAtMs)
+                db.compileStatement(
+                    """
+                    INSERT INTO grade_history (
+                        reg_no, course_code, course_title, course_type, credits,
+                        grade, exam_month, course_distribution, updated_at_ms
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent(),
+                ).use { stmt ->
+                    for (g in grades) {
+                        stmt.clearBindings()
+                        stmt.bindString(1, g.regNo)
+                        stmt.bindString(2, g.courseCode)
+                        stmt.bindString(3, g.courseTitle)
+                        stmt.bindString(4, g.courseType)
+                        stmt.bindDouble(5, g.credits)
+                        stmt.bindString(6, g.grade)
+                        stmt.bindString(7, g.examMonth)
+                        stmt.bindString(8, g.courseDistribution)
+                        stmt.bindLong(9, g.updatedAtMs)
+                        stmt.executeInsert()
                     }
-                    db.insert("grade_history", null, cv)
                 }
                 _gradeHistoryFlow.value = grades
             }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
         }
     }
 
@@ -996,19 +1134,28 @@ object UserDatabase {
 
         val list = mutableListOf<GradeHistoryEntry>()
         db.query("grade_history", null, "reg_no = ?", arrayOf(regNo), null, null, "course_code ASC").use { c ->
+            val regNoIdx = c.getColumnIndexOrThrow("reg_no")
+            val codeIdx = c.getColumnIndexOrThrow("course_code")
+            val titleIdx = c.getColumnIndexOrThrow("course_title")
+            val typeIdx = c.getColumnIndexOrThrow("course_type")
+            val creditsIdx = c.getColumnIndexOrThrow("credits")
+            val gradeIdx = c.getColumnIndexOrThrow("grade")
+            val examMonthIdx = c.getColumnIndexOrThrow("exam_month")
+            val distIdx = c.getColumnIndexOrThrow("course_distribution")
+            val updatedAtIdx = c.getColumnIndexOrThrow("updated_at_ms")
             while (c.moveToNext()) {
                 list.add(
                     GradeHistoryEntry(
-                        regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
-                        courseCode = c.getString(c.getColumnIndexOrThrow("course_code")),
-                        courseTitle = c.getString(c.getColumnIndexOrThrow("course_title")),
-                        courseType = c.getString(c.getColumnIndexOrThrow("course_type")) ?: "",
-                        credits = c.getDouble(c.getColumnIndexOrThrow("credits")),
-                        grade = c.getString(c.getColumnIndexOrThrow("grade")),
-                        examMonth = c.getString(c.getColumnIndexOrThrow("exam_month")) ?: "",
-                        courseDistribution = c.getString(c.getColumnIndexOrThrow("course_distribution")) ?: "",
-                        updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
-                    )
+                        regNo = c.getString(regNoIdx),
+                        courseCode = c.getString(codeIdx),
+                        courseTitle = c.getString(titleIdx),
+                        courseType = c.getString(typeIdx) ?: "",
+                        credits = c.getDouble(creditsIdx),
+                        grade = c.getString(gradeIdx),
+                        examMonth = c.getString(examMonthIdx) ?: "",
+                        courseDistribution = c.getString(distIdx) ?: "",
+                        updatedAtMs = c.getLong(updatedAtIdx),
+                    ),
                 )
             }
         }
@@ -1020,33 +1167,38 @@ object UserDatabase {
         if (marks.isEmpty()) return
         val db = helper?.writableDatabase ?: return
         val semId = marks.first().semesterSubId
-        db.beginTransaction()
-        try {
+        db.inTransaction {
             db.delete("student_marks", "reg_no = ? AND semester_sub_id = ?", arrayOf(regNo, semId))
-            for (m in marks) {
-                val cv = ContentValues().apply {
-                    put("reg_no", m.regNo)
-                    put("semester_sub_id", m.semesterSubId)
-                    put("course_code", m.courseCode)
-                    put("course_title", m.courseTitle)
-                    put("course_type", m.courseType)
-                    put("faculty_name", m.facultyName)
-                    put("slot", m.slot)
-                    put("component_name", m.componentName)
-                    put("max_marks", m.maxMarks)
-                    put("weightage_percent", m.weightagePercent)
-                    put("scored_marks", m.scoredMarks)
-                    put("scored_percentage", m.scoredPercentage)
-                    put("updated_at_ms", m.updatedAtMs)
+            db.compileStatement(
+                """
+                INSERT INTO student_marks (
+                    reg_no, semester_sub_id, course_code, course_title, course_type,
+                    faculty_name, slot, component_name, max_marks, weightage_percent,
+                    scored_marks, scored_percentage, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { stmt ->
+                for (m in marks) {
+                    stmt.clearBindings()
+                    stmt.bindString(1, m.regNo)
+                    stmt.bindString(2, m.semesterSubId)
+                    stmt.bindString(3, m.courseCode)
+                    stmt.bindString(4, m.courseTitle)
+                    stmt.bindString(5, m.courseType)
+                    stmt.bindString(6, m.facultyName)
+                    stmt.bindString(7, m.slot)
+                    stmt.bindString(8, m.componentName)
+                    stmt.bindDouble(9, m.maxMarks)
+                    stmt.bindDouble(10, m.weightagePercent)
+                    stmt.bindDouble(11, m.scoredMarks)
+                    stmt.bindDouble(12, m.scoredPercentage)
+                    stmt.bindLong(13, m.updatedAtMs)
+                    stmt.executeInsert()
                 }
-                db.insert("student_marks", null, cv)
             }
-            db.setTransactionSuccessful()
-            // ponytail: merging is fiddly across semesters; reload everything after each save so cached siblings stay visible
-            _marksFlow.value = loadMarks(regNo)
-        } finally {
-            db.endTransaction()
         }
+        // ponytail: reload all semesters after the write lock releases so cached siblings stay visible
+        loadMarks(regNo)
     }
 
     fun loadMarks(regNo: String, semesterSubId: String? = null): List<MarkEntry> {
@@ -1056,35 +1208,51 @@ object UserDatabase {
 
         val list = mutableListOf<MarkEntry>()
         db.query("student_marks", null, selection, args, null, null, "course_code ASC, component_name ASC").use { c ->
+            val idIdx = c.getColumnIndexOrThrow("id")
+            val regNoIdx = c.getColumnIndexOrThrow("reg_no")
+            val semIdIdx = c.getColumnIndexOrThrow("semester_sub_id")
+            val codeIdx = c.getColumnIndexOrThrow("course_code")
+            val titleIdx = c.getColumnIndexOrThrow("course_title")
+            val typeIdx = c.getColumnIndexOrThrow("course_type")
+            val facultyIdx = c.getColumnIndexOrThrow("faculty_name")
+            val slotIdx = c.getColumnIndexOrThrow("slot")
+            val componentIdx = c.getColumnIndexOrThrow("component_name")
+            val maxIdx = c.getColumnIndexOrThrow("max_marks")
+            val weightageIdx = c.getColumnIndexOrThrow("weightage_percent")
+            val scoredIdx = c.getColumnIndexOrThrow("scored_marks")
+            val pctIdx = c.getColumnIndexOrThrow("scored_percentage")
+            val updatedAtIdx = c.getColumnIndexOrThrow("updated_at_ms")
             while (c.moveToNext()) {
                 list.add(
                     MarkEntry(
-                        id = c.getLong(c.getColumnIndexOrThrow("id")),
-                        regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
-                        semesterSubId = c.getString(c.getColumnIndexOrThrow("semester_sub_id")),
-                        courseCode = c.getString(c.getColumnIndexOrThrow("course_code")),
-                        courseTitle = c.getString(c.getColumnIndexOrThrow("course_title")),
-                        courseType = c.getString(c.getColumnIndexOrThrow("course_type")) ?: "",
-                        facultyName = c.getString(c.getColumnIndexOrThrow("faculty_name")) ?: "",
-                        slot = c.getString(c.getColumnIndexOrThrow("slot")) ?: "",
-                        componentName = c.getString(c.getColumnIndexOrThrow("component_name")),
-                        maxMarks = c.getDouble(c.getColumnIndexOrThrow("max_marks")),
-                        weightagePercent = c.getDouble(c.getColumnIndexOrThrow("weightage_percent")),
-                        scoredMarks = c.getDouble(c.getColumnIndexOrThrow("scored_marks")),
-                        scoredPercentage = c.getDouble(c.getColumnIndexOrThrow("scored_percentage")),
-                        updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
-                    )
+                        id = c.getLong(idIdx),
+                        regNo = c.getString(regNoIdx),
+                        semesterSubId = c.getString(semIdIdx),
+                        courseCode = c.getString(codeIdx),
+                        courseTitle = c.getString(titleIdx),
+                        courseType = c.getString(typeIdx) ?: "",
+                        facultyName = c.getString(facultyIdx) ?: "",
+                        slot = c.getString(slotIdx) ?: "",
+                        componentName = c.getString(componentIdx),
+                        maxMarks = c.getDouble(maxIdx),
+                        weightagePercent = c.getDouble(weightageIdx),
+                        scoredMarks = c.getDouble(scoredIdx),
+                        scoredPercentage = c.getDouble(pctIdx),
+                        updatedAtMs = c.getLong(updatedAtIdx),
+                    ),
                 )
             }
         }
-        _marksFlow.value = list
+        // Only publish full-user queries to _marksFlow; per-semester lookups must not drop sibling semesters.
+        if (semesterSubId.isNullOrBlank()) {
+            _marksFlow.value = list
+        }
         return list
     }
 
     fun saveSemesterResultGpa(regNo: String, semesterSubId: String, gpa: Double) {
         val db = helper?.writableDatabase ?: return
-        db.beginTransaction()
-        try {
+        db.inTransaction {
             val cv = ContentValues().apply {
                 put("reg_no", regNo)
                 put("semester_sub_id", semesterSubId)
@@ -1092,43 +1260,47 @@ object UserDatabase {
                 put("updated_at_ms", System.currentTimeMillis())
             }
             db.insertWithOnConflict("semester_results", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-            db.setTransactionSuccessful()
-            _semesterResultsFlow.value = loadSemesterResults(regNo)
-        } finally {
-            db.endTransaction()
         }
+        loadSemesterResults(regNo)
     }
 
     fun saveAttendanceSessions(regNo: String, semesterSubId: String, sessions: List<AttendanceSession>) {
         if (sessions.isEmpty()) return
         val db = helper?.writableDatabase ?: return
-        db.beginTransaction()
-        try {
-            val courses = sessions.map { it.courseCode }.distinct()
-            for (course in courses) {
-                db.delete(
-                    "attendance_sessions",
-                    "reg_no = ? AND semester_sub_id = ? AND course_code = ?",
-                    arrayOf(regNo, semesterSubId, course),
-                )
-            }
-            for (s in sessions) {
-                val cv = ContentValues().apply {
-                    put("reg_no", s.regNo)
-                    put("semester_sub_id", s.semesterSubId)
-                    put("course_code", s.courseCode)
-                    put("date", s.date)
-                    put("slot", s.slot)
-                    put("status", s.status)
-                    put("updated_at_ms", s.updatedAtMs)
+        db.inTransaction {
+            val courses = sessions.mapTo(LinkedHashSet()) { it.courseCode }
+            db.compileStatement(
+                "DELETE FROM attendance_sessions WHERE reg_no = ? AND semester_sub_id = ? AND course_code = ?",
+            ).use { del ->
+                for (course in courses) {
+                    del.clearBindings()
+                    del.bindString(1, regNo)
+                    del.bindString(2, semesterSubId)
+                    del.bindString(3, course)
+                    del.executeUpdateDelete()
                 }
-                db.insertWithOnConflict("attendance_sessions", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
-            db.setTransactionSuccessful()
-            _attendanceSessionsFlow.value = loadAttendanceSessions(regNo)
-        } finally {
-            db.endTransaction()
+            db.compileStatement(
+                """
+                INSERT OR REPLACE INTO attendance_sessions (
+                    reg_no, semester_sub_id, course_code, date, slot, status, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { stmt ->
+                for (s in sessions) {
+                    stmt.clearBindings()
+                    stmt.bindString(1, s.regNo)
+                    stmt.bindString(2, s.semesterSubId)
+                    stmt.bindString(3, s.courseCode)
+                    stmt.bindString(4, s.date)
+                    stmt.bindString(5, s.slot)
+                    stmt.bindString(6, s.status)
+                    stmt.bindLong(7, s.updatedAtMs)
+                    stmt.executeInsert()
+                }
+            }
         }
+        loadAttendanceSessions(regNo)
     }
 
     fun loadAttendanceSessions(regNo: String): List<AttendanceSession> {
@@ -1143,18 +1315,26 @@ object UserDatabase {
             null,
             "date ASC, slot ASC",
         ).use { c ->
+            val idIdx = c.getColumnIndexOrThrow("id")
+            val regNoIdx = c.getColumnIndexOrThrow("reg_no")
+            val semIdIdx = c.getColumnIndexOrThrow("semester_sub_id")
+            val codeIdx = c.getColumnIndexOrThrow("course_code")
+            val dateIdx = c.getColumnIndexOrThrow("date")
+            val slotIdx = c.getColumnIndexOrThrow("slot")
+            val statusIdx = c.getColumnIndexOrThrow("status")
+            val updatedAtIdx = c.getColumnIndexOrThrow("updated_at_ms")
             while (c.moveToNext()) {
                 list.add(
                     AttendanceSession(
-                        id = c.getLong(c.getColumnIndexOrThrow("id")),
-                        regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
-                        semesterSubId = c.getString(c.getColumnIndexOrThrow("semester_sub_id")),
-                        courseCode = c.getString(c.getColumnIndexOrThrow("course_code")),
-                        date = c.getString(c.getColumnIndexOrThrow("date")),
-                        slot = c.getString(c.getColumnIndexOrThrow("slot")),
-                        status = c.getString(c.getColumnIndexOrThrow("status")),
-                        updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
-                    )
+                        id = c.getLong(idIdx),
+                        regNo = c.getString(regNoIdx),
+                        semesterSubId = c.getString(semIdIdx),
+                        courseCode = c.getString(codeIdx),
+                        date = c.getString(dateIdx),
+                        slot = c.getString(slotIdx),
+                        status = c.getString(statusIdx),
+                        updatedAtMs = c.getLong(updatedAtIdx),
+                    ),
                 )
             }
         }
@@ -1166,14 +1346,18 @@ object UserDatabase {
         val db = helper?.readableDatabase ?: return emptyList()
         val list = mutableListOf<SemesterResult>()
         db.query("semester_results", null, "reg_no = ?", arrayOf(regNo), null, null, "semester_sub_id ASC").use { c ->
+            val regNoIdx = c.getColumnIndexOrThrow("reg_no")
+            val semIdIdx = c.getColumnIndexOrThrow("semester_sub_id")
+            val gpaIdx = c.getColumnIndexOrThrow("gpa")
+            val updatedAtIdx = c.getColumnIndexOrThrow("updated_at_ms")
             while (c.moveToNext()) {
                 list.add(
                     SemesterResult(
-                        regNo = c.getString(c.getColumnIndexOrThrow("reg_no")),
-                        semesterSubId = c.getString(c.getColumnIndexOrThrow("semester_sub_id")),
-                        gpa = c.getDouble(c.getColumnIndexOrThrow("gpa")),
-                        updatedAtMs = c.getLong(c.getColumnIndexOrThrow("updated_at_ms")),
-                    )
+                        regNo = c.getString(regNoIdx),
+                        semesterSubId = c.getString(semIdIdx),
+                        gpa = c.getDouble(gpaIdx),
+                        updatedAtMs = c.getLong(updatedAtIdx),
+                    ),
                 )
             }
         }
@@ -1184,37 +1368,46 @@ object UserDatabase {
     fun saveCalendarEvents(semesterSubId: String, events: List<CalendarDayEvent>) {
         if (events.isEmpty()) return
         val db = helper?.writableDatabase ?: return
-        db.beginTransaction()
-        try {
+        val now = System.currentTimeMillis()
+        db.inTransaction {
             // Clear only the months that were actually re-fetched: a month whose fetch
             // failed must keep its cached days instead of vanishing from the calendar.
-            for (month in events.map { it.monthYear }.distinct()) {
-                db.delete(
-                    "academic_calendar",
-                    "semester_sub_id = ? AND month_year = ?",
-                    arrayOf(semesterSubId, month),
-                )
-            }
-            for (e in events) {
-                val cv = ContentValues().apply {
-                    put("semester_sub_id", semesterSubId)
-                    put("date", e.date)
-                    put("day_number", e.dayNumber)
-                    put("month_year", e.monthYear)
-                    put("day_of_week", e.dayOfWeek)
-                    put("title", e.title)
-                    put("subtitle", e.subtitle)
-                    put("event_category", e.eventCategory)
-                    put("is_holiday", if (e.isHoliday) 1 else 0)
-                    put("is_instructional", if (e.isInstructional) 1 else 0)
-                    put("is_exam", if (e.isExam) 1 else 0)
-                    put("updated_at_ms", System.currentTimeMillis())
+            val months = events.mapTo(LinkedHashSet()) { it.monthYear }
+            db.compileStatement(
+                "DELETE FROM academic_calendar WHERE semester_sub_id = ? AND month_year = ?",
+            ).use { del ->
+                for (month in months) {
+                    del.clearBindings()
+                    del.bindString(1, semesterSubId)
+                    del.bindString(2, month)
+                    del.executeUpdateDelete()
                 }
-                db.insertWithOnConflict("academic_calendar", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
+            db.compileStatement(
+                """
+                INSERT OR REPLACE INTO academic_calendar (
+                    semester_sub_id, date, day_number, month_year, day_of_week,
+                    title, subtitle, event_category, is_holiday, is_instructional, is_exam, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { stmt ->
+                for (e in events) {
+                    stmt.clearBindings()
+                    stmt.bindString(1, semesterSubId)
+                    stmt.bindString(2, e.date)
+                    stmt.bindLong(3, e.dayNumber.toLong())
+                    stmt.bindString(4, e.monthYear)
+                    stmt.bindString(5, e.dayOfWeek)
+                    stmt.bindString(6, e.title)
+                    stmt.bindString(7, e.subtitle)
+                    stmt.bindString(8, e.eventCategory)
+                    stmt.bindLong(9, if (e.isHoliday) 1L else 0L)
+                    stmt.bindLong(10, if (e.isInstructional) 1L else 0L)
+                    stmt.bindLong(11, if (e.isExam) 1L else 0L)
+                    stmt.bindLong(12, now)
+                    stmt.executeInsert()
+                }
+            }
         }
         // Publish what is actually stored, so a partial sync keeps the other months on screen
         _calendarEventsFlow.value = loadCalendarEvents(semesterSubId)
@@ -1243,24 +1436,33 @@ object UserDatabase {
 
     fun loadCalendarEvents(semesterSubId: String? = null): List<CalendarDayEvent> {
         val db = helper?.readableDatabase ?: return emptyList()
-        val semId = semesterSubId ?: getLatestSemesterId("")
-        val selection = if (semId.isNullOrBlank()) null else "semester_sub_id = ?"
-        val args = if (semId.isNullOrBlank()) null else arrayOf(semId)
+        val selection = if (semesterSubId.isNullOrBlank()) null else "semester_sub_id = ?"
+        val args = if (semesterSubId.isNullOrBlank()) null else arrayOf(semesterSubId)
         val list = mutableListOf<CalendarDayEvent>()
         db.query("academic_calendar", null, selection, args, null, null, "date ASC").use { c ->
+            val dateIdx = c.getColumnIndexOrThrow("date")
+            val dayNumberIdx = c.getColumnIndexOrThrow("day_number")
+            val monthYearIdx = c.getColumnIndexOrThrow("month_year")
+            val dayOfWeekIdx = c.getColumnIndexOrThrow("day_of_week")
+            val titleIdx = c.getColumnIndexOrThrow("title")
+            val subtitleIdx = c.getColumnIndexOrThrow("subtitle")
+            val categoryIdx = c.getColumnIndexOrThrow("event_category")
+            val holidayIdx = c.getColumnIndexOrThrow("is_holiday")
+            val instructionalIdx = c.getColumnIndexOrThrow("is_instructional")
+            val examIdx = c.getColumnIndexOrThrow("is_exam")
             while (c.moveToNext()) {
                 list.add(
                     CalendarDayEvent(
-                        date = c.getString(c.getColumnIndexOrThrow("date")),
-                        dayNumber = c.getInt(c.getColumnIndexOrThrow("day_number")),
-                        monthYear = c.getString(c.getColumnIndexOrThrow("month_year")),
-                        dayOfWeek = c.getString(c.getColumnIndexOrThrow("day_of_week")),
-                        title = c.getString(c.getColumnIndexOrThrow("title")),
-                        subtitle = c.getString(c.getColumnIndexOrThrow("subtitle")) ?: "",
-                        eventCategory = c.getString(c.getColumnIndexOrThrow("event_category")),
-                        isHoliday = c.getInt(c.getColumnIndexOrThrow("is_holiday")) == 1,
-                        isInstructional = c.getInt(c.getColumnIndexOrThrow("is_instructional")) == 1,
-                        isExam = c.getInt(c.getColumnIndexOrThrow("is_exam")) == 1,
+                        date = c.getString(dateIdx),
+                        dayNumber = c.getInt(dayNumberIdx),
+                        monthYear = c.getString(monthYearIdx),
+                        dayOfWeek = c.getString(dayOfWeekIdx),
+                        title = c.getString(titleIdx),
+                        subtitle = c.getString(subtitleIdx) ?: "",
+                        eventCategory = c.getString(categoryIdx),
+                        isHoliday = c.getInt(holidayIdx) == 1,
+                        isInstructional = c.getInt(instructionalIdx) == 1,
+                        isExam = c.getInt(examIdx) == 1,
                     ),
                 )
             }
@@ -1276,25 +1478,19 @@ object UserDatabase {
         if (regNo.isBlank()) return true
         val db = helper?.readableDatabase ?: return true
         return try {
-            val profileCount = db.rawQuery("SELECT COUNT(*) FROM user_profile WHERE reg_no = ?", arrayOf(regNo)).use { c ->
-                if (c.moveToFirst()) c.getInt(0) else 0
-            }
-            val attCount = db.rawQuery("SELECT COUNT(*) FROM student_attendance WHERE reg_no = ?", arrayOf(regNo)).use { c ->
-                if (c.moveToFirst()) c.getInt(0) else 0
-            }
-            val ttCount = db.rawQuery("SELECT COUNT(*) FROM timetable_classes WHERE reg_no = ?", arrayOf(regNo)).use { c ->
-                if (c.moveToFirst()) c.getInt(0) else 0
-            }
-            val semCount = db.rawQuery("SELECT COUNT(*) FROM semesters_attended WHERE reg_no = ?", arrayOf(regNo)).use { c ->
-                if (c.moveToFirst()) c.getInt(0) else 0
-            }
-            val gradeCount = db.rawQuery("SELECT COUNT(*) FROM grade_history WHERE reg_no = ?", arrayOf(regNo)).use { c ->
-                if (c.moveToFirst()) c.getInt(0) else 0
-            }
-            val marksCount = db.rawQuery("SELECT COUNT(*) FROM student_marks WHERE reg_no = ?", arrayOf(regNo)).use { c ->
-                if (c.moveToFirst()) c.getInt(0) else 0
-            }
-            profileCount == 0 && attCount == 0 && ttCount == 0 && semCount == 0 && gradeCount == 0 && marksCount == 0
+            db.rawQuery(
+                """
+                SELECT NOT (
+                    EXISTS(SELECT 1 FROM user_profile WHERE reg_no = ?1)
+                    OR EXISTS(SELECT 1 FROM student_attendance WHERE reg_no = ?1)
+                    OR EXISTS(SELECT 1 FROM timetable_classes WHERE reg_no = ?1)
+                    OR EXISTS(SELECT 1 FROM semesters_attended WHERE reg_no = ?1)
+                    OR EXISTS(SELECT 1 FROM grade_history WHERE reg_no = ?1)
+                    OR EXISTS(SELECT 1 FROM student_marks WHERE reg_no = ?1)
+                )
+                """.trimIndent(),
+                arrayOf(regNo),
+            ).use { c -> if (c.moveToFirst()) c.getInt(0) == 1 else true }
         } catch (_: Exception) {
             true
         }
@@ -1307,8 +1503,7 @@ object UserDatabase {
     fun purgeDatabase(regNo: String? = null) {
         val db = helper?.writableDatabase ?: return
         try {
-            db.beginTransaction()
-            try {
+            db.inTransaction {
                 if (regNo.isNullOrBlank()) {
                     db.delete("user_profile", null, null)
                     db.delete("semesters_attended", null, null)
@@ -1333,9 +1528,6 @@ object UserDatabase {
                     db.delete("semester_results", "reg_no = ?", args)
                     db.delete("academic_calendar", null, null)
                 }
-                db.setTransactionSuccessful()
-            } finally {
-                db.endTransaction()
             }
         } catch (e: Exception) {
             AppLog.d("db: purgeDatabase failed: ${e.message}")

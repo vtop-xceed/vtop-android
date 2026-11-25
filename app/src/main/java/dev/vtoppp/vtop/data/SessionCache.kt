@@ -28,9 +28,15 @@ object SessionCache {
     /** Longest-lived edge case: endpoint URLs are ASCII-ish server pages. */
     private fun fileFor(endpoint: String): File? {
         val dir = root ?: return null
-        val slug = endpoint.filter { it.isLetterOrDigit() }.take(120)
-        if (slug.isEmpty()) return null
-        return File(dir, "$slug.html")
+        val sb = StringBuilder(minOf(endpoint.length, 120))
+        for (ch in endpoint) {
+            if (ch.isLetterOrDigit()) {
+                sb.append(ch)
+                if (sb.length == 120) break
+            }
+        }
+        if (sb.isEmpty()) return null
+        return File(dir, "$sb.html")
     }
 
     /** Stores the latest copy; failures never throw (cache is best effort). */
@@ -50,18 +56,22 @@ object SessionCache {
     /** Drops the oldest save-times beyond [MAX_ENTRIES] (mtime doubles as saved-at). */
     private fun prune() {
         val files = root?.listFiles { f -> f.isFile && f.name.endsWith(".html") } ?: return
-        files.sortedByDescending { it.lastModified() }.drop(MAX_ENTRIES).forEach { it.delete() }
+        if (files.size <= MAX_ENTRIES) return
+        files.map { it to it.lastModified() }
+            .sortedByDescending { it.second }
+            .drop(MAX_ENTRIES)
+            .forEach { it.first.delete() }
     }
 
     /** Cached HTML and its saved-at epoch ms, or null when nothing cached. */
     fun load(endpoint: String): Pair<String, Long>? {
         val file = fileFor(endpoint) ?: return null
         return try {
-            if (!file.exists()) return null
-            val html = file.readText()
-            if (html.isBlank()) return null
+            // lastModified() returns 0L when missing, avoiding a separate exists() stat syscall.
             val savedAt = file.lastModified()
-            if (savedAt <= 0L) null else html to savedAt
+            if (savedAt <= 0L) return null
+            val html = file.readText()
+            if (html.isBlank()) null else html to savedAt
         } catch (e: Exception) {
             AppLog.d("cache: load $endpoint failed: ${e.message}")
             null

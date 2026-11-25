@@ -5,15 +5,18 @@ object MarksParser {
     private val codeCandidateRegex = Regex("""^[A-Z]{3,4}\s*\d{3,4}[A-Z]?$""", RegexOption.IGNORE_CASE)
     private val slotRegex = Regex("""^[A-Z]\d{1,2}(?:\+[A-Z]\d{1,2})*$""")
     private val whitespaceRegex = Regex("""\s+""")
+    private val selectBlockRegex = Regex(
+        """<select[^>]*name=["']semesterSubId["'][^>]*>(.*?)</select>""",
+        setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+    )
+    private val optionRegex = Regex("""<option\s+value="([^"]+)"[^>]*>(.*?)</option>""", RegexOption.IGNORE_CASE)
 
     /**
      * Extracts available semester options from StudentMarkView.html.
      * Returns list of Pair(semesterSubId, semesterName), e.g. ("BL20242501", "Fall Semester 2024-25").
      */
     fun extractSemesters(html: String): List<Pair<String, String>> {
-        val selectBlock = Regex("""<select[^>]*name=["']semesterSubId["'][^>]*>(.*?)</select>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-            .find(html)?.groupValues?.get(1) ?: html
-        val optionRegex = Regex("""<option\s+value="([^"]+)"[^>]*>(.*?)</option>""", RegexOption.IGNORE_CASE)
+        val selectBlock = selectBlockRegex.find(html)?.groupValues?.get(1) ?: html
         val list = mutableListOf<Pair<String, String>>()
         for (match in optionRegex.findAll(selectBlock)) {
             val value = match.groupValues[1].trim()

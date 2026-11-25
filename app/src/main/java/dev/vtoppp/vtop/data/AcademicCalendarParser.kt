@@ -50,32 +50,29 @@ object AcademicCalendarParser {
         RegexOption.IGNORE_CASE,
     )
 
+    private val MONTH_DATE_REGEX = Regex(
+        """processViewCalendar\s*\(\s*(?:&#39;|&apos;|['"])\s*([0-9]{2}-[A-Z]{3}-[0-9]{4})\s*(?:&#39;|&apos;|['"])""",
+        RegexOption.IGNORE_CASE,
+    )
+
     /**
      * Extracts available month dates from getDateForSemesterPreview or getListForSemester HTML.
      * Looks for `processViewCalendar('01-OCT-2026')` patterns. VTOP escapes the quotes as
      * `&#39;`, so both forms are accepted.
      */
-    fun extractMonthDates(html: String): List<String> {
-        val regex = Regex(
-            """processViewCalendar\s*\(\s*(?:&#39;|&apos;|['"])\s*([0-9]{2}-[A-Z]{3}-[0-9]{4})\s*(?:&#39;|&apos;|['"])""",
-            RegexOption.IGNORE_CASE,
-        )
-        val list = mutableListOf<String>()
-        for (m in regex.findAll(html)) {
-            val dateStr = m.groupValues[1].trim()
-            if (dateStr.isNotBlank() && !list.contains(dateStr)) {
-                list.add(dateStr)
-            }
-        }
-        return list
-    }
+    fun extractMonthDates(html: String): List<String> =
+        MONTH_DATE_REGEX.findAll(html)
+            .map { it.groupValues[1].trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .toList()
 
     /**
      * Parses the VTOP calendar matrix HTML for a given month into structured [CalendarDayEvent]s.
      */
     fun parse(html: String, fallbackDate: String = ""): List<CalendarDayEvent> {
         val doc = Jsoup.parse(html)
-        val h4Text = doc.select("table.calendar-table h4, h4").firstOrNull()?.text()?.trim() ?: ""
+        val h4Text = doc.selectFirst("table.calendar-table h4, h4")?.text()?.trim() ?: ""
 
         var monthNum = "10"
         var yearStr = "2026"
@@ -101,7 +98,7 @@ object AcademicCalendarParser {
             }
         }
 
-        val table = doc.select("table.calendar-table, table").firstOrNull() ?: return emptyList()
+        val table = doc.selectFirst("table.calendar-table, table") ?: return emptyList()
         val rows = table.select("tr")
         if (rows.isEmpty()) return emptyList()
 
@@ -121,8 +118,8 @@ object AcademicCalendarParser {
                 val dow = if (colIdx < DAYS_OF_WEEK.size) DAYS_OF_WEEK[colIdx] else ""
 
                 val rawNotes = mutableListOf<String>()
-                for (s in spans.drop(1)) {
-                    val clean = s.trim('(', ')', ' ', '\t', '\n')
+                for (i in 1 until spans.size) {
+                    val clean = spans[i].trim('(', ')', ' ', '\t', '\n')
                     if (clean.isBlank()) continue
                     // Skip irrelevant cohort notes if other General notes are present
                     if (clean.contains("Freshers", ignoreCase = true) ||

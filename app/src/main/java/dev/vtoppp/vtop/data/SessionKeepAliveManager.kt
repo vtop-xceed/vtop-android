@@ -41,13 +41,15 @@ object SessionKeepAliveManager {
 
     @Volatile
     private var activeClient: VtopClient? = null
+    @Volatile
+    private var channelReady = false
 
     fun isEnabled(context: Context): Boolean =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(KEY_ENABLED, true)
 
     fun setEnabled(context: Context, enabled: Boolean, client: VtopClient?, scope: CoroutineScope) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_ENABLED, enabled)
             .apply()
@@ -137,21 +139,21 @@ object SessionKeepAliveManager {
     }
 
     private fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "VTOP Session Keep-Alive",
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = "Silent momentary indicator while pinging VTOP session"
-                setShowBadge(false)
-                enableLights(false)
-                enableVibration(false)
-                setSound(null, null)
-            }
-            nm.createNotificationChannel(channel)
+        if (channelReady || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "VTOP Session Keep-Alive",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = "Silent momentary indicator while pinging VTOP session"
+            setShowBadge(false)
+            enableLights(false)
+            enableVibration(false)
+            setSound(null, null)
         }
+        nm.createNotificationChannel(channel)
+        channelReady = true
     }
 
     private fun showNotification(context: Context) {

@@ -4,6 +4,19 @@ import org.jsoup.Jsoup
 
 object TimetableParser {
 
+    private val TIME_REGEX = Regex("""\b(\d{1,2}:\d{2})\b""")
+    private val RANGE_REGEX = Regex(
+        """(\d{1,2}:\d{2}(?:\s*[AP]M)?)\s*[-–to]+\s*(\d{1,2}:\d{2}(?:\s*[AP]M)?)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val VTOP_CELL_REGEX = Regex("""^([A-Z0-9]+)-([A-Z]{3,4}\d{3,4}[A-Z]?)-([A-Z]+)-([A-Za-z0-9_-]+)-(\d+[A-Za-z]?)-ALL$""")
+    private val GENERIC_SPLIT_REGEX = Regex("""\s+[-–—/]\s+|\n+""")
+    private val COURSE_CODE_REGEX = Regex("""[A-Z]{3,4}\d{3,4}[A-Z]?""")
+    private val INLINE_CODE_REGEX = Regex("""\b([A-Z]{3,4}\d{3,4}[A-Z]?)\b""")
+    private val SLOT_TOKEN_REGEX = Regex("""\b([A-Z0-9]+(?:\+[A-Z0-9]+)*)\b""")
+    private val VENUE_PARSE_REGEX = Regex("""^([A-Za-z0-9_]+?)[\s-]*([0-9]{2,4}[A-Za-z]?)$""")
+    private val VENUE_MATCH_REGEX = Regex("""^(AB\d*|LC|AR|CR|SJT|TT|MB|CB|SMV)[\s-]*\d{2,4}[A-Za-z]?$""", RegexOption.IGNORE_CASE)
+
     data class RawCourse(
         val code: String,
         val title: String,
@@ -22,11 +35,13 @@ object TimetableParser {
 
         try {
             val doc = Jsoup.parse(html)
-            val courses = parseCourseListTable(doc)
+            val tables = doc.select("table")
+            val courses = parseCourseListTable(tables)
             val courseMap = courses.associateBy { it.code }
+            val now = System.currentTimeMillis()
 
             // 1. Try parsing day-wise matrix grid table if available
-            val gridEntries = parseGridTable(doc, regNo, semesterSubId, courseMap)
+            val gridEntries = parseGridTable(tables, regNo, semesterSubId, courseMap, now)
             if (gridEntries.isNotEmpty()) {
                 return gridEntries
             }
@@ -53,7 +68,7 @@ object TimetableParser {
                                 courseTitle = course.title,
                                 slots = slots,
                                 activeSlot = s,
-                                updatedAtMs = System.currentTimeMillis(),
+                                updatedAtMs = now,
                             ),
                         )
                     }
@@ -69,13 +84,13 @@ object TimetableParser {
 
     /** Parses VTOP day grid table (Monday-Friday rows with time headers). */
     private fun parseGridTable(
-        doc: org.jsoup.nodes.Document,
+        tables: org.jsoup.select.Elements,
         regNo: String,
         semesterSubId: String = "",
         courseMap: Map<String, RawCourse> = emptyMap(),
+        now: Long = System.currentTimeMillis(),
     ): List<TimetableEntry> {
         val entries = mutableListOf<TimetableEntry>()
-        val tables = doc.select("table")
 
         for (table in tables) {
             val rows = table.select("tr")
@@ -83,11 +98,10 @@ object TimetableParser {
 
             // Check for VTOP 2-row Start/End header
             var timeHeaders = mutableListOf<Pair<String, String>>()
-            val timeRegex = Regex("""\b(\d{1,2}:\d{2})\b""")
-            val row0Times = rows[0].select("th, td").map { it.text().trim() }.filter { timeRegex.matches(it) }
+            val row0Times = rows[0].select("th, td").map { it.text().trim() }.filter { TIME_REGEX.matches(it) }
 
             if (row0Times.isNotEmpty() && rows.size > 1) {
-                val row1Times = rows[1].select("th, td").map { it.text().trim() }.filter { timeRegex.matches(it) }
+                val row1Times = rows[1].select("th, td").map { it.text().trim() }.filter { TIME_REGEX.matches(it) }
                 if (row0Times.size == row1Times.size) {
                     timeHeaders = row0Times.zip(row1Times).toMutableList()
                 }
@@ -96,9 +110,8 @@ object TimetableParser {
             // Fallback: Check for single-row range headers e.g. "09:00 - 10:30"
             if (timeHeaders.isEmpty()) {
                 val headerCells = table.select("thead tr th, tr:first-child th, tr:first-child td")
-                val rangeRegex = Regex("""(\d{1,2}:\d{2}(?:\s*[AP]M)?)\s*[-–to]+\s*(\d{1,2}:\d{2}(?:\s*[AP]M)?)""", RegexOption.IGNORE_CASE)
                 for (h in headerCells) {
-                    val m = rangeRegex.find(h.text().trim())
+                    val m = RANGE_REGEX.find(h.text().trim())
                     if (m != null) {
                         timeHeaders.add(Pair(m.groupValues[1].trim(), m.groupValues[2].trim()))
                     }
@@ -124,21 +137,21 @@ object TimetableParser {
                 }
                 if (dayOfWeek == 0) continue
 
-                val dayCells = cells.drop(1).filter {
-                    val t = it.text().trim().uppercase()
-                    t != "THEORY" && t != "LAB" && t != "LUNCH"
+                val dayCellTexts = cells.drop(1).mapNotNull { cell ->
+                    val text = cell.text().trim()
+                    val upper = text.uppercase()
+                    if (upper == "THEORY" || upper == "LAB" || upper == "LUNCH") null else text
                 }
 
-                val colCount = minOf(timeHeaders.size, dayCells.size)
+                val colCount = minOf(timeHeaders.size, dayCellTexts.size)
                 for (col in 0 until colCount) {
-                    val cellText = dayCells[col].text().trim()
+                    val cellText = dayCellTexts[col]
                     if (cellText.isBlank() || cellText == "-" || cellText.equals("NIL", ignoreCase = true)) continue
 
                     val (start, end) = timeHeaders[col]
 
                     // VTOP cell format: E11-CSE3015-LTP-AR-103-ALL
-                    val vtopMatch = Regex("""^([A-Z0-9]+)-([A-Z]{3,4}\d{3,4}[A-Z]?)-([A-Z]+)-([A-Za-z0-9_-]+)-(\d+[A-Za-z]?)-ALL$""")
-                        .find(cellText)
+                    val vtopMatch = VTOP_CELL_REGEX.find(cellText)
                     if (vtopMatch != null) {
                         val activeSlot = vtopMatch.groupValues[1]
                         val code = vtopMatch.groupValues[2]
@@ -162,15 +175,15 @@ object TimetableParser {
                                 courseTitle = title,
                                 slots = allSlots,
                                 activeSlot = activeSlot,
-                                updatedAtMs = System.currentTimeMillis(),
+                                updatedAtMs = now,
                             ),
                         )
                         continue
                     }
 
                     // Generic cell format: "CSE2005 - Operating Systems - A11 - SJT-401"
-                    val parts = cellText.split(Regex("""\s+[-–—/]\s+|\n+""")).map { it.trim() }.filter { it.isNotBlank() }
-                    val code = parts.firstOrNull { it.matches(Regex("""[A-Z]{3,4}\d{3,4}[A-Z]?""")) } ?: continue
+                    val parts = cellText.split(GENERIC_SPLIT_REGEX).map { it.trim() }.filter { it.isNotBlank() }
+                    val code = parts.firstOrNull { COURSE_CODE_REGEX.matches(it) } ?: continue
                     val slot = parts.firstOrNull { SlotTimings.isSlot(it) } ?: ""
                     val venueStr = parts.lastOrNull { isVenue(it) } ?: parts.lastOrNull { it.any { c -> c.isDigit() } } ?: "AB-101"
                     val (block, room) = parseVenue(venueStr)
@@ -192,7 +205,7 @@ object TimetableParser {
                             courseTitle = title,
                             slots = allSlots,
                             activeSlot = slot,
-                            updatedAtMs = System.currentTimeMillis(),
+                            updatedAtMs = now,
                         ),
                     )
                 }
@@ -206,7 +219,7 @@ object TimetableParser {
         if (html.isBlank()) return emptyMap()
         return try {
             val doc = Jsoup.parse(html)
-            parseCourseListTable(doc)
+            parseCourseListTable(doc.select("table"))
                 .filter { it.faculty.isNotBlank() }
                 .associate { it.code to it.faculty }
         } catch (_: Exception) {
@@ -215,13 +228,13 @@ object TimetableParser {
     }
 
     /** Parses VTOP course list table (columns: Code, Title, Slot, Venue, etc.). */
-    private fun parseCourseListTable(doc: org.jsoup.nodes.Document): List<RawCourse> {
+    private fun parseCourseListTable(tables: org.jsoup.select.Elements): List<RawCourse> {
         val courses = mutableListOf<RawCourse>()
         // Select specifically the registered courses table (avoiding matrix grid)
-        val table = doc.select("table").firstOrNull { t ->
+        val table = tables.firstOrNull { t ->
             val txt = t.text()
             txt.contains("Course") && !txt.contains("THEORY") && !txt.contains("Start")
-        } ?: doc.select("table").firstOrNull() ?: return emptyList()
+        } ?: tables.firstOrNull() ?: return emptyList()
 
         val rows = table.select("tr")
         var facultyColIdx = -1
@@ -236,21 +249,23 @@ object TimetableParser {
             if (cells.size < 5) continue
 
             val rowText = row.text()
-            val codeMatch = Regex("""\b([A-Z]{3,4}\d{3,4}[A-Z]?)\b""").find(rowText) ?: continue
+            val codeMatch = INLINE_CODE_REGEX.find(rowText) ?: continue
             val code = codeMatch.groupValues[1]
 
             // Look for slot e.g. C11+C12+C13, A11+B11, L1+L2
-            val slotMatch = Regex("""\b([A-Z0-9]+(?:\+[A-Z0-9]+)*)\b""").findAll(rowText)
+            val slotMatch = SLOT_TOKEN_REGEX.findAll(rowText)
                 .map { it.groupValues[1] }
-                .firstOrNull { s -> s.contains("+") || SlotTimings.isSlot(s) } ?: continue
+                .firstOrNull { s -> '+' in s || SlotTimings.isSlot(s) } ?: continue
+
+            // Extract cell text once per cell to avoid repeated Jsoup DOM traversals.
+            val cellTexts = cells.map { it.text().trim() }
 
             // Look for venue e.g. LC-002, AB-101, SJT-401, AR-202, AB02-171
-            val venueCell = cells.firstOrNull { cell ->
-                cell.text().split("-", " ").any { isVenue(it) } || isVenue(cell.text())
-            }
-            val venueRaw = venueCell?.text()?.trim().orEmpty()
-            val venue = if (venueRaw.contains("-") && !isVenue(venueRaw)) {
-                venueRaw.split("-").lastOrNull { isVenue(it) }?.trim() ?: venueRaw
+            val venueRaw = cellTexts.firstOrNull { t ->
+                isVenue(t) || t.split('-', ' ').any { isVenue(it) }
+            }.orEmpty()
+            val venue = if ('-' in venueRaw && !isVenue(venueRaw)) {
+                venueRaw.split('-').lastOrNull { isVenue(it) }?.trim() ?: venueRaw
             } else if (venueRaw.isNotBlank()) {
                 venueRaw
             } else {
@@ -258,21 +273,21 @@ object TimetableParser {
             }
 
             // Course title
-            val codeIdx = cells.indexOfFirst { it.text().contains(code) }
-            val courseCellText = if (codeIdx >= 0) cells[codeIdx].text().trim() else ""
-            val title = if (courseCellText.contains("-")) {
-                courseCellText.substringAfter("-").substringBefore("(").trim()
+            val codeIdx = cellTexts.indexOfFirst { it.contains(code) }
+            val courseCellText = if (codeIdx >= 0) cellTexts[codeIdx] else ""
+            val title = if ('-' in courseCellText) {
+                courseCellText.substringAfter('-').substringBefore('(').trim()
             } else {
-                cells.getOrNull(codeIdx + 1)?.text()?.trim()?.ifBlank { code } ?: code
+                cellTexts.getOrNull(codeIdx + 1)?.ifBlank { code } ?: code
             }
 
             // Faculty details (e.g. "ETHNUS TRAINER 4 -ACAD", "PAT TRAINER -ACAD")
-            val facultyRaw = if (facultyColIdx in cells.indices) {
-                cells[facultyColIdx].text().trim()
+            val facultyRaw = if (facultyColIdx in cellTexts.indices) {
+                cellTexts[facultyColIdx]
             } else {
-                cells.firstOrNull { it.text().contains("-") && !it.text().contains(code) && !it.text().contains(slotMatch) }?.text()?.trim().orEmpty()
+                cellTexts.firstOrNull { '-' in it && !it.contains(code) && !it.contains(slotMatch) }.orEmpty()
             }
-            val faculty = facultyRaw.split("-").firstOrNull()?.trim().orEmpty()
+            val faculty = facultyRaw.substringBefore('-').trim()
 
             courses.add(
                 RawCourse(
@@ -291,7 +306,7 @@ object TimetableParser {
     /** Extracts block and room number from a venue string like "AB-330" or "SJT 711". */
     fun parseVenue(venue: String): Pair<String, String> {
         val clean = venue.trim()
-        val match = Regex("""^([A-Za-z0-9_]+?)[\s-]*([0-9]{2,4}[A-Za-z]?)$""").find(clean)
+        val match = VENUE_PARSE_REGEX.find(clean)
         return if (match != null) {
             Pair(match.groupValues[1].replace("-", "").uppercase(), match.groupValues[2])
         } else {
@@ -308,7 +323,7 @@ object TimetableParser {
     fun isVenue(text: String): Boolean {
         val t = text.trim()
         if (t.length > 12) return false
-        return t.matches(Regex("""^(AB\d*|LC|AR|CR|SJT|TT|MB|CB|SMV)[\s-]*\d{2,4}[A-Za-z]?$""", RegexOption.IGNORE_CASE))
+        return VENUE_MATCH_REGEX.matches(t)
     }
 }
 
@@ -316,64 +331,66 @@ object TimetableParser {
 object SlotTimings {
     data class Timing(val dayOfWeek: Int, val startTime: String, val endTime: String)
 
-    fun isSlot(text: String): Boolean {
-        val t = text.trim().uppercase()
-        return t.matches(Regex("""^[A-G][12]\d?$""")) ||
-            t.matches(Regex("""^T[A-G][12]?$""")) ||
-            t.matches(Regex("""^L\d{1,2}$""")) ||
-            t.matches(Regex("""^[A-G]\d{2}$"""))
+    private val SLOT_THEORY_REGEX = Regex("""^[A-G][12]\d?$""")
+    private val SLOT_TUTORIAL_REGEX = Regex("""^T[A-G][12]?$""")
+    private val SLOT_LAB_REGEX = Regex("""^L\d{1,2}$""")
+    private val SLOT_EXT_REGEX = Regex("""^[A-G]\d{2}$""")
+
+    // ponytail: prebuilt lookup map avoids per-call when-branch List allocation
+    private val TIMING_MAP: Map<String, List<Timing>> = buildMap {
+        fun add(timing: Timing, vararg slots: String) {
+            val list = listOf(timing)
+            for (s in slots) put(s, list)
+        }
+        add(Timing(1, "08:30", "10:00"), "A1", "A11")
+        add(Timing(3, "08:30", "10:00"), "A12")
+        add(Timing(5, "08:30", "10:00"), "A13")
+        add(Timing(1, "10:05", "11:35"), "B1", "B11")
+        add(Timing(3, "10:05", "11:35"), "B12")
+        add(Timing(5, "10:05", "11:35"), "B13")
+        add(Timing(1, "11:40", "13:10"), "C1", "C11")
+        add(Timing(3, "11:40", "13:10"), "C12")
+        add(Timing(5, "11:40", "13:10"), "C13")
+        add(Timing(2, "08:30", "10:00"), "D1", "D11")
+        add(Timing(4, "08:30", "10:00"), "D12")
+        add(Timing(6, "08:30", "10:00"), "D13")
+        add(Timing(2, "10:05", "11:35"), "E1", "E11")
+        add(Timing(4, "10:05", "11:35"), "E12")
+        add(Timing(6, "10:05", "11:35"), "E13")
+        add(Timing(2, "11:40", "13:10"), "F1", "F11")
+        add(Timing(4, "11:40", "13:10"), "F12")
+        add(Timing(6, "11:40", "13:10"), "F13")
+        add(Timing(1, "13:15", "14:45"), "A2", "A21")
+        add(Timing(3, "13:15", "14:45"), "A22")
+        add(Timing(5, "13:15", "14:45"), "A23")
+        add(Timing(2, "13:15", "14:45"), "D2", "D21")
+        add(Timing(4, "13:15", "14:45"), "D22")
+        add(Timing(6, "13:15", "14:45"), "D23")
+        add(Timing(1, "14:50", "16:20"), "A14", "L31", "L32")
+        add(Timing(2, "14:50", "16:20"), "E14", "L37", "L38")
+        add(Timing(3, "14:50", "16:20"), "B14", "L43", "L44")
+        add(Timing(4, "14:50", "16:20"), "F14", "L49", "L50")
+        add(Timing(5, "14:50", "16:20"), "C14", "L55", "L56")
+        add(Timing(1, "16:25", "17:55"), "B2", "B21", "L33", "L34")
+        add(Timing(2, "16:25", "17:55"), "E2", "E21")
+        add(Timing(3, "16:25", "17:55"), "B22")
+        add(Timing(4, "16:25", "17:55"), "E22")
+        add(Timing(5, "16:25", "17:55"), "B23")
+        add(Timing(1, "18:00", "19:30"), "C2", "C21")
+        add(Timing(2, "18:00", "19:30"), "F2", "F21")
+        add(Timing(3, "18:00", "19:30"), "A24")
+        add(Timing(4, "18:00", "19:30"), "F22")
+        add(Timing(5, "18:00", "19:30"), "B24")
     }
 
-    // ponytail: standard VIT FFCS slot timing mapping
-    fun getTimings(slot: String): List<Timing> {
-        val s = slot.trim().uppercase()
-        return when (s) {
-            "A1", "A11" -> listOf(Timing(1, "08:30", "10:00"))
-            "A12" -> listOf(Timing(3, "08:30", "10:00"))
-            "A13" -> listOf(Timing(5, "08:30", "10:00"))
-            "B1", "B11" -> listOf(Timing(1, "10:05", "11:35"))
-            "B12" -> listOf(Timing(3, "10:05", "11:35"))
-            "B13" -> listOf(Timing(5, "10:05", "11:35"))
-            "C1", "C11" -> listOf(Timing(1, "11:40", "13:10"))
-            "C12" -> listOf(Timing(3, "11:40", "13:10"))
-            "C13" -> listOf(Timing(5, "11:40", "13:10"))
-            "D1", "D11" -> listOf(Timing(2, "08:30", "10:00"))
-            "D12" -> listOf(Timing(4, "08:30", "10:00"))
-            "D13" -> listOf(Timing(6, "08:30", "10:00"))
-            "E1", "E11" -> listOf(Timing(2, "10:05", "11:35"))
-            "E12" -> listOf(Timing(4, "10:05", "11:35"))
-            "E13" -> listOf(Timing(6, "10:05", "11:35"))
-            "F1", "F11" -> listOf(Timing(2, "11:40", "13:10"))
-            "F12" -> listOf(Timing(4, "11:40", "13:10"))
-            "F13" -> listOf(Timing(6, "11:40", "13:10"))
-            "A2", "A21" -> listOf(Timing(1, "13:15", "14:45"))
-            "A22" -> listOf(Timing(3, "13:15", "14:45"))
-            "A23" -> listOf(Timing(5, "13:15", "14:45"))
-            "D2", "D21" -> listOf(Timing(2, "13:15", "14:45"))
-            "D22" -> listOf(Timing(4, "13:15", "14:45"))
-            "D23" -> listOf(Timing(6, "13:15", "14:45"))
-            "A14" -> listOf(Timing(1, "14:50", "16:20"))
-            "E14" -> listOf(Timing(2, "14:50", "16:20"))
-            "B14" -> listOf(Timing(3, "14:50", "16:20"))
-            "F14" -> listOf(Timing(4, "14:50", "16:20"))
-            "C14" -> listOf(Timing(5, "14:50", "16:20"))
-            "B2", "B21" -> listOf(Timing(1, "16:25", "17:55"))
-            "E2", "E21" -> listOf(Timing(2, "16:25", "17:55"))
-            "B22" -> listOf(Timing(3, "16:25", "17:55"))
-            "E22" -> listOf(Timing(4, "16:25", "17:55"))
-            "B23" -> listOf(Timing(5, "16:25", "17:55"))
-            "C2", "C21" -> listOf(Timing(1, "18:00", "19:30"))
-            "F2", "F21" -> listOf(Timing(2, "18:00", "19:30"))
-            "A24" -> listOf(Timing(3, "18:00", "19:30"))
-            "F22" -> listOf(Timing(4, "18:00", "19:30"))
-            "B24" -> listOf(Timing(5, "18:00", "19:30"))
-            "L31", "L32" -> listOf(Timing(1, "14:50", "16:20"))
-            "L33", "L34" -> listOf(Timing(1, "16:25", "17:55"))
-            "L37", "L38" -> listOf(Timing(2, "14:50", "16:20"))
-            "L43", "L44" -> listOf(Timing(3, "14:50", "16:20"))
-            "L49", "L50" -> listOf(Timing(4, "14:50", "16:20"))
-            "L55", "L56" -> listOf(Timing(5, "14:50", "16:20"))
-            else -> emptyList()
-        }
+    fun isSlot(text: String): Boolean {
+        val t = text.trim().uppercase()
+        return SLOT_THEORY_REGEX.matches(t) ||
+            SLOT_TUTORIAL_REGEX.matches(t) ||
+            SLOT_LAB_REGEX.matches(t) ||
+            SLOT_EXT_REGEX.matches(t)
     }
+
+    fun getTimings(slot: String): List<Timing> =
+        TIMING_MAP[slot.trim().uppercase()].orEmpty()
 }

@@ -26,16 +26,18 @@ object CalendarAgenda {
             val s = runStart ?: return
             val e = runEnd ?: return
             val l = last ?: return
+            val startIso = s.toString()
+            val endIso = e.toString()
             rows.add(
                 AgendaRow(
-                    startIso = s.toString(),
-                    endIso = e.toString(),
+                    startIso = startIso,
+                    endIso = endIso,
                     dayCount = ChronoUnit.DAYS.between(s, e).toInt() + 1,
                     title = l.title,
                     subtitle = l.subtitle,
                     category = l.eventCategory,
-                    isPast = e.toString() < todayIso,
-                    isToday = s.toString() <= todayIso && todayIso <= e.toString(),
+                    isPast = endIso < todayIso,
+                    isToday = startIso <= todayIso && todayIso <= endIso,
                 )
             )
             runStart = null; runEnd = null; last = null

@@ -7,6 +7,14 @@ object GradeHistoryParser {
     private val examMonthLooseRegex = Regex("""(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|\d{4}|SEM)""", RegexOption.IGNORE_CASE)
     private val gradeTokenRegex = Regex("""^(?:[SABCDEFPNW]|PASS|FAIL)$""", RegexOption.IGNORE_CASE)
     private val numberRegex = Regex("""^\d+(?:\.\d+)?$""")
+    private val legacyCgpaRegex = Regex("""(?:CGPA|Cumulative\s+Grade\s+Point\s+Average)[^<0-9]*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
+    private val legacyCreditsRegRegex = Regex("""Credits?\s+Registered[^<0-9]*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
+    private val legacyCreditsEarnedRegex = Regex("""Credits?\s+Earned[^<0-9]*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
+    private val nonEarnedGrades = setOf("F", "N", "FAIL", "W")
+    private val gradePoints = mapOf(
+        "S" to 10.0, "A" to 9.0, "B" to 8.0, "C" to 7.0,
+        "D" to 6.0, "E" to 5.0, "F" to 0.0,
+    )
 
     /**
      * Parses VTOP StudentGradeHistory HTML.
@@ -34,12 +42,13 @@ object GradeHistoryParser {
         var boxFound = false
 
         val rows = HtmlTables.rows(html)
+        // Strip level-1 attempt rows and tokenize cells once across summary + course passes.
+        val topRows = rows.mapNotNull { m ->
+            if (m.tag.contains("level1", ignoreCase = true)) null
+            else HtmlTables.cells(m.body).takeIf { it.isNotEmpty() }
+        }
         var boxHeaderSeen = false
-        for (m in rows) {
-            val tag = m.tag
-            val cells = HtmlTables.cells(m.body)
-            if (cells.isEmpty()) continue
-            if (tag.contains("level1", ignoreCase = true)) continue
+        for (cells in topRows) {
             if (cells[0].equals("Total Credits", ignoreCase = true)) {
                 curriculumCredits = cells.getOrNull(1)?.toDoubleOrNull() ?: 0.0
                 continue
@@ -64,12 +73,9 @@ object GradeHistoryParser {
             }
         }
 
-        // 2. Course rows from the top-level table only (level-1 attempt breakdowns skipped).
+        // 2. Course rows from the top-level table only (level-1 attempt breakdowns excluded).
         val courseEntries = mutableListOf<GradeHistoryEntry>()
-        for (m in rows) {
-            val tag = m.tag
-            if (tag.contains("level1", ignoreCase = true)) continue
-            val cells = HtmlTables.cells(m.body)
+        for (cells in topRows) {
             if (cells.size < 4) continue
 
             val codeIdx = cells.indexOfFirst {
@@ -79,7 +85,7 @@ object GradeHistoryParser {
             val courseCode = cells[codeIdx].uppercase()
 
             val examIdx = cells.indices.firstOrNull { idx ->
-                idx > codeIdx && cells[idx].contains(Regex("""(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[\\s-]*[12][0-9]{3}""", RegexOption.IGNORE_CASE))
+                idx > codeIdx && cells[idx].contains(examMonthRegex)
             } ?: -1
 
             val gradeIdx: Int
@@ -90,11 +96,11 @@ object GradeHistoryParser {
                 creditIdx = examIdx - 2
             } else {
                 gradeIdx = cells.indices.firstOrNull { idx ->
-                    idx > codeIdx && cells[idx].matches(Regex("""^(?:[SABCDEFPNW]|PASS|FAIL)$""", RegexOption.IGNORE_CASE)) && cells[idx].length <= 4
+                    idx > codeIdx && cells[idx].matches(gradeTokenRegex) && cells[idx].length <= 4
                 } ?: -1
                 if (gradeIdx < 0) continue
                 creditIdx = cells.indices.firstOrNull { idx ->
-                    idx > codeIdx && idx != gradeIdx && cells[idx].matches(Regex("""^\d+(?:\.\d+)?$""")) && (cells[idx].toDoubleOrNull() ?: 0.0) in 0.5..20.0
+                    idx > codeIdx && idx != gradeIdx && cells[idx].matches(numberRegex) && (cells[idx].toDoubleOrNull() ?: 0.0) in 0.5..20.0
                 } ?: -1
             }
             val grade = cells[gradeIdx].uppercase()
@@ -135,9 +141,9 @@ object GradeHistoryParser {
 
         // 3. Fallbacks if the CGPA box wasn't found: legacy inline "CGPA :" text, then rows.
         if (!boxFound) {
-            val legacyCgpa = extractDecimal(html, """(?:CGPA|Cumulative\s+Grade\s+Point\s+Average)""")
-            creditsRegistered = extractDecimal(html, """Credits?\s+Registered""")
-            creditsEarned = extractDecimal(html, """Credits?\s+Earned""")
+            val legacyCgpa = extractDecimal(html, legacyCgpaRegex)
+            creditsRegistered = extractDecimal(html, legacyCreditsRegRegex)
+            creditsEarned = extractDecimal(html, legacyCreditsEarnedRegex)
             cgpa = legacyCgpa
             sCount = courseEntries.count { it.grade == "S" }
             aCount = courseEntries.count { it.grade == "A" }
@@ -148,26 +154,16 @@ object GradeHistoryParser {
             fCount = courseEntries.count { it.grade == "F" }
             if (creditsEarned <= 0.0 && courseEntries.isNotEmpty()) {
                 creditsEarned = courseEntries
-                    .filter { it.grade !in listOf("F", "N", "FAIL", "W") }
+                    .filter { it.grade !in nonEarnedGrades }
                     .sumOf { it.credits }
             }
             if (cgpa <= 0.0 && courseEntries.isNotEmpty()) {
                 var totalQualityPoints = 0.0
                 var gradedCredits = 0.0
                 for (entry in courseEntries) {
-                    val point = when (entry.grade) {
-                        "S" -> 10.0
-                        "A" -> 9.0
-                        "B" -> 8.0
-                        "C" -> 7.0
-                        "D" -> 6.0
-                        "E" -> 5.0
-                        else -> 0.0
-                    }
-                    if (entry.grade in listOf("S", "A", "B", "C", "D", "E", "F")) {
-                        totalQualityPoints += entry.credits * point
-                        gradedCredits += entry.credits
-                    }
+                    val point = gradePoints[entry.grade] ?: continue
+                    totalQualityPoints += entry.credits * point
+                    gradedCredits += entry.credits
                 }
                 if (gradedCredits > 0.0) {
                     cgpa = (totalQualityPoints / gradedCredits * 100.0).toLong() / 100.0
@@ -197,8 +193,7 @@ object GradeHistoryParser {
         return summary to courseEntries
     }
 
-    private fun extractDecimal(html: String, prefixPattern: String): Double {
-        val regex = Regex("""$prefixPattern[^<0-9]*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
+    private fun extractDecimal(html: String, regex: Regex): Double {
         val match = regex.find(html) ?: return 0.0
         return match.groupValues[1].toDoubleOrNull() ?: 0.0
     }

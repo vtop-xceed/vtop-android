@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -28,11 +27,9 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -40,13 +37,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.AutoUpdateState
 import dev.vtoppp.vtop.data.AutoUpdater
 import dev.vtoppp.vtop.data.ReleaseInfo
+import dev.vtoppp.vtop.ui.theme.AppDimens
+import dev.vtoppp.vtop.ui.theme.AppModalBottomSheet
 import dev.vtoppp.vtop.ui.theme.Motion
 import java.io.File
 
@@ -61,100 +59,87 @@ fun WhatsNewSheet(
     updater: AutoUpdater,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val state = updater.state
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
+        // Big "What's New" Header
+        Text(
+            text = "What's New",
+            style = MaterialTheme.typography.headlineLargeEmphasized.copy(
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.5).sp,
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+
+        Text(
+            text = "Release ${release.tag} · ${release.title}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 4.dp, bottom = AppDimens.CardPadding),
+        )
+
+        // Animated Download / Status Card
+        DownloadAnimationCard(
+            release = release,
+            state = state,
+            onDownload = { updater.startDownload(release) },
+            onInstall = { file -> updater.install(release, file) },
+        )
+
+        Spacer(Modifier.height(AppDimens.SectionGap))
+
+        Text(
+            text = "Release Highlights",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(AppDimens.CompactGap))
+
+        // Scrollable Release Notes
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
+                .height(220.dp),
         ) {
-            // Big "What's New" Header
-            Text(
-                text = "What's New",
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.5).sp,
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
-            Text(
-                text = "Release ${release.tag} · ${release.title}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
-            )
-
-            // Animated Download / Status Card
-            DownloadAnimationCard(
-                release = release,
-                state = state,
-                onDownload = { updater.startDownload(release) },
-                onInstall = { file -> updater.install(release, file) },
-            )
-
-            Spacer(Modifier.height(20.dp))
-
-            Text(
-                text = "Release Highlights",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            // Scrollable Release Notes
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(220.dp),
+                    .padding(AppDimens.CardPadding)
+                    .verticalScroll(rememberScrollState()),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    val rawNotes = release.notes?.trim()
-                    if (rawNotes.isNullOrBlank()) {
-                        Text(
-                            text = "• State machine optimizations and concurrency fixes\n• UI responsiveness improvements\n• Bug fixes and battery efficiency enhancements",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 22.sp,
-                        )
-                    } else {
-                        Text(
-                            text = rawNotes,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 22.sp,
-                        )
-                    }
+                val rawNotes = release.notes?.trim()
+                if (rawNotes.isNullOrBlank()) {
+                    Text(
+                        text = "• State machine optimizations and concurrency fixes\n• UI responsiveness improvements\n• Bug fixes and battery efficiency enhancements",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 22.sp,
+                    )
+                } else {
+                    Text(
+                        text = rawNotes,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 22.sp,
+                    )
                 }
             }
+        }
 
-            Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(AppDimens.SectionGap))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                TextButton(onClick = onDismiss) {
-                    Text("Close")
-                }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap, Alignment.End),
+        ) {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                Text("Close")
             }
         }
     }
@@ -169,14 +154,14 @@ private fun DownloadAnimationCard(
     onInstall: (File) -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(AppDimens.CardPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             when (state) {
@@ -263,7 +248,7 @@ private fun DownloadAnimationCard(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
@@ -280,6 +265,7 @@ private fun DownloadAnimationCard(
                         }
                         Button(
                             onClick = { onInstall(state.file) },
+                            shapes = ButtonDefaults.shapes(),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                             ),
@@ -293,7 +279,7 @@ private fun DownloadAnimationCard(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
@@ -308,7 +294,7 @@ private fun DownloadAnimationCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Button(onClick = onDownload) {
+                        Button(onClick = onDownload, shapes = ButtonDefaults.shapes()) {
                             Text("Retry")
                         }
                     }
@@ -318,7 +304,7 @@ private fun DownloadAnimationCard(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
@@ -333,7 +319,7 @@ private fun DownloadAnimationCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Button(onClick = onDownload) {
+                        Button(onClick = onDownload, shapes = ButtonDefaults.shapes()) {
                             Text("Download")
                         }
                     }

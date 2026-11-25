@@ -9,7 +9,6 @@ import androidx.compose.runtime.mutableStateOf
 import okhttp3.OkHttpClient
 import org.json.JSONObject
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 /**
  * One GitHub release fact the updater needs. [version] is the tag with any
@@ -59,10 +58,13 @@ class AutoUpdater(context: Context) {
     /** [Later] makes this session stop nagging about one particular release. */
     private var dismissedTags = mutableSetOf<String>()
 
-    private val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val http: OkHttpClient by lazy {
+        sharedLightweightHttpClient(connectTimeoutSec = 15, readTimeoutSec = 30)
+    }
+
+    private val appVersion: String by lazy {
+        appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: ""
+    }
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -239,8 +241,7 @@ class AutoUpdater(context: Context) {
     private fun apkFileFor(release: ReleaseInfo): File =
         File(File(appContext.cacheDir, "updates"), release.version + ".apk")
 
-    private fun currentVersion(): String =
-        appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: ""
+    private fun currentVersion(): String = appVersion
 
     private fun getUserAgent(): String = "vtop-android/" + currentVersion()
 

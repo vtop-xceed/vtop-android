@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,12 +25,10 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +48,8 @@ import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.GitHubCommunityClient
 import dev.vtoppp.vtop.data.GitHubContributor
 import dev.vtoppp.vtop.data.GitHubIssue
+import dev.vtoppp.vtop.ui.theme.AppDimens
+import dev.vtoppp.vtop.ui.theme.AppModalBottomSheet
 
 private const val GITHUB_REPO_URL = "https://github.com/vtop-xceed/vtop-android"
 private const val GITHUB_ISSUES_URL = "https://github.com/vtop-xceed/vtop-android/issues"
@@ -65,7 +64,6 @@ fun ContributeSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var issues by remember { mutableStateOf<List<GitHubIssue>?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -86,180 +84,133 @@ fun ContributeSheet(
         )
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
+        CommunitySheetHeader(
+            iconRes = R.drawable.ic_code,
+            title = "Contribute to VTOP",
+            subtitle = "Open issues & ways to get involved",
+        )
+
+        Spacer(Modifier.height(AppDimens.ItemGap))
+
+        // Appreciation Card
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Text(
+                text = "Any and all help is very much appreciated! Whether it's reporting bugs, suggesting improvements, fixing issues, or contributing code to the project.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(AppDimens.CardPadding),
+                lineHeight = 20.sp,
+            )
+        }
+
+        Spacer(Modifier.height(AppDimens.CardPadding))
+
+        when {
+            loading -> {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                        .fillMaxWidth()
+                        .height(200.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_code),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-
-                Spacer(Modifier.width(12.dp))
-
-                Column {
-                    Text(
-                        text = "Contribute to VTOP",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = "Open issues & ways to get involved",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-
-            // Appreciation Card
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = "Any and all help is very much appreciated! Whether it's reporting bugs, suggesting improvements, fixing issues, or contributing code to the project.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(14.dp),
-                    lineHeight = 20.sp,
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            when {
-                loading -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            LoadingIndicator(modifier = Modifier.size(36.dp))
-                            Text(
-                                "Fetching open GitHub issues…",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-
-                error != null -> {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
                     ) {
+                        LoadingIndicator(modifier = Modifier.size(36.dp))
                         Text(
-                            text = "Could not fetch issues right now.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Button(onClick = { openUrl(context, GITHUB_ISSUES_URL) }) {
-                            Text("Open Issues on GitHub")
-                        }
-                    }
-                }
-
-                issues.isNullOrEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "No open issues found right now!\nFeel free to open a new one on GitHub.",
-                            style = MaterialTheme.typography.bodyMedium,
+                            "Fetching open GitHub issues…",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
+            }
 
-                else -> {
+            error != null -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = AppDimens.ScreenBottom),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(
-                        text = "Open Issues (${issues?.size})",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "Could not fetch issues right now.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
                     )
-
-                    Spacer(Modifier.height(8.dp))
-
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(280.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    Spacer(Modifier.height(AppDimens.ItemGap))
+                    Button(
+                        onClick = { openUrl(context, GITHUB_ISSUES_URL) },
+                        shapes = ButtonDefaults.shapes(),
                     ) {
-                        items(issues ?: emptyList(), key = { it.id }) { issue ->
-                            IssueRow(issue = issue, onClick = { openUrl(context, issue.htmlUrl) })
-                        }
+                        Text("Open Issues on GitHub")
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedButton(onClick = { openUrl(context, GITHUB_ISSUES_URL) }) {
-                    Text("View on GitHub")
+            issues.isNullOrEmpty() -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "No open issues found right now!\nFeel free to open a new one on GitHub.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+            }
 
-                TextButton(onClick = onDismiss) {
-                    Text("Close")
+            else -> {
+                Text(
+                    text = "Open Issues (${issues?.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(Modifier.height(AppDimens.CompactGap))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp),
+                    verticalArrangement = Arrangement.spacedBy(AppDimens.CompactGap),
+                ) {
+                    items(issues ?: emptyList(), key = { it.id }) { issue ->
+                        IssueRow(issue = issue, onClick = { openUrl(context, issue.htmlUrl) })
+                    }
                 }
             }
         }
+
+        Spacer(Modifier.height(AppDimens.CardPadding))
+
+        CommunitySheetFooter(
+            onGitHub = { openUrl(context, GITHUB_ISSUES_URL) },
+            onDismiss = onDismiss,
+        )
     }
 }
 
 @Composable
 private fun IssueRow(issue: GitHubIssue, onClick: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(AppDimens.CompactPadding)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -297,7 +248,7 @@ private fun IssueRow(issue: GitHubIssue, onClick: () -> Unit) {
                 ) {
                     issue.labels.take(3).forEach { label ->
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = MaterialTheme.shapes.small,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         ) {
                             Text(
@@ -323,7 +274,6 @@ fun ContributorsSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var contributors by remember { mutableStateOf<List<GitHubContributor>?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -343,159 +293,176 @@ fun ContributorsSheet(
         )
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
+        CommunitySheetHeader(
+            iconRes = R.drawable.ic_group,
+            title = "Project Contributors",
+            subtitle = "The people building VTOP for students",
+        )
+
+        Spacer(Modifier.height(AppDimens.ItemGap))
+
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Text(
+                text = "A sincere tribute and thank you to every contributor who helps build, test, and improve this open-source application!",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(AppDimens.CardPadding),
+                lineHeight = 20.sp,
+            )
+        }
+
+        Spacer(Modifier.height(AppDimens.CardPadding))
+
+        when {
+            loading -> {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                        .fillMaxWidth()
+                        .height(200.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_group),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
+                    ) {
+                        LoadingIndicator(modifier = Modifier.size(36.dp))
+                        Text(
+                            "Loading contributors…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+            }
 
-                Spacer(Modifier.width(12.dp))
-
-                Column {
+            error != null -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = AppDimens.ScreenBottom),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(
-                        text = "Project Contributors",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        text = "Could not load contributors right now.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
                     )
+                    Spacer(Modifier.height(AppDimens.ItemGap))
+                    Button(
+                        onClick = { openUrl(context, GITHUB_REPO_URL) },
+                        shapes = ButtonDefaults.shapes(),
+                    ) {
+                        Text("Open Repository")
+                    }
+                }
+            }
+
+            contributors.isNullOrEmpty() -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
-                        text = "The people building VTOP for students",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "No contributors found.",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
-
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = "A sincere tribute and thank you to every contributor who helps build, test, and improve this open-source application!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(14.dp),
-                    lineHeight = 20.sp,
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            when {
-                loading -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            LoadingIndicator(modifier = Modifier.size(36.dp))
-                            Text(
-                                "Loading contributors…",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-
-                error != null -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            text = "Could not load contributors right now.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Button(onClick = { openUrl(context, GITHUB_REPO_URL) }) {
-                            Text("Open Repository")
-                        }
-                    }
-                }
-
-                contributors.isNullOrEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "No contributors found.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            else -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(260.dp),
+                    verticalArrangement = Arrangement.spacedBy(AppDimens.CompactGap),
+                ) {
+                    items(contributors ?: emptyList(), key = { it.id }) { contributor ->
+                        ContributorRow(
+                            contributor = contributor,
+                            onClick = { openUrl(context, contributor.htmlUrl) },
                         )
                     }
                 }
-
-                else -> {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(260.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(contributors ?: emptyList(), key = { it.id }) { contributor ->
-                            ContributorRow(
-                                contributor = contributor,
-                                onClick = { openUrl(context, contributor.htmlUrl) },
-                            )
-                        }
-                    }
-                }
             }
+        }
 
-            Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(AppDimens.CardPadding))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedButton(onClick = { openUrl(context, GITHUB_REPO_URL) }) {
-                    Text("View on GitHub")
-                }
+        CommunitySheetFooter(
+            onGitHub = { openUrl(context, GITHUB_REPO_URL) },
+            onDismiss = onDismiss,
+        )
+    }
+}
 
-                TextButton(onClick = onDismiss) {
-                    Text("Close")
-                }
-            }
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CommunitySheetHeader(
+    iconRes: Int,
+    title: String,
+    subtitle: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        Spacer(Modifier.width(AppDimens.ItemGap))
+
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmallEmphasized,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CommunitySheetFooter(
+    onGitHub: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(onClick = onGitHub, shapes = ButtonDefaults.shapes()) {
+            Text("View on GitHub")
+        }
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+            Text("Close")
         }
     }
 }
@@ -503,14 +470,14 @@ fun ContributorsSheet(
 @Composable
 private fun ContributorRow(contributor: GitHubContributor, onClick: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(AppDimens.CompactPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Initials avatar
@@ -529,7 +496,7 @@ private fun ContributorRow(contributor: GitHubContributor, onClick: () -> Unit) 
                 )
             }
 
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(AppDimens.ItemGap))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(

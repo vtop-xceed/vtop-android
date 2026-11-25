@@ -3,10 +3,8 @@ package dev.vtoppp.vtop.ui.home
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,10 +13,9 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,12 +23,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -40,7 +35,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,21 +49,30 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.AttendanceEntry
 import dev.vtoppp.vtop.data.AttendanceSession
 import dev.vtoppp.vtop.data.SemesterAttended
 import dev.vtoppp.vtop.data.TimetableEntry
 import dev.vtoppp.vtop.data.UserDatabase
-import dev.vtoppp.vtop.ui.theme.AttendanceGreen
+import dev.vtoppp.vtop.ui.theme.AppDimens
+import dev.vtoppp.vtop.ui.theme.AppDivider
+import dev.vtoppp.vtop.ui.theme.AppPageHeader
 import dev.vtoppp.vtop.ui.theme.Motion
+import dev.vtoppp.vtop.ui.theme.StatusColors
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+private val SESSION_DATE_FORMATTER = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
+private val REFRESH_TIME_FORMATTER = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+private val REFRESH_DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,9 +89,17 @@ internal fun AttendancePage(
     onLoadCourseDetails: (AttendanceEntry) -> Unit = {},
     loadingCourseKeys: Set<String> = emptySet(),
 ) {
-    val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
-    val sessionsByCourse = remember(sessions) {
-        sessions.groupBy { it.courseCode.uppercase() }
+    val isSyncing by UserDatabase.isSyncingFlow.collectAsStateWithLifecycle()
+    val courseSessionsByKey = remember(entries, sessions) {
+        val byCourse = sessions.groupBy { it.courseCode.uppercase() }
+        entries.associate { entry ->
+            val codeKey = entry.courseCode.uppercase()
+            val key = "${entry.semesterSubId}_$codeKey"
+            val filtered = byCourse[codeKey].orEmpty().filter {
+                it.semesterSubId.isBlank() || entry.semesterSubId.isBlank() || it.semesterSubId == entry.semesterSubId
+            }
+            key to filtered
+        }
     }
     val lastUpdatedMs = remember(entries, sessions, selectedSemesterId) {
         val entryMax = entries.maxOfOrNull { it.updatedAtMs } ?: 0L
@@ -112,53 +123,33 @@ internal fun AttendancePage(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp)
-                    .padding(top = 12.dp, bottom = 24.dp),
+                    .padding(horizontal = AppDimens.ScreenHorizontal)
+                    .padding(top = AppDimens.ScreenTop, bottom = AppDimens.ScreenBottom),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Surface(
-                        onClick = onBack,
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.size(40.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_arrow_back),
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(14.dp))
-                    Text(
-                        text = "Attendance",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = formatLastRefreshTimestamp(lastUpdatedMs),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.85f),
-                        maxLines = 1,
-                        textAlign = TextAlign.End,
-                    )
-                }
+                AppPageHeader(
+                    title = "Attendance",
+                    onBack = onBack,
+                    trailing = {
+                        Text(
+                            text = formatLastRefreshTimestamp(lastUpdatedMs),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            textAlign = TextAlign.End,
+                        )
+                    },
+                )
                 if (semesterOptions.isNotEmpty()) {
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(AppDimens.CompactGap))
                     SemesterFilterRow(
                         options = semesterOptions,
                         selectedId = selectedSemesterId,
                         onSelect = onSemesterChange,
                     )
+                    Spacer(Modifier.height(AppDimens.CompactGap))
+                } else {
+                    Spacer(Modifier.height(AppDimens.ItemGap))
                 }
-                Spacer(Modifier.height(14.dp))
                 if (entries.isEmpty()) {
                     Text(
                         text = "Nothing cached yet — pull down to sync.",
@@ -167,12 +158,11 @@ internal fun AttendancePage(
                     )
                     return@Column
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(AppDimens.CompactGap)) {
                     entries.forEach { entry ->
-                        val courseSessions = sessionsByCourse[entry.courseCode.uppercase()].orEmpty()
-                            .filter { it.semesterSubId.isBlank() || entry.semesterSubId.isBlank() || it.semesterSubId == entry.semesterSubId }
-                        val faculty = faculties[entry.courseCode]?.takeIf { it.isNotBlank() } ?: entry.facultyName
                         val courseKey = "${entry.semesterSubId}_${entry.courseCode.uppercase()}"
+                        val courseSessions = courseSessionsByKey[courseKey].orEmpty()
+                        val faculty = faculties[entry.courseCode]?.takeIf { it.isNotBlank() } ?: entry.facultyName
                         AttendanceDetailCard(
                             entry = entry,
                             faculty = faculty,
@@ -204,80 +194,23 @@ private fun AttendanceDetailCard(
     }
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
         label = "chevronRotation",
     )
 
     val surfaceColor = MaterialTheme.colorScheme.surface
     val isDark = surfaceColor.luminance() < 0.5f
     val isAmoled = isDark && surfaceColor == Color.Black
-
     val percentage = entry.attendancePercentage.toInt()
-    val isDanger = percentage < 75
-    val isWarning = percentage in 75..79
-    val targetStatBg = when {
-        isDanger -> when {
-            !isDark -> Color(0xFFFEE2E2)
-            isAmoled -> Color(0xFF260A0A)
-            else -> Color(0xFF381414)
-        }
-        isWarning -> when {
-            !isDark -> Color(0xFFFEF3C7)
-            isAmoled -> Color(0xFF261904)
-            else -> Color(0xFF382808)
-        }
-        else -> when {
-            !isDark -> Color(0xFFDCFCE7)
-            isAmoled -> Color(0xFF072111)
-            else -> Color(0xFF0F2E1B)
-        }
-    }
-    val targetStatBorder = when {
-        isDanger -> Color(0xFFEF4444).copy(alpha = if (isAmoled) 0.65f else 0.45f)
-        isWarning -> Color(0xFFF59E0B).copy(alpha = if (isAmoled) 0.65f else 0.45f)
-        else -> AttendanceGreen.copy(alpha = if (isAmoled) 0.60f else 0.45f)
-    }
-    val targetStatFg = when {
-        isDanger -> if (!isDark) Color(0xFFB91C1C) else Color(0xFFF87171)
-        isWarning -> if (!isDark) Color(0xFFB45309) else Color(0xFFFBBF24)
-        else -> if (!isDark) Color(0xFF15803D) else Color(0xFF4ADE80)
-    }
-
-    // Morphing animations for badge colors, shape, and card transitions
-    val statBg by animateColorAsState(
-        targetValue = targetStatBg,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "statBgMorph",
-    )
-    val statBorder by animateColorAsState(
-        targetValue = targetStatBorder,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "statBorderMorph",
-    )
-    val statFg by animateColorAsState(
-        targetValue = targetStatFg,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "statFgMorph",
-    )
-    val badgeCornerRadius by animateDpAsState(
-        targetValue = if (isDanger) 10.dp else 14.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "badgeShapeMorph",
-    )
 
     Surface(
         onClick = { expanded = !expanded },
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isAmoled) 0.35f else 0.18f)),
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
-            ),
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()),
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
             // Main row: Left details take all remaining width with ellipsis; Right side holds the prominent stat block & chevron
@@ -290,7 +223,7 @@ private fun AttendanceDetailCard(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 12.dp),
+                        .padding(end = AppDimens.CompactPadding),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Row(
@@ -308,7 +241,7 @@ private fun AttendanceDetailCard(
                         )
                         if (entry.slot.isNotBlank()) {
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = MaterialTheme.shapes.small,
                                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
                             ) {
                                 Text(
@@ -347,46 +280,15 @@ private fun AttendanceDetailCard(
                 // Right Side: Uniform morphing stat block & expand chevron
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.CompactGap),
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(badgeCornerRadius),
-                        color = statBg,
-                        border = BorderStroke(1.dp, statBorder),
+                    AttendanceStatBadge(
+                        percentage = percentage,
+                        attendedClasses = entry.attendedClasses,
+                        totalClasses = entry.totalClasses,
                         modifier = Modifier.width(76.dp),
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 6.dp, vertical = 7.dp),
-                        ) {
-                            AnimatedContent(
-                                targetState = percentage,
-                                transitionSpec = {
-                                    (slideInVertically { height -> height / 2 } + fadeIn(tween(Motion.Fast)))
-                                        .togetherWith(slideOutVertically { height -> -height / 2 } + fadeOut(tween(Motion.Fast)))
-                                },
-                                label = "percentageMorph",
-                            ) { targetPct ->
-                                Text(
-                                    text = "$targetPct%",
-                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
-                                    fontWeight = FontWeight.Black,
-                                    color = statFg,
-                                    textAlign = TextAlign.Center,
-                                )
-                            }
-                            Text(
-                                text = "${entry.attendedClasses}/${entry.totalClasses}",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                fontWeight = FontWeight.Bold,
-                                color = statFg.copy(alpha = 0.85f),
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    }
+                        compact = true,
+                    )
 
                     Icon(
                         painter = painterResource(R.drawable.ic_expand_more),
@@ -401,10 +303,7 @@ private fun AttendanceDetailCard(
 
             // Expanded class history list
             if (expanded) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(top = 10.dp, bottom = 8.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isAmoled) 0.35f else 0.2f),
-                )
+                AppDivider(modifier = Modifier.padding(top = 10.dp, bottom = AppDimens.CompactGap))
 
                 if (sessions.isEmpty()) {
                     Text(
@@ -431,6 +330,76 @@ private fun AttendanceDetailCard(
     }
 }
 
+/** Shared morphing attendance badge used in both [AttendancePage] and [AttendanceSection]. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun AttendanceStatBadge(
+    percentage: Int,
+    attendedClasses: Int,
+    totalClasses: Int,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
+    val tone = StatusColors.attendanceBadge(percentage)
+    val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Color>()
+    val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<Dp>()
+    val statBg by animateColorAsState(targetValue = tone.container, animationSpec = effects, label = "statBgMorph")
+    val statBorder by animateColorAsState(targetValue = tone.border, animationSpec = effects, label = "statBorderMorph")
+    val statFg by animateColorAsState(targetValue = tone.content, animationSpec = effects, label = "statFgMorph")
+    val badgeCornerRadius by animateDpAsState(
+        targetValue = if (percentage < 75) 12.dp else 16.dp,
+        animationSpec = spatial,
+        label = "badgeShapeMorph",
+    )
+
+    Surface(
+        shape = RoundedCornerShape(badgeCornerRadius),
+        color = statBg,
+        border = BorderStroke(1.dp, statBorder),
+        modifier = modifier,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = if (compact) 6.dp else 8.dp,
+                    vertical = if (compact) 7.dp else 6.dp,
+                ),
+        ) {
+            AnimatedContent(
+                targetState = percentage,
+                transitionSpec = {
+                    (slideInVertically { height -> height / 2 } + fadeIn(tween(Motion.Fast)))
+                        .togetherWith(slideOutVertically { height -> -height / 2 } + fadeOut(tween(Motion.Fast)))
+                },
+                label = "percentageMorph",
+            ) { targetPct ->
+                Text(
+                    text = "$targetPct%",
+                    style = if (compact) {
+                        MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp)
+                    } else {
+                        MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp)
+                    },
+                    fontWeight = FontWeight.Black,
+                    color = statFg,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            if (!compact) Spacer(Modifier.height(2.dp))
+            Text(
+                text = "$attendedClasses/$totalClasses",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = if (compact) 10.sp else 10.5.sp),
+                fontWeight = FontWeight.Bold,
+                color = statFg.copy(alpha = 0.85f),
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
 @Composable
 private fun ClassHistoryRow(
     session: AttendanceSession,
@@ -441,27 +410,11 @@ private fun ClassHistoryRow(
     val isAbsent = session.status.contains("absent", ignoreCase = true)
     val isOnDuty = session.status.contains("on duty", ignoreCase = true) || session.status.contains("od", ignoreCase = true)
 
-    val (statusBg, statusFg) = when {
-        isPresent -> {
-            val bg = if (!isDark) Color(0xFFDCFCE7) else if (isAmoled) Color(0xFF072111) else Color(0xFF0F2E1B)
-            val fg = if (!isDark) Color(0xFF15803D) else Color(0xFF4ADE80)
-            bg to fg
-        }
-        isAbsent -> {
-            val bg = if (!isDark) Color(0xFFFEE2E2) else if (isAmoled) Color(0xFF260A0A) else Color(0xFF381414)
-            val fg = if (!isDark) Color(0xFFB91C1C) else Color(0xFFF87171)
-            bg to fg
-        }
-        isOnDuty -> {
-            val bg = if (!isDark) Color(0xFFDBEAFE) else if (isAmoled) Color(0xFF081C36) else Color(0xFF102544)
-            val fg = if (!isDark) Color(0xFF1D4ED8) else Color(0xFF60A5FA)
-            bg to fg
-        }
-        else -> {
-            val bg = if (!isDark) Color(0xFFFEF3C7) else if (isAmoled) Color(0xFF261904) else Color(0xFF382808)
-            val fg = if (!isDark) Color(0xFFB45309) else Color(0xFFFBBF24)
-            bg to fg
-        }
+    val statusTone = when {
+        isPresent -> StatusColors.attendanceTone(100, isDark, isAmoled)
+        isAbsent -> StatusColors.attendanceTone(0, isDark, isAmoled)
+        isOnDuty -> StatusColors.infoTone(isDark, isAmoled)
+        else -> StatusColors.attendanceTone(75, isDark, isAmoled)
     }
 
     Row(
@@ -473,7 +426,7 @@ private fun ClassHistoryRow(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.CompactGap),
         ) {
             Text(
                 text = formatSessionDate(session.date),
@@ -483,7 +436,7 @@ private fun ClassHistoryRow(
             )
             if (session.slot.isNotBlank()) {
                 Surface(
-                    shape = RoundedCornerShape(4.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ) {
                     Text(
@@ -497,14 +450,14 @@ private fun ClassHistoryRow(
             }
         }
         Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = statusBg,
+            shape = MaterialTheme.shapes.small,
+            color = statusTone.container,
         ) {
             Text(
                 text = session.status,
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 fontWeight = FontWeight.Bold,
-                color = statusFg,
+                color = statusTone.content,
                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
             )
         }
@@ -513,10 +466,7 @@ private fun ClassHistoryRow(
 
 private fun formatSessionDate(dateIso: String): String {
     return runCatching {
-        val date = LocalDate.parse(dateIso)
-        val dayName = date.dayOfWeek.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
-        val monthName = date.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
-        "$dayName, ${date.dayOfMonth} $monthName"
+        SESSION_DATE_FORMATTER.format(LocalDate.parse(dateIso))
     }.getOrDefault(dateIso)
 }
 
@@ -524,12 +474,6 @@ internal fun formatLastRefreshTimestamp(updatedAtMs: Long): String {
     if (updatedAtMs <= 0L) return "Not synced"
     val zone = ZoneId.systemDefault()
     val updated = Instant.ofEpochMilli(updatedAtMs).atZone(zone)
-    val today = LocalDate.now(zone)
-    return if (updated.toLocalDate() == today) {
-        val fmt = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
-        "Updated ${fmt.format(updated)}"
-    } else {
-        val fmt = DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US)
-        "Updated ${fmt.format(updated)}"
-    }
+    val fmt = if (updated.toLocalDate() == LocalDate.now(zone)) REFRESH_TIME_FORMATTER else REFRESH_DATE_TIME_FORMATTER
+    return "Updated ${fmt.format(updated)}"
 }

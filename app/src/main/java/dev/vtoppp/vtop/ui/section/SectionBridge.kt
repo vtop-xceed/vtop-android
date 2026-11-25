@@ -395,14 +395,42 @@ internal object SectionBridge {
         })();
     """.trimIndent()
 
+    private val SCRAPE_JS = """
+        (function () {
+          try {
+            var root = document.getElementById('page-wrapper');
+            if (!root) {
+              return '';
+            }
+            var nodes = root.querySelectorAll('select,button,input[type=button],input[type=submit],[onclick]');
+            var index = 0;
+            for (var i = 0; i < nodes.length; i++) {
+              nodes[i].setAttribute('data-vtop-act', String(index));
+              index += 1;
+            }
+            return root.innerHTML;
+          } catch (error) {
+            return '';
+          }
+        })()
+    """.trimIndent()
+
     fun hostPage(fragmentHtml: String): String {
-        val fragment = TRANSLATE_SCRIPT.replace(
-            LINK_TAG.replace(
-                EXTERNAL_SCRIPT.replace(fragmentHtml, ""),
-                "",
-            ),
-            "",
-        )
+        val withoutExternal = if (fragmentHtml.contains("<script", ignoreCase = true)) {
+            EXTERNAL_SCRIPT.replace(fragmentHtml, "")
+        } else {
+            fragmentHtml
+        }
+        val withoutLinks = if (withoutExternal.contains("<link", ignoreCase = true)) {
+            LINK_TAG.replace(withoutExternal, "")
+        } else {
+            withoutExternal
+        }
+        val fragment = if (withoutLinks.contains("translate.google.com", ignoreCase = true)) {
+            TRANSLATE_SCRIPT.replace(withoutLinks, "")
+        } else {
+            withoutLinks
+        }
         return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -423,25 +451,7 @@ $SHIM
 </html>"""
     }
 
-    fun scrapeJs(): String = """
-        (function () {
-          try {
-            var root = document.getElementById('page-wrapper');
-            if (!root) {
-              return '';
-            }
-            var nodes = root.querySelectorAll('select,button,input[type=button],input[type=submit],[onclick]');
-            var index = 0;
-            for (var i = 0; i < nodes.length; i++) {
-              nodes[i].setAttribute('data-vtop-act', String(index));
-              index += 1;
-            }
-            return root.innerHTML;
-          } catch (error) {
-            return '';
-          }
-        })()
-    """.trimIndent()
+    fun scrapeJs(): String = SCRAPE_JS
 
     fun actionJs(actionIndex: Int, value: String?): String {
         val selector = JSONObject.quote("[data-vtop-act=\"$actionIndex\"]")

@@ -21,9 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,21 +51,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.ui.theme.AppDivider
 import dev.vtoppp.vtop.ui.theme.Motion
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import dev.vtoppp.vtop.data.GradeHistoryEntry
 import dev.vtoppp.vtop.data.MarkEntry
-import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+private val examMonthFormatter = DateTimeFormatter.ofPattern("MMM-yyyy", Locale.ENGLISH)
+
 internal fun examEpochDay(examMonth: String?): Long {
     if (examMonth.isNullOrBlank()) return 0L
     return runCatching {
-        YearMonth.parse(examMonth.trim(), DateTimeFormatter.ofPattern("MMM-yyyy", Locale.ENGLISH)).atDay(1).toEpochDay()
+        YearMonth.parse(examMonth.trim(), examMonthFormatter).atDay(1).toEpochDay()
     }.getOrDefault(0L)
 }
 
@@ -346,7 +346,7 @@ internal fun CourseRow(
                 exit = fadeOut(tween(Motion.Fast)),
             ) {
                 Column {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    AppDivider()
                     WeightageBar(components = componentsSorted, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
                     if (terms.size > 1) {
                         Text(
@@ -444,7 +444,7 @@ internal fun MarksOnlyRow(
                 exit = fadeOut(tween(Motion.Fast)),
             ) {
                 Column {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    AppDivider()
                     WeightageBar(components = componentsSorted, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
                     componentsSorted.forEach { c -> MarksLine(c) }
                 }

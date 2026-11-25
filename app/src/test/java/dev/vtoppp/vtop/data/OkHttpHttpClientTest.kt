@@ -11,7 +11,9 @@ import kotlinx.coroutines.withContext
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -369,5 +371,21 @@ class OkHttpHttpClientTest {
             }
             assertEquals("running calls after cancel", 0, transport.runningCalls)
         }
+    }
+
+    @Test
+    fun `sharedLightweightHttpClient shares root pool and dispatcher safely`() {
+        val c1 = sharedLightweightHttpClient(connectTimeoutSec = 4, readTimeoutSec = 4)
+        val c2 = sharedLightweightHttpClient(connectTimeoutSec = 10, readTimeoutSec = 15, useDohFallback = true)
+
+        assertSame(sharedRootHttpClient.connectionPool, c1.connectionPool)
+        assertSame(sharedRootHttpClient.dispatcher, c1.dispatcher)
+        assertSame(sharedRootHttpClient.connectionPool, c2.connectionPool)
+        assertSame(sharedRootHttpClient.dispatcher, c2.dispatcher)
+        assertEquals(4_000, c1.connectTimeoutMillis)
+        assertEquals(15_000, c2.readTimeoutMillis)
+
+        AutoCaptchaClient().close()
+        assertFalse(sharedRootHttpClient.dispatcher.executorService.isShutdown)
     }
 }

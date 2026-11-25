@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -14,15 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,7 +43,7 @@ import androidx.compose.ui.unit.dp
  * Material 3 bottom sheet. Material 3 ships no colour picker in any published
  * artifact, so this is the same interaction built locally.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AccentColorSheet(
     initial: Color,
@@ -58,52 +56,44 @@ fun AccentColorSheet(
     var value by remember { mutableFloatStateOf(start[2]) }
     val picked = Color.hsv(hue, saturation, value)
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                // this ROM draws the navigation bar as a separate window, so the
-                // sheet gets no inset for it: keep the action row clear by hand
-                .padding(start = 24.dp, end = 24.dp, bottom = 64.dp),
-        ) {
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            text = "Accent colour",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(AppDimens.ItemGap))
+        SaturationValueField(
+            hue = hue,
+            saturation = saturation,
+            value = value,
+            picked = picked,
+            onChange = { s, v ->
+                saturation = s
+                value = v
+            },
+        )
+        Spacer(Modifier.height(AppDimens.ItemGap))
+        HueField(hue = hue, onChange = { hue = it })
+        Spacer(Modifier.height(AppDimens.ItemGap))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(picked)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+            )
+            Spacer(Modifier.width(AppDimens.ItemGap))
             Text(
-                text = "Accent colour",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                text = hexOf(picked),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(12.dp))
-            SaturationValueField(
-                hue = hue,
-                saturation = saturation,
-                value = value,
-                picked = picked,
-                onChange = { s, v ->
-                    saturation = s
-                    value = v
-                },
-            )
-            Spacer(Modifier.height(12.dp))
-            HueField(hue = hue, onChange = { hue = it })
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(picked)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = hexOf(picked),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = { onConfirm(picked) }) { Text("Done") }
-            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+            Spacer(Modifier.width(AppDimens.CompactGap))
+            Button(onClick = { onConfirm(picked) }, shapes = ButtonDefaults.shapes()) { Text("Done") }
         }
     }
 }
@@ -121,7 +111,7 @@ private fun SaturationValueField(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1.9f)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(MaterialTheme.shapes.large)
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
                     val s = (change.position.x / size.width).coerceIn(0f, 1f)
@@ -154,7 +144,7 @@ private fun HueField(hue: Float, onChange: (Float) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(36.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(CircleShape)
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
                     onChange(((change.position.x / size.width) * 360f).coerceIn(0f, 359.9f))

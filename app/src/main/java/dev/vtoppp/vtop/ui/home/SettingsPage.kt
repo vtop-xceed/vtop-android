@@ -6,13 +6,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,18 +31,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -51,10 +49,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,9 +62,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -76,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.vtoppp.vtop.BuildConfig
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.SessionKeepAliveManager
@@ -84,12 +80,17 @@ import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.data.UserProfile
 import dev.vtoppp.vtop.data.VtopClient
 import dev.vtoppp.vtop.ui.theme.AccentColorSheet
+import dev.vtoppp.vtop.ui.theme.AppDimens
+import dev.vtoppp.vtop.ui.theme.AppDivider
+import dev.vtoppp.vtop.ui.theme.AppModalBottomSheet
+import dev.vtoppp.vtop.ui.theme.AppPageHeader
 import dev.vtoppp.vtop.ui.theme.AppPalette
+import dev.vtoppp.vtop.ui.theme.AppSectionLabel
 import dev.vtoppp.vtop.ui.theme.ThemeMode
-
-private val DEFAULT_CUSTOM_ACCENT = Color(0xFF6B4EA2)
+import dev.vtoppp.vtop.ui.theme.ThemePreferences
 
 // ponytail: one settings surface for the app; each group sits in its own card
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun SettingsPage(
     authorizedId: String,
@@ -117,7 +118,7 @@ internal fun SettingsPage(
     rebuildLogs: List<String> = emptyList(),
     onPurgeAndRebuild: () -> Unit = {},
 ) {
-    val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
+    val isSyncing by UserDatabase.isSyncingFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirmSignOut by remember { mutableStateOf(false) }
@@ -138,27 +139,20 @@ internal fun SettingsPage(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-                    .padding(bottom = 110.dp),
+                    .padding(horizontal = AppDimens.ScreenHorizontal, vertical = AppDimens.ScreenTop)
+                    .padding(bottom = AppDimens.FloatingNavClearance),
             ) {
-                Text(
-                    text = "Settings",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "Theme, privacy, updates",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
+                AppPageHeader(
+                    title = "Settings",
+                    subtitle = "Theme, privacy, updates",
                 )
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(AppDimens.ItemGap))
 
                 IdentityCard(authorizedId, userProfile, onSignOut = { confirmSignOut = true })
 
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("Appearance")
+                Spacer(Modifier.height(AppDimens.SectionGap))
+                AppSectionLabel("Appearance")
                 SettingsCard {
                     Text(
                         text = "Theme",
@@ -166,17 +160,14 @@ internal fun SettingsPage(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(AppDimens.CompactGap))
                     ThemeModeChips(themeMode = themeMode, onThemeModeChange = onThemeModeChange)
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 14.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                    )
+                    AppDivider(modifier = Modifier.padding(vertical = 14.dp))
                     AccentChoices(currentPalette = currentPalette, onPaletteChange = onPaletteChange)
                 }
 
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("Security")
+                Spacer(Modifier.height(AppDimens.SectionGap))
+                AppSectionLabel("Security")
                 SettingsCard {
                     SettingToggleRow(
                         title = "App lock",
@@ -185,10 +176,7 @@ internal fun SettingsPage(
                         onCheckedChange = onLockEnabledChange,
                     )
                     if (lockEnabled && !pinSet) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 6.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                        )
+                        AppDivider(modifier = Modifier.padding(vertical = 6.dp))
                         ActionRow(
                             icon = null,
                             label = "Add a PIN",
@@ -198,8 +186,8 @@ internal fun SettingsPage(
                     }
                 }
 
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("General")
+                Spacer(Modifier.height(AppDimens.SectionGap))
+                AppSectionLabel("General")
                 SettingsCard {
                     SettingToggleRow(
                         title = "Blur effects",
@@ -207,7 +195,7 @@ internal fun SettingsPage(
                         checked = blurEnabled,
                         onCheckedChange = onBlurEnabledChange,
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    AppDivider()
                     SettingToggleRow(
                         title = "Session keep-alive",
                         subtitle = "Ask OS to ping VTOP every 10–15 mins when awake",
@@ -220,7 +208,7 @@ internal fun SettingsPage(
                             SessionKeepAliveManager.setEnabled(context, enabled, client, scope)
                         },
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    AppDivider()
                     UpdateCheckRow(
                         autoUpdateEnabled = autoUpdateEnabled,
                         onAutoUpdateEnabledChange = onAutoUpdateEnabledChange,
@@ -228,12 +216,12 @@ internal fun SettingsPage(
                     )
                 }
 
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("Add-ons")
+                Spacer(Modifier.height(AppDimens.SectionGap))
+                AppSectionLabel("Add-ons")
                 AddOnCard()
 
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("Data & Storage")
+                Spacer(Modifier.height(AppDimens.SectionGap))
+                AppSectionLabel("Data & Storage")
                 PurgeAndRebuildCard(
                     isRebuilding = isRebuilding,
                     rebuildStep = rebuildStep,
@@ -242,8 +230,8 @@ internal fun SettingsPage(
                     onPurgeAndRebuild = onPurgeAndRebuild,
                 )
 
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("Community & About")
+                Spacer(Modifier.height(AppDimens.SectionGap))
+                AppSectionLabel("Community & About")
                 SettingsCard {
                     ActionRow(
                         icon = R.drawable.ic_share,
@@ -251,23 +239,23 @@ internal fun SettingsPage(
                         trailing = R.drawable.ic_chevron_right,
                         onClick = { showShareSheet = true },
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    AppDivider()
                     ActionRow(
                         icon = R.drawable.ic_code,
                         label = "Contribute to VTOP",
                         trailing = R.drawable.ic_chevron_right,
                         onClick = { showContributeSheet = true },
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    AppDivider()
                     ActionRow(
                         icon = R.drawable.ic_group,
                         label = "Project Contributors",
                         trailing = R.drawable.ic_chevron_right,
                         onClick = { showContributorsSheet = true },
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    AppDivider()
                     InfoRow(label = "Version", value = "v${BuildConfig.VERSION_NAME}")
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    AppDivider()
                     ActionRow(
                         icon = null,
                         label = "Source code",
@@ -276,7 +264,7 @@ internal fun SettingsPage(
                     )
                 }
 
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(AppDimens.ScreenBottom))
             }
         }
     }
@@ -322,7 +310,7 @@ private fun PurgeAndRebuildCard(
     val showVisualizer = isRebuilding || (rebuildLogs.isNotEmpty() && !dismissed)
 
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = if (isRebuilding) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
@@ -331,10 +319,10 @@ private fun PurgeAndRebuildCard(
         } else null,
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(),
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(AppDimens.CardPadding),
         ) {
             if (!showVisualizer) {
                 Row(
@@ -373,23 +361,23 @@ private fun PurgeAndRebuildCard(
                 Spacer(Modifier.height(14.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.CompactGap),
                 ) {
                     OutlinedButton(
                         onClick = { showConfirmDialog = true },
+                        shapes = ButtonDefaults.shapes(),
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = MaterialTheme.colorScheme.error,
                         ),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
                     ) {
                         Text("Purge & Rebuild", fontWeight = FontWeight.SemiBold)
                     }
                     if (rebuildLogs.isNotEmpty()) {
                         OutlinedButton(
                             onClick = { dismissed = false },
-                            shape = RoundedCornerShape(12.dp),
+                            shapes = ButtonDefaults.shapes(),
                         ) {
                             Text("View Logs")
                         }
@@ -423,7 +411,7 @@ private fun PurgeAndRebuildCard(
                             )
                         }
                     }
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(AppDimens.ItemGap))
                     Column(Modifier.weight(1f)) {
                         Text(
                             text = if (isRebuilding) "Rebuilding VTOP database…" else "Database rebuild complete",
@@ -452,21 +440,21 @@ private fun PurgeAndRebuildCard(
                     )
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(AppDimens.ItemGap))
                 LinearWavyProgressIndicator(
                     progress = { rebuildProgress.coerceIn(0f, 1f) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
+                        .clip(MaterialTheme.shapes.extraSmall),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(AppDimens.ItemGap))
 
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
                     border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
                     modifier = Modifier
@@ -492,7 +480,7 @@ private fun PurgeAndRebuildCard(
                 }
 
                 if (!isRebuilding) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(AppDimens.ItemGap))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -500,16 +488,17 @@ private fun PurgeAndRebuildCard(
                     ) {
                         TextButton(
                             onClick = { dismissed = true },
+                            shapes = ButtonDefaults.shapes(),
                         ) {
                             Text("Dismiss logs")
                         }
                         OutlinedButton(
                             onClick = { showConfirmDialog = true },
+                            shapes = ButtonDefaults.shapes(),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 contentColor = MaterialTheme.colorScheme.error,
                             ),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(12.dp),
                         ) {
                             Text("Rebuild again", fontWeight = FontWeight.SemiBold)
                         }
@@ -540,12 +529,16 @@ private fun PurgeAndRebuildCard(
                         showConfirmDialog = false
                         onPurgeAndRebuild()
                     },
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     Text("Purge & Rebuild", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirmDialog = false }) {
+                TextButton(
+                    onClick = { showConfirmDialog = false },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
                     Text("Cancel")
                 }
             },
@@ -553,48 +546,48 @@ private fun PurgeAndRebuildCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SignOutSheet(onDismiss: () -> Unit, onSignOut: () -> Unit) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 24.dp)) {
-            Text(
-                text = "Sign out?",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Your cached VTOP data stays on this device. You will need to sign in again.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                TextButton(
-                    onClick = {
-                        onDismiss()
-                        onSignOut()
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error,
-                    ),
-                ) { Text("Sign out") }
-            }
+    AppModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            text = "Sign out?",
+            style = MaterialTheme.typography.titleLargeEmphasized,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(AppDimens.CompactGap))
+        Text(
+            text = "Your cached VTOP data stays on this device. You will need to sign in again.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(AppDimens.ItemGap))
+        Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap)) {
+            TextButton(
+                onClick = onDismiss,
+                shapes = ButtonDefaults.shapes(),
+            ) { Text("Cancel") }
+            TextButton(
+                onClick = {
+                    onDismiss()
+                    onSignOut()
+                },
+                shapes = ButtonDefaults.shapes(),
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) { Text("Sign out") }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun IdentityCard(authorizedId: String, userProfile: UserProfile?, onSignOut: () -> Unit) {
-    val liveProfile = UserDatabase.profileFlow.collectAsState().value ?: userProfile
+    val liveProfile = UserDatabase.profileFlow.collectAsStateWithLifecycle().value ?: userProfile
     val displayName = liveProfile?.name?.takeIf { it.isNotBlank() && it != authorizedId }
     val initial = (liveProfile?.name?.firstOrNull() ?: authorizedId.firstOrNull())?.uppercase() ?: "V"
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -650,7 +643,10 @@ private fun IdentityCard(authorizedId: String, userProfile: UserProfile?, onSign
                 }
             }
             Spacer(Modifier.width(10.dp))
-            IconButton(onClick = onSignOut) {
+            IconButton(
+                onClick = onSignOut,
+                shapes = IconButtonDefaults.shapes(),
+            ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_logout),
                     contentDescription = "Sign out",
@@ -700,9 +696,9 @@ private fun labelOf(mode: ThemeMode): String = when (mode) {
 @Composable
 private fun AccentChoices(currentPalette: AppPalette, onPaletteChange: (AppPalette) -> Unit) {
     var showPicker by remember { mutableStateOf(false) }
-    val custom = (currentPalette as? AppPalette.Custom)?.seed ?: DEFAULT_CUSTOM_ACCENT
+    val custom = (currentPalette as? AppPalette.Custom)?.seed ?: ThemePreferences.DefaultAccentSeed
     Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -751,26 +747,28 @@ private fun materialAccentColor(): Color {
         if (Build.VERSION.SDK_INT >= 31) {
             if (dark) dynamicDarkColorScheme(context).primary else dynamicLightColorScheme(context).primary
         } else {
-            Color(0xFF0B57D0)
+            ThemePreferences.DefaultBlueSeed
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun PaletteDot(color: Color, selected: Boolean, onClick: () -> Unit) {
+    val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.Dp>()
     val dotSize by animateDpAsState(
         targetValue = if (selected) 36.dp else 30.dp,
-        animationSpec = spring(),
+        animationSpec = spatial,
         label = "paletteDot",
     )
     val borderAlpha by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-        animationSpec = spring(),
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
         label = "paletteBorder",
     )
     val elevation by animateDpAsState(
         targetValue = if (selected) 3.dp else 0.dp,
-        animationSpec = spring(),
+        animationSpec = spatial,
         label = "paletteElevation",
     )
     Surface(
@@ -784,7 +782,8 @@ private fun PaletteDot(color: Color, selected: Boolean, onClick: () -> Unit) {
     ) {
         AnimatedVisibility(
             visible = selected,
-            enter = fadeIn() + scaleIn(),
+            enter = fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                scaleIn(MaterialTheme.motionScheme.fastSpatialSpec()),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
@@ -801,26 +800,15 @@ private fun PaletteDot(color: Color, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = AppDimens.CardPadding, vertical = 14.dp),
             content = content,
         )
     }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-    )
 }
 
 @Composable
@@ -840,7 +828,7 @@ private fun SettingToggleRow(
             Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
             Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(AppDimens.ItemGap))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
@@ -850,6 +838,7 @@ private fun SettingToggleRow(
  * the button checks right now. The switch sits beside the toggleable label row
  * rather than inside its touch target, so one tap never does both.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun UpdateCheckRow(
     autoUpdateEnabled: Boolean,
@@ -887,7 +876,10 @@ private fun UpdateCheckRow(
             }
             // The icon consumes its own tap, so checking for updates never
             // flips the switch it sits next to.
-            IconButton(onClick = onCheckUpdate) {
+            IconButton(
+                onClick = onCheckUpdate,
+                shapes = IconButtonDefaults.shapes(),
+            ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_update),
                     contentDescription = "Check for updates",
@@ -911,7 +903,7 @@ private fun AddOnCard() {
     SettingsCard {
         ThirdPartyServices.all.forEachIndexed { index, service ->
             if (index > 0) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                AppDivider()
             }
             var enabled by remember(service.id) {
                 mutableStateOf(ThirdPartyServices.isEnabled(context, service))
@@ -951,7 +943,7 @@ private fun ActionRow(
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(20.dp),
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(AppDimens.ItemGap))
         }
         Text(
             text = label,

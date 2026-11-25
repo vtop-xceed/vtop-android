@@ -7,6 +7,7 @@ import dev.vtoppp.vtop.data.AppLog
 import dev.vtoppp.vtop.data.AttendanceDetailParser
 import dev.vtoppp.vtop.data.AttendanceEntry
 import dev.vtoppp.vtop.data.AttendanceParser
+import dev.vtoppp.vtop.data.AttendanceSession
 import dev.vtoppp.vtop.data.CALENDAR_SEMESTER_ID
 import dev.vtoppp.vtop.data.CalendarDayEvent
 import dev.vtoppp.vtop.data.GradeHistoryParser
@@ -22,14 +23,24 @@ import dev.vtoppp.vtop.data.VtopClient
 import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.WarmState
 import java.io.IOException
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 data class MenuItem(val label: String, val endpoint: String, val section: String)
@@ -86,19 +97,21 @@ class HomeViewModel(
     private var openJob: Job? = null
     private var openGeneration = 0
     private var lastItem: MenuItem? = null
-    private val syncInProgress = java.util.concurrent.atomic.AtomicBoolean(false)
-    private val activeTasks = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    private val refreshedInSession = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val syncInProgress = AtomicBoolean(false)
+    private val activeTasks = ConcurrentHashMap.newKeySet<String>()
+    private val refreshedInSession = ConcurrentHashMap.newKeySet<String>()
+    // ponytail: cap concurrent VTOP portal requests at 3 to speed up sync without tripping WAF limits
+    private val portalGate = Semaphore(3)
 
     companion object {
         private const val ACTIVE_FRESH_TTL_MS = 10 * 60 * 1000L // 10 min
         private const val CALENDAR_FRESH_TTL_MS = 6 * 60 * 60 * 1000L // 6 hr
+        private val LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss")
     }
 
     init {
-        loadFromDatabase()
-        if (UserDatabase.isDatabaseEmpty(authorizedId)) {
-            viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (UserDatabase.isDatabaseEmpty(authorizedId)) {
                 hydrateFromSessionCache()
                 if (UserDatabase.isDatabaseEmpty(authorizedId) &&
                     isOnline() &&
@@ -106,13 +119,9 @@ class HomeViewModel(
                 ) {
                     purgeAndRebuild(isInitialStartup = true)
                 }
+            } else {
+                UserDatabase.loadAllCached(authorizedId)
             }
-        }
-    }
-
-    private fun loadFromDatabase() {
-        viewModelScope.launch(Dispatchers.IO) {
-            UserDatabase.loadAllCached(authorizedId)
         }
     }
 
@@ -131,7 +140,7 @@ class HomeViewModel(
             }
             val semIds = (UserDatabase.loadSemesters(authorizedId).map { it.semesterSubId } +
                     UserDatabase.getAttendanceSemesterSubIds(authorizedId) +
-                    listOfNotNull(UserDatabase.getLatestSemesterId(authorizedId), CALENDAR_SEMESTER_ID)).distinct()
+                    CALENDAR_SEMESTER_ID).distinct()
             for (semId in semIds) {
                 SessionCache.load("processViewStudentAttendance_$semId")?.first?.let { attHtml ->
                     val att = AttendanceParser.parse(attHtml, authorizedId, semId)
@@ -169,77 +178,107 @@ class HomeViewModel(
             }
 
     private fun appendLog(msg: String) {
-        val time =
-                java.time.LocalTime.now()
-                        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
-        _rebuildLogs.value = _rebuildLogs.value + "[$time] $msg"
+        val time = LocalTime.now().format(LOG_TIME_FORMATTER)
+        _rebuildLogs.update { it + "[$time] $msg" }
     }
+
+    private suspend fun <T> withPortalGate(block: suspend () -> T): T =
+        portalGate.withPermit { block() }
 
     private suspend fun fetchProfileAndGrades(
         fetchGrades: Boolean = true,
         log: ((String) -> Unit)? = null,
-    ): Boolean {
-        if (!isOnline()) return false
+    ): Boolean = coroutineScope {
+        if (!isOnline()) return@coroutineScope false
+        val gradeDeferred = if (fetchGrades) {
+            async {
+                if (!isOnline()) return@async null
+                withPortalGate { client.fetchSection("examinations/examGradeView/StudentGradeHistory") }
+            }
+        } else null
+        val profileDeferred = async {
+            if (!isOnline()) return@async null
+            withPortalGate { client.fetchSection("studentsRecord/StudentProfileAllView") }
+        }
+
         var gradesOk = true
-        if (fetchGrades) {
-            val gradeResult = client.fetchSection("examinations/examGradeView/StudentGradeHistory")
-            gradeResult.onSuccess { html ->
+        if (gradeDeferred != null) {
+            val gradeResult = gradeDeferred.await()
+            if (gradeResult == null) {
+                profileDeferred.cancel()
+                return@coroutineScope false
+            }
+            val err = gradeResult.exceptionOrNull()
+            if (err != null) {
+                log?.invoke("Warning: Could not fetch StudentGradeHistory: ${err.message}")
+                if (isConnectivityOrSessionError(err)) {
+                    profileDeferred.cancel()
+                    return@coroutineScope false
+                }
+                gradesOk = false
+            } else {
+                val html = gradeResult.getOrNull().orEmpty()
                 SessionCache.save("examinations/examGradeView/StudentGradeHistory", html)
                 saveGradeHistoryFromPage(html)
                 log?.invoke("Parsed cumulative grade history & profile")
-            }.onFailure { err ->
-                log?.invoke("Warning: Could not fetch StudentGradeHistory: ${err.message}")
-                if (isConnectivityOrSessionError(err)) return false
-                gradesOk = false
             }
         }
-        if (!isOnline()) return false
-        val profileResult = client.fetchSection("studentsRecord/StudentProfileAllView")
+
+        val profileResult = profileDeferred.await() ?: return@coroutineScope false
         var profileOk = true
         profileResult.onSuccess { html ->
             saveProfileFromPage(html)
             log?.invoke("Parsed StudentProfileAllView details")
         }.onFailure { err ->
-            if (isConnectivityOrSessionError(err)) return false
+            if (isConnectivityOrSessionError(err)) return@coroutineScope false
             profileOk = false
         }
-        return if (fetchGrades) (gradesOk || profileOk) else profileOk
+        if (fetchGrades) (gradesOk || profileOk) else profileOk
     }
 
     private suspend fun fetchCalendarFromVtop(log: ((String) -> Unit)? = null): Boolean {
         if (!isOnline()) return false
         val calSemId = CALENDAR_SEMESTER_ID
-        val dateResult = client.postSubAction(
-            "getDateForSemesterPreview",
-            mapOf("semSubId" to calSemId, "paramReturnId" to "getDateForSemesterPreview"),
-        )
-        if (dateResult.isFailure) {
-            val err = dateResult.exceptionOrNull()
-            if (err != null && isConnectivityOrSessionError(err)) return false
-            return false
+        val dateResult = withPortalGate {
+            client.postSubAction(
+                "getDateForSemesterPreview",
+                mapOf("semSubId" to calSemId, "paramReturnId" to "getDateForSemesterPreview"),
+            )
         }
+        if (dateResult.isFailure) return false
         val dateHtml = dateResult.getOrNull().orEmpty()
-        var monthDates = AcademicCalendarParser.extractMonthDates(dateHtml)
-        if (monthDates.isEmpty()) {
-            monthDates = listOf(
+        val monthDates = AcademicCalendarParser.extractMonthDates(dateHtml).ifEmpty {
+            listOf(
                 "01-JUN-2026", "01-JUL-2026", "01-AUG-2026",
-                "01-SEP-2026", "01-OCT-2026", "01-NOV-2026"
+                "01-SEP-2026", "01-OCT-2026", "01-NOV-2026",
             )
         }
         val allEvents = mutableListOf<CalendarDayEvent>()
-        for (mDate in monthDates) {
-            if (!isOnline()) break
-            val monthRes = client.postSubAction(
-                "processViewCalendar",
-                mapOf("semSubId" to calSemId, "classGroupId" to "COMB", "calDate" to mDate),
-            )
-            monthRes.onSuccess { mHtml ->
-                allEvents.addAll(AcademicCalendarParser.parse(mHtml, mDate))
-            }.onFailure { err ->
-                if (isConnectivityOrSessionError(err)) return false
+        val aborted = AtomicBoolean(false)
+        coroutineScope {
+            val jobs = monthDates.map { mDate ->
+                async {
+                    if (aborted.get() || !isOnline()) return@async emptyList()
+                    val monthRes = withPortalGate {
+                        client.postSubAction(
+                            "processViewCalendar",
+                            mapOf("semSubId" to calSemId, "classGroupId" to "COMB", "calDate" to mDate),
+                        )
+                    }
+                    monthRes.fold(
+                        onSuccess = { mHtml -> AcademicCalendarParser.parse(mHtml, mDate) },
+                        onFailure = { err ->
+                            if (isConnectivityOrSessionError(err)) aborted.set(true)
+                            emptyList()
+                        },
+                    )
+                }
             }
-            delay(50)
+            for (job in jobs) {
+                allEvents.addAll(job.await())
+            }
         }
+        if (aborted.get()) return false
         if (allEvents.isNotEmpty()) {
             UserDatabase.saveCalendarEvents(calSemId, allEvents)
             log?.invoke("Saved ${allEvents.size} calendar events")
@@ -253,88 +292,106 @@ class HomeViewModel(
         log: ((String) -> Unit)? = null,
     ): Boolean {
         if (!isOnline()) return false
-        val previousByCode =
-                UserDatabase.loadAttendance(authorizedId, semId).associateBy {
-                    it.courseCode.uppercase()
-                }
-        val existingSessionsByCourse =
-                UserDatabase.loadAttendanceSessions(authorizedId)
-                        .filter { it.semesterSubId == semId }
-                        .groupBy { it.courseCode.uppercase() }
-
-        val attResult = client.postSubAction(
-            "processViewStudentAttendance",
-            mapOf("semesterSubId" to semId),
-        )
+        val attResult = withPortalGate {
+            client.postSubAction("processViewStudentAttendance", mapOf("semesterSubId" to semId))
+        }
         if (attResult.isFailure) {
-            val err = attResult.exceptionOrNull()
-            log?.invoke("[$semId] Attendance fetch error: ${err?.message}")
+            log?.invoke("[$semId] Attendance fetch error: ${attResult.exceptionOrNull()?.message}")
             return false
         }
         val attHtml = attResult.getOrNull().orEmpty()
         SessionCache.save("processViewStudentAttendance_$semId", attHtml)
         val attEntries = AttendanceParser.parse(attHtml, authorizedId, semId)
-        if (attEntries.isNotEmpty()) {
-            UserDatabase.saveAttendance(authorizedId, attEntries)
-            log?.invoke("[$semId] Cached ${attEntries.size} attendance records")
-        } else {
+        if (attEntries.isEmpty()) {
             log?.invoke("[$semId] No attendance records found")
+            return true
         }
 
-        for (entry in attEntries) {
-            if (!isOnline()) break
-            if (entry.courseId.isBlank()) continue
-            val prev = previousByCode[entry.courseCode.uppercase()]
-            val hasSessions = !existingSessionsByCourse[entry.courseCode.uppercase()].isNullOrEmpty()
-            val changed =
-                    prev == null ||
-                            prev.attendedClasses != entry.attendedClasses ||
-                            prev.totalClasses != entry.totalClasses
-            if (!includeAllDetails && hasSessions && !changed) continue
+        // Compute changed courses BEFORE saveAttendance overwrites the prior rows.
+        val coursesToFetch = if (includeAllDetails) {
+            attEntries.filter { it.courseId.isNotBlank() }
+        } else {
+            val previousByCode = UserDatabase.loadAttendance(authorizedId, semId)
+                .associateBy { it.courseCode.uppercase() }
+            val existingSessionsByCourse = UserDatabase.attendanceSessionsFlow.value
+                .filter { it.regNo == authorizedId && it.semesterSubId == semId }
+                .ifEmpty {
+                    UserDatabase.loadAttendanceSessions(authorizedId)
+                        .filter { it.semesterSubId == semId }
+                }
+                .groupBy { it.courseCode.uppercase() }
 
-            val detailRes = client.postSubAction(
-                "processViewAttendanceDetail",
-                mapOf(
-                    "semesterSubId" to semId,
-                    "registerNumber" to authorizedId,
-                    "courseId" to entry.courseId,
-                    "courseType" to entry.courseTypeA.ifBlank { "LT" },
-                ),
-            )
-            if (detailRes.isFailure) {
-                val err = detailRes.exceptionOrNull()
-                if (err != null && isConnectivityOrSessionError(err)) return false
+            attEntries.filter { entry ->
+                if (entry.courseId.isBlank()) return@filter false
+                val code = entry.courseCode.uppercase()
+                val prev = previousByCode[code]
+                val hasSessions = !existingSessionsByCourse[code].isNullOrEmpty()
+                val changed = prev == null ||
+                    prev.attendedClasses != entry.attendedClasses ||
+                    prev.totalClasses != entry.totalClasses
+                !hasSessions || changed
             }
-            detailRes.onSuccess { detailHtml ->
-                SessionCache.save(
-                    "processViewAttendanceDetail_${semId}_${entry.courseId}",
-                    detailHtml
-                )
-                val parsed = AttendanceDetailParser.parse(
-                    detailHtml,
-                    authorizedId,
-                    semId,
-                    entry.courseCode
-                )
-                if (parsed.isNotEmpty()) {
-                    UserDatabase.saveAttendanceSessions(authorizedId, semId, parsed)
-                    log?.invoke("[$semId] Cached ${parsed.size} classes for ${entry.courseCode}")
+        }
+
+        UserDatabase.saveAttendance(authorizedId, attEntries)
+        log?.invoke("[$semId] Cached ${attEntries.size} attendance records")
+
+        if (coursesToFetch.isEmpty()) return true
+
+        val batchedSessions = mutableListOf<AttendanceSession>()
+        val aborted = AtomicBoolean(false)
+        try {
+            coroutineScope {
+                val jobs = coursesToFetch.map { entry ->
+                    async {
+                        if (aborted.get() || !isOnline()) return@async emptyList()
+                        val detailRes = withPortalGate {
+                            client.postSubAction(
+                                "processViewAttendanceDetail",
+                                mapOf(
+                                    "semesterSubId" to semId,
+                                    "registerNumber" to authorizedId,
+                                    "courseId" to entry.courseId,
+                                    "courseType" to entry.courseTypeA.ifBlank { "LT" },
+                                ),
+                            )
+                        }
+                        val err = detailRes.exceptionOrNull()
+                        if (err != null) {
+                            if (isConnectivityOrSessionError(err)) aborted.set(true)
+                            return@async emptyList()
+                        }
+                        val parsed = parseAndCacheAttendanceDetail(
+                            semId = semId,
+                            courseId = entry.courseId,
+                            courseCode = entry.courseCode,
+                            detailHtml = detailRes.getOrNull().orEmpty(),
+                        )
+                        if (parsed.isNotEmpty()) {
+                            log?.invoke("[$semId] Cached ${parsed.size} classes for ${entry.courseCode}")
+                        }
+                        parsed
+                    }
+                }
+                for (job in jobs) {
+                    batchedSessions.addAll(job.await())
                 }
             }
-            delay(70)
+        } finally {
+            if (batchedSessions.isNotEmpty()) {
+                UserDatabase.saveAttendanceSessions(authorizedId, semId, batchedSessions)
+            }
         }
-        return true
+        return !aborted.get()
     }
 
     private suspend fun fetchTimetableForSemester(semId: String, log: ((String) -> Unit)? = null): Boolean {
         if (!isOnline()) return false
-        val ttResult = client.postSubAction(
-            "processViewTimeTable",
-            mapOf("semesterSubId" to semId),
-        )
+        val ttResult = withPortalGate {
+            client.postSubAction("processViewTimeTable", mapOf("semesterSubId" to semId))
+        }
         if (ttResult.isFailure) {
-            val err = ttResult.exceptionOrNull()
-            log?.invoke("[$semId] Timetable fetch error: ${err?.message}")
+            log?.invoke("[$semId] Timetable fetch error: ${ttResult.exceptionOrNull()?.message}")
             return false
         }
         val ttHtml = ttResult.getOrNull().orEmpty()
@@ -353,16 +410,39 @@ class HomeViewModel(
         semId: String,
         includeGpa: Boolean = true,
         log: ((String) -> Unit)? = null,
-    ): Boolean {
-        if (!isOnline()) return false
-        if (includeGpa) {
-            val gpaRes = client.postSubAction(
-                "examinations/examGradeView/doStudentGradeView",
-                mapOf("semesterSubId" to semId),
-            )
-            if (gpaRes.isFailure) {
-                val err = gpaRes.exceptionOrNull()
-                if (err != null && isConnectivityOrSessionError(err)) return false
+    ): Boolean = coroutineScope {
+        if (!isOnline()) return@coroutineScope false
+        val gpaDeferred = if (includeGpa) {
+            async {
+                if (!isOnline()) return@async null
+                withPortalGate {
+                    client.postSubAction(
+                        "examinations/examGradeView/doStudentGradeView",
+                        mapOf("semesterSubId" to semId),
+                    )
+                }
+            }
+        } else null
+        val marksDeferred = async {
+            if (!isOnline()) return@async null
+            withPortalGate {
+                client.postSubAction(
+                    "examinations/doStudentMarkView",
+                    mapOf("semesterSubId" to semId),
+                )
+            }
+        }
+
+        if (gpaDeferred != null) {
+            val gpaRes = gpaDeferred.await()
+            if (gpaRes == null) {
+                marksDeferred.cancel()
+                return@coroutineScope false
+            }
+            val err = gpaRes.exceptionOrNull()
+            if (err != null && isConnectivityOrSessionError(err)) {
+                marksDeferred.cancel()
+                return@coroutineScope false
             }
             gpaRes.onSuccess { resultHtml ->
                 SessionCache.save("examinations/doStudentGradeView_$semId", resultHtml)
@@ -370,17 +450,12 @@ class HomeViewModel(
                     UserDatabase.saveSemesterResultGpa(authorizedId, semId, gpa)
                 }
             }
-            delay(80)
         }
-        if (!isOnline()) return false
-        val marksRes = client.postSubAction(
-            "examinations/doStudentMarkView",
-            mapOf("semesterSubId" to semId),
-        )
+
+        val marksRes = marksDeferred.await() ?: return@coroutineScope false
         if (marksRes.isFailure) {
-            val err = marksRes.exceptionOrNull()
-            log?.invoke("[$semId] Marks fetch error: ${err?.message}")
-            return false
+            log?.invoke("[$semId] Marks fetch error: ${marksRes.exceptionOrNull()?.message}")
+            return@coroutineScope false
         }
         val marksHtml = marksRes.getOrNull().orEmpty()
         val marksEntries = MarksParser.parse(marksHtml, authorizedId, semId)
@@ -391,7 +466,7 @@ class HomeViewModel(
         } else {
             log?.invoke("[$semId] No mark components found")
         }
-        return true
+        true
     }
 
     fun purgeAndRebuild(isInitialStartup: Boolean = false) {
@@ -428,7 +503,6 @@ class HomeViewModel(
                     UserDatabase.purgeDatabase(authorizedId)
                     refreshedInSession.clear()
                     appendLog("Database and cache cleared")
-                    delay(100)
 
                     if (!probedGradeHtml.isNullOrBlank()) {
                         SessionCache.save("examinations/examGradeView/StudentGradeHistory", probedGradeHtml)
@@ -484,26 +558,33 @@ class HomeViewModel(
                     val baseProgress = 0.35f + (index * semFraction)
                     val cleanSemName = semName.substringBefore(" - ")
 
-                    _rebuildProgress.value = baseProgress + (semFraction * 0.40f)
-                    _rebuildStep.value = "Caching Attendance & History ($cleanSemName)..."
-                    appendLog("[$semId] Fetching attendance & class history...")
-                    val attOk = fetchAttendanceForSemester(semId, includeAllDetails = true, log = ::appendLog)
-                    if (!attOk && !isOnline()) break
-                    delay(60)
-
-                    _rebuildProgress.value = baseProgress + (semFraction * 0.70f)
-                    _rebuildStep.value = "Caching Timetable ($cleanSemName)..."
-                    appendLog("[$semId] Fetching timetable...")
-                    val ttOk = fetchTimetableForSemester(semId, log = ::appendLog)
-                    if (!ttOk && !isOnline()) break
-                    delay(60)
-
-                    _rebuildProgress.value = baseProgress + semFraction
-                    _rebuildStep.value = "Caching Marks ($cleanSemName)..."
-                    appendLog("[$semId] Fetching marks & GPA...")
-                    val marksOk = fetchMarksForSemester(semId, includeGpa = true, log = ::appendLog)
-                    if (!marksOk && !isOnline()) break
-                    delay(60)
+                    _rebuildStep.value = "Caching $cleanSemName (Attendance, Timetable, Marks)..."
+                    appendLog("[$semId] Syncing attendance, timetable & marks...")
+                    val doneInSem = AtomicInteger(0)
+                    fun bumpProgress() {
+                        val stepFraction = when (doneInSem.incrementAndGet()) {
+                            1 -> 0.35f
+                            2 -> 0.70f
+                            else -> 1.0f
+                        }
+                        _rebuildProgress.update { maxOf(it, baseProgress + (semFraction * stepFraction)) }
+                    }
+                    val (attOk, ttOk, marksOk) = coroutineScope {
+                        val attDef = async {
+                            fetchAttendanceForSemester(semId, includeAllDetails = true, log = ::appendLog)
+                                .also { bumpProgress() }
+                        }
+                        val ttDef = async {
+                            fetchTimetableForSemester(semId, log = ::appendLog)
+                                .also { bumpProgress() }
+                        }
+                        val marksDef = async {
+                            fetchMarksForSemester(semId, includeGpa = true, log = ::appendLog)
+                                .also { bumpProgress() }
+                        }
+                        Triple(attDef.await(), ttDef.await(), marksDef.await())
+                    }
+                    if ((!attOk || !ttOk || !marksOk) && !isOnline()) break
                 }
 
                 _rebuildProgress.value = 1.0f
@@ -578,38 +659,58 @@ class HomeViewModel(
         }
     }
 
+    private suspend fun ensureLatestSemesterId(): String? {
+        val existing = UserDatabase.getLatestSemesterId(authorizedId)
+        if (!existing.isNullOrBlank()) return existing
+        val sems = resolveAttendedSemesters()
+        saveAttendedSemesters(sems)
+        return sems.firstOrNull()?.first
+    }
+
+    private inline fun semesterStalenessTs(
+        semesterSubId: String?,
+        maxUpdatedAt: (String) -> Long,
+    ): Long {
+        val latestId = UserDatabase.getLatestSemesterId(authorizedId)
+        val semId = semesterSubId ?: latestId ?: return 0L
+        val maxTs = maxUpdatedAt(semId)
+        return when {
+            maxTs == 0L -> 0L
+            latestId != null && semId != latestId -> System.currentTimeMillis()
+            else -> maxTs
+        }
+    }
+
     fun refreshOverview(force: Boolean = false) {
         launchLazy(
             key = "overview",
             force = force,
             ttlMs = ACTIVE_FRESH_TTL_MS,
             lastUpdatedMs = {
-                val latestSem = UserDatabase.getLatestSemesterId(authorizedId)
+                val latestSem = UserDatabase.getLatestSemesterId(authorizedId) ?: return@launchLazy 0L
                 val attTs = UserDatabase.loadAttendance(authorizedId, latestSem).maxOfOrNull { it.updatedAtMs } ?: 0L
+                if (attTs == 0L) return@launchLazy 0L
                 val ttTs = UserDatabase.loadTimetable(authorizedId, latestSem).maxOfOrNull { it.updatedAtMs } ?: 0L
                 minOf(attTs, ttTs)
             },
         ) {
-            var latestSem = UserDatabase.getLatestSemesterId(authorizedId)
-            if (latestSem.isNullOrBlank()) {
-                val sems = resolveAttendedSemesters()
-                saveAttendedSemesters(sems)
-                latestSem = sems.firstOrNull()?.first
+            val latestSem = ensureLatestSemesterId()
+            val profileMissing = UserDatabase.profileFlow.value?.takeIf { it.regNo == authorizedId } == null &&
+                UserDatabase.loadProfile(authorizedId) == null
+            val needProfile = force || profileMissing
+            coroutineScope {
+                val attDef = if (!latestSem.isNullOrBlank()) {
+                    async { fetchAttendanceForSemester(latestSem, includeAllDetails = false) }
+                } else null
+                val ttDef = if (!latestSem.isNullOrBlank()) {
+                    async { fetchTimetableForSemester(latestSem) }
+                } else null
+                val profDef = if (needProfile) async { fetchProfileAndGrades() } else null
+                val attOk = attDef?.await() ?: false
+                val ttOk = ttDef?.await() ?: false
+                val profOk = profDef?.await() ?: true
+                attOk && ttOk && profOk
             }
-            var allOk = true
-            if (!latestSem.isNullOrBlank()) {
-                val attOk = fetchAttendanceForSemester(latestSem, includeAllDetails = false)
-                if (!attOk) return@launchLazy false
-                val ttOk = fetchTimetableForSemester(latestSem)
-                if (!ttOk) return@launchLazy false
-            } else {
-                allOk = false
-            }
-            if (force || UserDatabase.loadProfile(authorizedId) == null) {
-                val profOk = fetchProfileAndGrades()
-                if (!profOk) allOk = false
-            }
-            allOk
         }
     }
 
@@ -620,22 +721,12 @@ class HomeViewModel(
             force = force,
             ttlMs = ACTIVE_FRESH_TTL_MS,
             lastUpdatedMs = {
-                val semId = semesterSubId ?: UserDatabase.getLatestSemesterId(authorizedId)
-                val latestId = UserDatabase.getLatestSemesterId(authorizedId)
-                val entries = UserDatabase.loadAttendance(authorizedId, semId)
-                when {
-                    entries.isEmpty() -> 0L
-                    semId != null && latestId != null && semId != latestId -> System.currentTimeMillis()
-                    else -> entries.maxOf { it.updatedAtMs }
+                semesterStalenessTs(semesterSubId) { semId ->
+                    UserDatabase.loadAttendance(authorizedId, semId).maxOfOrNull { it.updatedAtMs } ?: 0L
                 }
             },
         ) {
-            var semId = semesterSubId ?: UserDatabase.getLatestSemesterId(authorizedId)
-            if (semId.isNullOrBlank()) {
-                val sems = resolveAttendedSemesters()
-                saveAttendedSemesters(sems)
-                semId = sems.firstOrNull()?.first
-            }
+            val semId = semesterSubId ?: ensureLatestSemesterId()
             if (!semId.isNullOrBlank()) {
                 fetchAttendanceForSemester(semId, includeAllDetails = force)
             } else {
@@ -651,13 +742,8 @@ class HomeViewModel(
             force = force,
             ttlMs = ACTIVE_FRESH_TTL_MS,
             lastUpdatedMs = {
-                val semId = semesterSubId ?: UserDatabase.getLatestSemesterId(authorizedId)
-                val latestId = UserDatabase.getLatestSemesterId(authorizedId)
-                val entries = UserDatabase.loadTimetable(authorizedId, semId)
-                when {
-                    entries.isEmpty() -> 0L
-                    semId != null && latestId != null && semId != latestId -> System.currentTimeMillis()
-                    else -> entries.maxOf { it.updatedAtMs }
+                semesterStalenessTs(semesterSubId) { semId ->
+                    UserDatabase.loadTimetable(authorizedId, semId).maxOfOrNull { it.updatedAtMs } ?: 0L
                 }
             },
         ) {
@@ -681,7 +767,7 @@ class HomeViewModel(
         var attendedSemesters: List<Pair<String, String>> = emptyList()
 
         if (isOnline()) {
-            client.fetchSection("academics/common/StudentAttendance").onSuccess { html ->
+            withPortalGate { client.fetchSection("academics/common/StudentAttendance") }.onSuccess { html ->
                 SessionCache.save("academics/common/StudentAttendance", html)
                 val sems = MarksParser.extractSemesters(html)
                 if (sems.isNotEmpty()) attendedSemesters = sems
@@ -740,21 +826,26 @@ class HomeViewModel(
             force = force,
             ttlMs = ACTIVE_FRESH_TTL_MS,
             lastUpdatedMs = {
-                val targetSem = semesterSubId ?: UserDatabase.getLatestSemesterId(authorizedId)
-                val marksTs = if (targetSem != null) {
-                    UserDatabase.loadMarks(authorizedId, targetSem).maxOfOrNull { it.updatedAtMs } ?: 0L
-                } else 0L
+                val latestId = UserDatabase.getLatestSemesterId(authorizedId)
+                val targetSem = semesterSubId ?: latestId ?: return@launchLazy 0L
+                // Load all marks (or reuse full flow) so _marksFlow isn't narrowed to a single semester.
+                val marksTs = UserDatabase.loadMarks(authorizedId)
+                    .asSequence()
+                    .filter { it.semesterSubId == targetSem }
+                    .maxOfOrNull { it.updatedAtMs } ?: 0L
+                if (marksTs == 0L) return@launchLazy 0L
+                if (latestId != null && targetSem != latestId) return@launchLazy System.currentTimeMillis()
                 val (summary, grades) = UserDatabase.loadGradeHistory(authorizedId)
                 val gradesTs = maxOf(summary?.updatedAtMs ?: 0L, grades.maxOfOrNull { it.updatedAtMs } ?: 0L)
-                if (targetSem != null && targetSem != UserDatabase.getLatestSemesterId(authorizedId) && marksTs > 0L) {
-                    System.currentTimeMillis()
-                } else {
-                    minOf(marksTs, gradesTs)
-                }
+                minOf(marksTs, gradesTs)
             },
         ) {
-            val (_, existingGrades) = UserDatabase.loadGradeHistory(authorizedId)
-            val existingMarks = UserDatabase.loadMarks(authorizedId)
+            val existingGrades = UserDatabase.gradeHistoryFlow.value
+                .filter { it.regNo == authorizedId }
+                .ifEmpty { UserDatabase.loadGradeHistory(authorizedId).second }
+            val existingMarks = UserDatabase.marksFlow.value
+                .filter { it.regNo == authorizedId }
+                .ifEmpty { UserDatabase.loadMarks(authorizedId) }
             val hasCachedData = existingGrades.isNotEmpty() || existingMarks.isNotEmpty()
             try {
                 val profileOk = fetchProfileAndGrades()
@@ -762,47 +853,57 @@ class HomeViewModel(
                     if (force) _marksNotice.value = "VTOP unreachable — showing cached copy"
                     return@launchLazy false
                 }
-                var attended = UserDatabase.loadSemesters(authorizedId).map {
-                    it.semesterSubId to it.semesterName
-                }
+                var attended = UserDatabase.semestersFlow.value
+                    .filter { it.regNo == authorizedId }
+                    .ifEmpty { UserDatabase.loadSemesters(authorizedId) }
+                    .map { it.semesterSubId to it.semesterName }
                 if (attended.isEmpty()) {
                     attended = resolveAttendedSemesters()
                     saveAttendedSemesters(attended)
                 }
                 val latestId = attended.firstOrNull()?.first
-                val existingResults = UserDatabase.loadSemesterResults(authorizedId).map { it.semesterSubId }.toSet()
-                val existingMarksSems = UserDatabase.loadMarks(authorizedId).map { it.semesterSubId }.toSet()
+                val existingResults = UserDatabase.semesterResultsFlow.value
+                    .filter { it.regNo == authorizedId }
+                    .ifEmpty { UserDatabase.loadSemesterResults(authorizedId) }
+                    .map { it.semesterSubId }
+                    .toSet()
+                val existingMarksSems = existingMarks.map { it.semesterSubId }.toSet()
                 val targets = attended.map { it.first }.filter { semId ->
                     semId == (semesterSubId ?: latestId) ||
                         semId !in existingResults ||
                         semId !in existingMarksSems
                 }
-                var anyMarksFailed = false
-                for (semId in targets) {
-                    val marksOk = fetchMarksForSemester(semId, includeGpa = true)
-                    if (!marksOk) {
-                        anyMarksFailed = true
-                        if (hasCachedData) {
-                            if (force) _marksNotice.value = "VTOP unreachable — showing cached copy"
-                            return@launchLazy false
+                val anyMarksFailed = AtomicBoolean(false)
+                coroutineScope {
+                    targets.map { semId ->
+                        async {
+                            if (!fetchMarksForSemester(semId, includeGpa = true)) {
+                                anyMarksFailed.set(true)
+                            }
                         }
-                    }
-                    delay(80)
+                    }.forEach { it.await() }
                 }
-                val (_, gradesAfter) = UserDatabase.loadGradeHistory(authorizedId)
-                if (gradesAfter.isEmpty() && UserDatabase.loadMarks(authorizedId).isEmpty()) {
+                if (anyMarksFailed.get() && hasCachedData) {
+                    if (force) _marksNotice.value = "VTOP unreachable — showing cached copy"
+                    return@launchLazy false
+                }
+                val hasAnyNow = hasCachedData ||
+                    UserDatabase.gradeHistoryFlow.value.any { it.regNo == authorizedId } ||
+                    UserDatabase.marksFlow.value.any { it.regNo == authorizedId }
+                if (!hasAnyNow) {
                     _marksNotice.value = "VTOP unreachable — no data cached yet"
                     false
                 } else {
                     _marksNotice.value = null
-                    !anyMarksFailed && profileOk
+                    !anyMarksFailed.get() && profileOk
                 }
             } catch (t: CancellationException) {
                 throw t
             } catch (t: Throwable) {
                 AppLog.d("refreshMarksAndGrades failed: ${t.javaClass.simpleName}")
-                val (_, gradesAfter) = UserDatabase.loadGradeHistory(authorizedId)
-                val hasCached = gradesAfter.isNotEmpty() || UserDatabase.loadMarks(authorizedId).isNotEmpty()
+                val hasCached = hasCachedData ||
+                    UserDatabase.gradeHistoryFlow.value.any { it.regNo == authorizedId } ||
+                    UserDatabase.marksFlow.value.any { it.regNo == authorizedId }
                 _marksNotice.value = if (hasCached) {
                     if (force) "VTOP unreachable — showing cached copy" else null
                 } else {
@@ -849,6 +950,7 @@ class HomeViewModel(
                     // Stale-while-revalidate: the cached copy renders immediately; the
                     // network refresh replaces it below once the fetch settles.
                     val cached = SessionCache.load(item.endpoint)
+                    val hasCached = cached != null
                     if (cached != null) {
                         withContext(Dispatchers.Main) {
                             if (generation == openGeneration) {
@@ -867,7 +969,7 @@ class HomeViewModel(
                     if (!isOnline()) {
                         withContext(Dispatchers.Main) {
                             if (generation == openGeneration) {
-                                if (cached != null) {
+                                if (hasCached) {
                                     _staleNotice.value = "Offline — showing the cached copy"
                                 } else {
                                     _state.value = HomeUiState.Failure(VtopError.Network, item)
@@ -883,60 +985,23 @@ class HomeViewModel(
                                         .fold(
                                                 onSuccess = { html ->
                                                     SessionCache.save(item.endpoint, html)
-                                                    if (item.endpoint ==
-                                                                    "studentsRecord/StudentProfileAllView"
-                                                    ) {
-                                                        val p =
-                                                                ProfileParser.parse(
-                                                                        html,
-                                                                        authorizedId
-                                                                )
-                                                        UserDatabase.saveProfile(p)
-                                                    } else if (item.endpoint ==
-                                                                    "academics/common/StudentTimeTable"
-                                                    ) {
-                                                        val entries =
-                                                                TimetableParser.parse(
-                                                                        html,
-                                                                        authorizedId
-                                                                )
-                                                        if (entries.isNotEmpty()) {
-                                                            UserDatabase.saveTimetable(
-                                                                    authorizedId,
-                                                                    entries
-                                                            )
+                                                    when (item.endpoint) {
+                                                        "studentsRecord/StudentProfileAllView" ->
+                                                            saveProfileFromPage(html)
+                                                        "academics/common/StudentTimeTable" -> {
+                                                            val entries = TimetableParser.parse(html, authorizedId)
+                                                            if (entries.isNotEmpty()) {
+                                                                UserDatabase.saveTimetable(authorizedId, entries)
+                                                            }
                                                         }
-                                                    } else if (item.endpoint ==
-                                                                    "examinations/examGradeView/StudentGradeHistory"
-                                                    ) {
-                                                        val (summary, grades) =
-                                                                GradeHistoryParser.parse(
-                                                                        html,
-                                                                        authorizedId
-                                                                )
-                                                        if (grades.isNotEmpty() || summary != null
-                                                        ) {
-                                                            UserDatabase.saveGradeHistory(
-                                                                    authorizedId,
-                                                                    summary,
-                                                                    grades
-                                                            )
-                                                        }
-                                                    } else if (item.endpoint ==
-                                                                    "examinations/StudentMarkView" ||
-                                                                    item.endpoint ==
-                                                                            "examinations/doStudentMarkView"
-                                                    ) {
-                                                        val marks =
-                                                                MarksParser.parse(
-                                                                        html,
-                                                                        authorizedId
-                                                                )
-                                                        if (marks.isNotEmpty()) {
-                                                            UserDatabase.saveMarks(
-                                                                    authorizedId,
-                                                                    marks
-                                                            )
+                                                        "examinations/examGradeView/StudentGradeHistory" ->
+                                                            saveGradeHistoryFromPage(html)
+                                                        "examinations/StudentMarkView",
+                                                        "examinations/doStudentMarkView" -> {
+                                                            val marks = MarksParser.parse(html, authorizedId)
+                                                            if (marks.isNotEmpty()) {
+                                                                UserDatabase.saveMarks(authorizedId, marks)
+                                                            }
                                                         }
                                                     }
                                                     HomeUiState.SectionReady(
@@ -946,12 +1011,12 @@ class HomeViewModel(
                                                     ) as
                                                             HomeUiState?
                                                 },
-                                                onFailure = { e -> refreshFailure(e, item) },
+                                                onFailure = { e -> refreshFailure(e, item, hasCached) },
                                         )
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (t: Throwable) {
-                                refreshFailure(t, item)
+                                refreshFailure(t, item, hasCached)
                             }
                     // null = the on-screen cached copy stays (refresh failed).
                     withContext(Dispatchers.Main) {
@@ -965,9 +1030,9 @@ class HomeViewModel(
      * stale-notice and keeps the cached SectionReady. A cold miss still renders the full-screen
      * failure card.
      */
-    private fun refreshFailure(error: Throwable, item: MenuItem): HomeUiState? {
+    private fun refreshFailure(error: Throwable, item: MenuItem, hasCached: Boolean): HomeUiState? {
         val err = error as? VtopError ?: VtopError.Unknown(error.message ?: "unknown")
-        if (SessionCache.load(item.endpoint) != null) {
+        if (hasCached) {
             _staleNotice.value = failureMessage(err)
             return null
         }
@@ -1008,31 +1073,57 @@ class HomeViewModel(
         loadAttendanceDetails(entry.semesterSubId, entry.courseId, entry.courseTypeA, entry.courseCode)
     }
 
+    private fun parseAndCacheAttendanceDetail(
+        semId: String,
+        courseId: String,
+        courseCode: String,
+        detailHtml: String,
+    ): List<AttendanceSession> {
+        SessionCache.save("processViewAttendanceDetail_${semId}_$courseId", detailHtml)
+        return AttendanceDetailParser.parse(detailHtml, authorizedId, semId, courseCode)
+    }
+
+    private fun findCourseMetaInHtml(html: String, sem: String, courseCode: String): Pair<String, String>? =
+        AttendanceParser.parse(html, authorizedId, sem)
+            .firstOrNull { it.courseCode.equals(courseCode, ignoreCase = true) && it.courseId.isNotBlank() }
+            ?.let { it.courseId to it.courseTypeA }
+
     fun loadAttendanceDetails(
             semId: String,
             courseId: String,
             courseType: String,
             courseCode: String
     ) {
-        val sem = semId.ifBlank { UserDatabase.getLatestSemesterId(authorizedId) ?: return }
         if (courseCode.isBlank()) return
 
-        val key = "${sem}_${courseCode.uppercase()}"
-        if (!activeTasks.add("detail_$key")) return
-        _loadingAttendanceKeys.value = _loadingAttendanceKeys.value + key
-
         viewModelScope.launch(Dispatchers.IO) {
+            val sem = semId.ifBlank { UserDatabase.getLatestSemesterId(authorizedId) ?: return@launch }
+            val key = "${sem}_${courseCode.uppercase()}"
+            if (!activeTasks.add("detail_$key")) return@launch
+            _loadingAttendanceKeys.update { it + key }
+
             try {
-                // 1. If cached in SessionCache, hydrate to UserDatabase on IO thread
                 var resolvedId = courseId
                 var resolvedType = courseType
                 if (resolvedId.isBlank()) {
+                    // Check in-memory attendance flow first before parsing cached HTML.
+                    UserDatabase.attendanceFlow.value
+                        .firstOrNull {
+                            it.regNo == authorizedId &&
+                                it.semesterSubId == sem &&
+                                it.courseCode.equals(courseCode, ignoreCase = true) &&
+                                it.courseId.isNotBlank()
+                        }
+                        ?.let {
+                            resolvedId = it.courseId
+                            resolvedType = it.courseTypeA
+                        }
+                }
+                if (resolvedId.isBlank()) {
                     SessionCache.load("processViewStudentAttendance_$sem")?.first?.let { cachedAtt ->
-                        val match = AttendanceParser.parse(cachedAtt, authorizedId, sem)
-                            .firstOrNull { it.courseCode.equals(courseCode, ignoreCase = true) }
-                        if (match != null) {
-                            resolvedId = match.courseId
-                            resolvedType = match.courseTypeA
+                        findCourseMetaInHtml(cachedAtt, sem, courseCode)?.let { (id, type) ->
+                            resolvedId = id
+                            resolvedType = type
                         }
                     }
                 }
@@ -1050,54 +1141,37 @@ class HomeViewModel(
                     return@launch
                 }
 
-                if (resolvedId.isBlank()) {
-                    val cachedAtt = SessionCache.load("processViewStudentAttendance_$sem")?.first
-                        ?: if (client.hasSession) {
-                            client.postSubAction(
-                                "processViewStudentAttendance",
-                                mapOf("semesterSubId" to sem),
-                            ).getOrNull()?.also { html ->
-                                SessionCache.save("processViewStudentAttendance_$sem", html)
-                                val att = AttendanceParser.parse(html, authorizedId, sem)
-                                if (att.isNotEmpty()) UserDatabase.saveAttendance(authorizedId, att)
+                if (resolvedId.isBlank() && client.hasSession) {
+                    client.postSubAction("processViewStudentAttendance", mapOf("semesterSubId" to sem))
+                        .getOrNull()?.let { html ->
+                            SessionCache.save("processViewStudentAttendance_$sem", html)
+                            val att = AttendanceParser.parse(html, authorizedId, sem)
+                            if (att.isNotEmpty()) UserDatabase.saveAttendance(authorizedId, att)
+                            att.firstOrNull { it.courseCode.equals(courseCode, ignoreCase = true) }?.let { match ->
+                                resolvedId = match.courseId
+                                resolvedType = match.courseTypeA
                             }
-                        } else null
-                    if (!cachedAtt.isNullOrBlank()) {
-                        val match = AttendanceParser.parse(cachedAtt, authorizedId, sem)
-                            .firstOrNull { it.courseCode.equals(courseCode, ignoreCase = true) }
-                        if (match != null) {
-                            resolvedId = match.courseId
-                            resolvedType = match.courseTypeA
                         }
+                }
+                if (resolvedId.isBlank() || !isOnline()) return@launch
+
+                client.postSubAction(
+                    "processViewAttendanceDetail",
+                    mapOf(
+                        "semesterSubId" to sem,
+                        "registerNumber" to authorizedId,
+                        "courseId" to resolvedId,
+                        "courseType" to resolvedType.ifBlank { "LT" },
+                    ),
+                ).onSuccess { detailHtml ->
+                    val parsed = parseAndCacheAttendanceDetail(sem, resolvedId, courseCode, detailHtml)
+                    if (parsed.isNotEmpty()) {
+                        UserDatabase.saveAttendanceSessions(authorizedId, sem, parsed)
                     }
                 }
-                if (resolvedId.isBlank()) return@launch
-
-                if (!isOnline()) return@launch
-                client.postSubAction(
-                                "processViewAttendanceDetail",
-                                mapOf(
-                                        "semesterSubId" to sem,
-                                        "registerNumber" to authorizedId,
-                                        "courseId" to resolvedId,
-                                        "courseType" to resolvedType.ifBlank { "LT" },
-                                ),
-                        )
-                        .onSuccess { detailHtml ->
-                            SessionCache.save("processViewAttendanceDetail_${sem}_$resolvedId", detailHtml)
-                            val parsed = AttendanceDetailParser.parse(
-                                    detailHtml,
-                                    authorizedId,
-                                    sem,
-                                    courseCode
-                            )
-                            if (parsed.isNotEmpty()) {
-                                UserDatabase.saveAttendanceSessions(authorizedId, sem, parsed)
-                            }
-                        }
             } finally {
                 activeTasks.remove("detail_$key")
-                _loadingAttendanceKeys.value = _loadingAttendanceKeys.value - key
+                _loadingAttendanceKeys.update { it - key }
             }
         }
     }

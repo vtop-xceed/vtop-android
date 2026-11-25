@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import dev.vtoppp.vtop.data.AutoUpdateState
 import dev.vtoppp.vtop.data.AutoUpdater
 import dev.vtoppp.vtop.data.ReleaseInfo
+import dev.vtoppp.vtop.ui.theme.AppDimens
 
 /**
  * The single popup driving the whole update flow:
@@ -68,9 +70,9 @@ fun AutoUpdateDialog(
             title = { Text("Checking for updates…") },
             text = {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = AppDimens.CompactGap),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.CardPadding),
                 ) {
                     LoadingIndicator(modifier = Modifier.size(36.dp))
                     Text("Pinging GitHub Releases")
@@ -83,7 +85,7 @@ fun AutoUpdateDialog(
             onDismissRequest = { updater.dismiss(s.release) },
             title = { Text("Update available") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(AppDimens.CompactGap)) {
                     UpdateBody(
                         title = s.release.title,
                         tagLine = "v" + s.release.version + " · " + s.release.apkNameSizeLine(),
@@ -97,12 +99,16 @@ fun AutoUpdateDialog(
                         showWhatsNew = true
                         updater.startDownload(s.release)
                     },
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     Text("Download")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { updater.dismiss(s.release) }) { Text("Later") }
+                TextButton(
+                    onClick = { updater.dismiss(s.release) },
+                    shapes = ButtonDefaults.shapes(),
+                ) { Text("Later") }
             },
         )
 
@@ -130,15 +136,21 @@ fun AutoUpdateDialog(
             onDismissRequest = updater::reset,
             title = { Text("Update check failed") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(AppDimens.CompactGap)) {
                     UpdateBody(title = s.reason, tagLine = null)
                 }
             },
             confirmButton = {
-                TextButton(onClick = { updater.check(force = true) }) { Text("Retry") }
+                TextButton(
+                    onClick = { updater.check(force = true) },
+                    shapes = ButtonDefaults.shapes(),
+                ) { Text("Retry") }
             },
             dismissButton = {
-                TextButton(onClick = updater::reset) { Text("Close") }
+                TextButton(
+                    onClick = updater::reset,
+                    shapes = ButtonDefaults.shapes(),
+                ) { Text("Close") }
             },
         )
 
@@ -146,14 +158,19 @@ fun AutoUpdateDialog(
             onDismissRequest = updater::reset,
             title = { Text("Up to date") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(AppDimens.CompactGap)) {
                     UpdateBody(
                         title = "You're running the latest release (v" + s.currentVersion + ").",
                         tagLine = null,
                     )
                 }
             },
-            confirmButton = { TextButton(onClick = updater::reset) { Text("OK") } },
+            confirmButton = {
+                TextButton(
+                    onClick = updater::reset,
+                    shapes = ButtonDefaults.shapes(),
+                ) { Text("OK") }
+            },
         )
     }
 }

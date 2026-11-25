@@ -29,18 +29,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -74,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.VtopError
 import dev.vtoppp.vtop.data.WarmState
+import dev.vtoppp.vtop.ui.theme.AppDimens
 import dev.vtoppp.vtop.ui.theme.Motion
 import dev.vtoppp.vtop.ui.theme.StatusColors
 
@@ -127,7 +130,7 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = viewportHeight)
-                .padding(horizontal = 24.dp, vertical = 24.dp),
+                .padding(horizontal = AppDimens.SheetHorizontal, vertical = AppDimens.ScreenBottom),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -229,7 +232,7 @@ private fun BrandMark(focused: Boolean, busy: Boolean, animated: Boolean) {
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(AppDimens.ItemGap))
         AnimatedVisibility(visible = busy && animated) {
             @OptIn(ExperimentalMaterial3ExpressiveApi::class)
             LinearWavyProgressIndicator(
@@ -269,7 +272,7 @@ private fun StatusLine(status: LoginStatus?) {
             } else {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.CompactGap),
                 ) {
                     Box(
                         modifier = Modifier
@@ -294,6 +297,7 @@ private fun StatusLine(status: LoginStatus?) {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun CredentialForm(
     username: String,
@@ -326,7 +330,7 @@ private fun CredentialForm(
             label = { Text("Registration number / user ID") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            shape = RoundedCornerShape(18.dp),
+            shape = MaterialTheme.shapes.large,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -348,9 +352,12 @@ private fun CredentialForm(
                 focusManager.clearFocus()
                 onSubmit()
             }),
-            shape = RoundedCornerShape(18.dp),
+            shape = MaterialTheme.shapes.large,
             trailingIcon = {
-                IconButton(onClick = { showPassword = !showPassword }) {
+                IconButton(
+                    onClick = { showPassword = !showPassword },
+                    shapes = IconButtonDefaults.shapes(),
+                ) {
                     val eyeIcon = if (showPassword) R.drawable.ic_visibility_off else R.drawable.ic_visibility
                     Icon(
                         painterResource(eyeIcon),
@@ -369,7 +376,7 @@ private fun CredentialForm(
             enabled = ready,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp)
+                .height(AppDimens.ButtonHeightPrimary)
                 .graphicsLayer {
                     scaleX = ctaScale
                     scaleY = ctaScale
@@ -400,19 +407,18 @@ private fun AnimatedButton(
     }
     Button(
         onClick = onClick,
+        shapes = ButtonDefaults.shapes(),
         modifier = modifier.graphicsLayer {
             scaleX = pulse.value
             scaleY = pulse.value
         },
-        shape = RoundedCornerShape(26.dp),
         enabled = enabled,
     ) {
         if (isBusy) {
             CircularWavyProgressIndicator(
-                progress = { 0.5f },
                 modifier = Modifier.size(22.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                color = LocalContentColor.current,
+                trackColor = LocalContentColor.current.copy(alpha = 0.25f),
             )
         } else {
             Text(
@@ -424,6 +430,7 @@ private fun AnimatedButton(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SavedAccountPanel(
     savedUsername: String?,
@@ -450,7 +457,7 @@ private fun SavedAccountPanel(
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(AppDimens.CardPadding))
 
         Text(
             text = savedUsername ?: "Saved account",
@@ -464,14 +471,14 @@ private fun SavedAccountPanel(
 
         Button(
             onClick = onUnlock,
+            shapes = ButtonDefaults.shapes(),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
-            shape = RoundedCornerShape(26.dp),
+                .height(AppDimens.ButtonHeightPrimary),
         ) {
             Text(
                 text = "Unlock and continue",
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelLargeEmphasized,
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -480,17 +487,17 @@ private fun SavedAccountPanel(
 
         OutlinedButton(
             onClick = onOtherAccount,
+            shapes = ButtonDefaults.shapes(),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp),
-            shape = RoundedCornerShape(24.dp),
         ) {
             Text("Use another account")
         }
 
         Spacer(Modifier.height(4.dp))
 
-        TextButton(onClick = onForget) {
+        TextButton(onClick = onForget, shapes = ButtonDefaults.shapes()) {
             Text(
                 text = "Remove saved account",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -500,6 +507,7 @@ private fun SavedAccountPanel(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ErrorPanel(
     error: VtopError,
@@ -530,7 +538,7 @@ private fun ErrorPanel(
             .fillMaxWidth()
             .offset(x = shake.value.dp)
             .semantics { liveRegion = LiveRegionMode.Assertive },
-        shape = RoundedCornerShape(24.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer,
         ),
@@ -538,7 +546,7 @@ private fun ErrorPanel(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(AppDimens.SheetHorizontal),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -556,19 +564,22 @@ private fun ErrorPanel(
                     textAlign = TextAlign.Center,
                 )
             }
-            Spacer(Modifier.height(20.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.height(AppDimens.ScreenHorizontal))
+            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap)) {
                 OutlinedButton(
                     onClick = onEdit,
-                    shape = RoundedCornerShape(20.dp),
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     Text("Edit credentials")
                 }
                 Button(
                     onClick = onRetry,
-                    shape = RoundedCornerShape(20.dp),
+                    shapes = ButtonDefaults.shapes(),
                 ) {
-                    Text("Try again")
+                    Text(
+                        "Try again",
+                        style = MaterialTheme.typography.labelLargeEmphasized,
+                    )
                 }
             }
         }
@@ -600,8 +611,10 @@ private fun phaseLabel(step: String): String {
     return if (wait.isEmpty()) "Retrying" else "Retrying in $wait"
 }
 
+private val DEBUG_TAG_REGEX = Regex("\\s*\\[[A-Za-z]+\\]$")
+
 /** Drops the trailing "[CredentialsRejected]" style debug tag from a server message. */
-private fun String.withoutDebugTag(): String = replace(Regex("\\s*\\[[A-Za-z]+\\]$"), "").trim()
+private fun String.withoutDebugTag(): String = replace(DEBUG_TAG_REGEX, "").trim()
 
 private fun errorTitle(err: VtopError): String = when (err) {
     VtopError.Network -> "No connection"

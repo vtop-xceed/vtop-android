@@ -3,10 +3,12 @@ package dev.vtoppp.vtop.ui.theme
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -15,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
 enum class ThemeMode { SYSTEM, DARK, AMOLED, LIGHT }
 
@@ -36,11 +39,12 @@ object ThemePreferences {
     private const val KEY_ACCENT_COLOR = "accent_color"
     private const val ACCENT_MATERIAL = "MATERIAL"
     private const val ACCENT_CUSTOM = "CUSTOM"
-    private val DEFAULT_ACCENT = Color(0xFF6B4EA2)
+    val DefaultAccentSeed: Color = Color(0xFF6B4EA2)
+    val DefaultBlueSeed: Color = Color(0xFF0B57D0)
     private val legacySeeds = mapOf(
-        "GoogleBlue" to Color(0xFF0B57D0),
+        "GoogleBlue" to DefaultBlueSeed,
         "Emerald" to Color(0xFF006D44),
-        "Violet" to Color(0xFF6B4EA2),
+        "Violet" to DefaultAccentSeed,
         "Coral" to Color(0xFFA04000),
     )
     private const val KEY_THEME_MODE = "theme_mode"
@@ -71,7 +75,7 @@ object ThemePreferences {
     fun getPalette(context: Context): AppPalette {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (prefs.getString(KEY_ACCENT, null) == ACCENT_CUSTOM) {
-            return AppPalette.Custom(Color(prefs.getInt(KEY_ACCENT_COLOR, DEFAULT_ACCENT.toArgb())))
+            return AppPalette.Custom(Color(prefs.getInt(KEY_ACCENT_COLOR, DefaultAccentSeed.toArgb())))
         }
         // Migration: the old preset palettes become the custom accent they had.
         val legacy = legacySeeds[prefs.getString(KEY_PALETTE, null)]
@@ -95,7 +99,7 @@ object ThemePreferences {
 
 // Blue Palette
 private val LightBlueColors = lightColorScheme(
-    primary = Color(0xFF0B57D0),
+    primary = ThemePreferences.DefaultBlueSeed,
     onPrimary = Color.White,
     primaryContainer = Color(0xFFD3E3FD),
     onPrimaryContainer = Color(0xFF041E49),
@@ -191,6 +195,17 @@ private fun ColorScheme.withAccent(seed: Color, dark: Boolean): ColorScheme {
     )
 }
 
+val VtopShapes: Shapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    largeIncreased = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+    extraLargeIncreased = RoundedCornerShape(32.dp),
+    extraExtraLarge = RoundedCornerShape(48.dp),
+)
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VtopTheme(
@@ -222,6 +237,7 @@ fun VtopTheme(
         MaterialExpressiveTheme(
             colorScheme = colorScheme,
             motionScheme = MotionScheme.expressive(),
+            shapes = VtopShapes,
             content = content,
         )
     }

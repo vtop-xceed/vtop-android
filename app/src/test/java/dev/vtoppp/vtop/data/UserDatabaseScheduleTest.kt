@@ -2,6 +2,7 @@ package dev.vtoppp.vtop.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -208,5 +209,51 @@ class UserDatabaseScheduleTest {
         val today = day(days, "Today")
         assertEquals("12:00 PM", today.classes[0].startTime)
         assertEquals("1:00 PM", today.classes[1].startTime)
+    }
+
+    @Test
+    fun parseTimeHandlesAmPm24HourAndMalformedInputs() {
+        assertEquals(LocalTime.of(0, 0), UserDatabase.parseTime("12:00 AM"))
+        assertEquals(LocalTime.of(12, 0), UserDatabase.parseTime("12:00 PM"))
+        assertEquals(LocalTime.of(13, 0), UserDatabase.parseTime("1:00 pm"))
+        assertEquals(LocalTime.of(8, 30), UserDatabase.parseTime(" 08:30 "))
+        assertEquals(LocalTime.of(13, 10), UserDatabase.parseTime("13:10 PM"))
+        assertNull(UserDatabase.parseTime(""))
+        assertNull(UserDatabase.parseTime("TBD"))
+    }
+
+    @Test
+    fun stampsIndexedAttendanceStatusForPastTodayAndFuture() {
+        val days = UserDatabase.buildScheduleDays(
+            entries = listOf(
+                entry(2, "09:00 AM", "10:30 AM", "MAT1001"), // Tuesday (Yesterday)
+                entry(3, "09:00 AM", "10:30 AM", "CSE2005").copy(slots = listOf("A11", "A12")), // Today
+                entry(4, "11:00 AM", "12:00 PM", "CSE2006"), // Thursday (Tomorrow)
+            ),
+            sessions = listOf(
+                AttendanceSession(
+                    regNo = "24BCY10147",
+                    semesterSubId = "BL20262701",
+                    courseCode = "CSE2005",
+                    date = wednesday.toString(),
+                    slot = "a11",
+                    status = "Present",
+                ),
+                AttendanceSession(
+                    regNo = "24BCY10147",
+                    semesterSubId = "BL20262701",
+                    courseCode = "MAT1001",
+                    date = "2026-09-01",
+                    slot = "B11",
+                    status = "Absent",
+                ),
+            ),
+            referenceDate = wednesday,
+            referenceTime = LocalTime.of(8, 0),
+        )
+
+        assertEquals("Not marked", day(days, "Yesterday").classes.single().attendanceStatus)
+        assertEquals("Present", day(days, "Today").classes.single().attendanceStatus)
+        assertNull(day(days, "Tomorrow").classes.single().attendanceStatus)
     }
 }

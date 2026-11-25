@@ -5,11 +5,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -19,7 +15,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -39,18 +34,20 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -58,10 +55,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -77,26 +74,33 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import dev.vtoppp.vtop.R
+import dev.vtoppp.vtop.data.AttendanceParser
 import dev.vtoppp.vtop.data.DaySchedule
 import dev.vtoppp.vtop.data.PillKind
 import dev.vtoppp.vtop.data.PillState
+import dev.vtoppp.vtop.data.SessionCache
+import dev.vtoppp.vtop.data.TimetableEntry
+import dev.vtoppp.vtop.data.TimetableParser
 import dev.vtoppp.vtop.data.UserDatabase
 import dev.vtoppp.vtop.data.UserProfile
+import dev.vtoppp.vtop.data.sharedLightweightHttpClient
+import dev.vtoppp.vtop.ui.theme.AppDimens
 import dev.vtoppp.vtop.ui.theme.AppPalette
-import dev.vtoppp.vtop.ui.theme.Motion
 import dev.vtoppp.vtop.ui.theme.StatusColors
 import java.time.LocalDateTime
+import java.time.LocalTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 
 data class SubjectAttendance(
@@ -115,6 +119,16 @@ data class SubjectAttendance(
         val isToday: Boolean = false,
         val todayStatus: String? = null,
 )
+
+private class TimedTimetableEntry(
+        val entry: TimetableEntry,
+        val start: LocalTime?,
+        val end: LocalTime?,
+)
+
+private val githubPingHttpClient by lazy {
+        sharedLightweightHttpClient(connectTimeoutSec = 4, readTimeoutSec = 4)
+}
 
 enum class DashboardScreen(val isModal: Boolean) {
     Overview(false),
@@ -181,11 +195,11 @@ fun MainDashboardScreen(
         githubPingSuccess = ok
         githubPingDone = true
     }
-    val liveProfile = userProfile ?: UserDatabase.profileFlow.collectAsState().value
-    val liveCalendarEvents by UserDatabase.calendarEventsFlow.collectAsState()
+    val liveProfile = userProfile ?: UserDatabase.profileFlow.collectAsStateWithLifecycle().value
+    val liveCalendarEvents by UserDatabase.calendarEventsFlow.collectAsStateWithLifecycle()
 
-    val storedTimetable by UserDatabase.timetableFlow.collectAsState()
-    val liveSessions by UserDatabase.attendanceSessionsFlow.collectAsState()
+    val storedTimetable by UserDatabase.timetableFlow.collectAsStateWithLifecycle()
+    val liveSessions by UserDatabase.attendanceSessionsFlow.collectAsStateWithLifecycle()
     // The highlight has to follow the clock, so the clock is state, not a
     // value captured once when the timetable loads.
     var now by remember { mutableStateOf(LocalDateTime.now()) }
@@ -226,10 +240,24 @@ fun MainDashboardScreen(
         }
     }
 
-    val liveAttendance by UserDatabase.attendanceFlow.collectAsState()
-    val semesters by UserDatabase.semestersFlow.collectAsState()
-    val dbRevision by UserDatabase.dbVersionFlow.collectAsState()
-    val latestSemesterId = remember(semesters, dbRevision) { UserDatabase.getLatestSemesterId(authorizedId) }
+    val liveAttendance by UserDatabase.attendanceFlow.collectAsStateWithLifecycle()
+    val semesters by UserDatabase.semestersFlow.collectAsStateWithLifecycle()
+    val dbRevision by UserDatabase.dbVersionFlow.collectAsStateWithLifecycle()
+    val derivedLatestSemesterId =
+            remember(semesters) { semesters.maxOfOrNull { it.semesterSubId } }
+    val latestSemesterId by
+            produceState(
+                    initialValue = derivedLatestSemesterId,
+                    derivedLatestSemesterId,
+                    authorizedId,
+                    dbRevision,
+            ) {
+                value =
+                        derivedLatestSemesterId
+                                ?: withContext(Dispatchers.IO) {
+                                    UserDatabase.getLatestSemesterId(authorizedId)
+                                }
+            }
 
     LaunchedEffect(isRebuilding) {
         if (!isRebuilding) onEnsureOverview()
@@ -238,196 +266,205 @@ fun MainDashboardScreen(
     var attendanceSemesterId by rememberSaveable { mutableStateOf<String?>(null) }
     var timetableSemesterId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val pageAttendance =
-            remember(attendanceSemesterId, liveAttendance, dbRevision) {
-                if (attendanceSemesterId == null || attendanceSemesterId == latestSemesterId) {
-                    liveAttendance
-                } else {
-                    UserDatabase.loadAttendance(authorizedId, attendanceSemesterId)
-                }
-            }
-    val pageTimetable =
-            remember(timetableSemesterId, storedTimetable, dbRevision) {
-                if (timetableSemesterId == null || timetableSemesterId == latestSemesterId) {
-                    storedTimetable
-                } else {
-                    UserDatabase.loadTimetable(authorizedId, timetableSemesterId)
-                }
-            }
-    val todayDate = now.toLocalDate()
-    val todayDayOfWeek = todayDate.dayOfWeek.value // 1 = Monday .. 7 = Sunday
-    val todayTime = now.toLocalTime()
-
-    val (attendanceSubjects, attendanceFocusIndex) =
-            remember(liveAttendance, storedTimetable, liveSessions, now) {
-                val baseSubjects =
-                        if (liveAttendance.isNotEmpty()) {
-                            liveAttendance.map { entry ->
-                                // ponytail: calculate safe bunks to maintain 75% attendance
-                                // threshold
-                                val safeBunks =
-                                        ((entry.attendedClasses - 0.75 * entry.totalClasses) / 0.75)
-                                                .toInt()
-                                                .coerceAtLeast(0)
-                                SubjectAttendance(
-                                        courseCode = entry.courseCode,
-                                        courseTitle = entry.courseTitle,
-                                        percentage = entry.attendancePercentage.toInt(),
-                                        attendedClasses = entry.attendedClasses,
-                                        totalClasses = entry.totalClasses,
-                                        safeBunks = safeBunks,
-                                        examTarget = "CAT-1",
-                                )
+    val historicalAttendance by
+            produceState<List<dev.vtoppp.vtop.data.AttendanceEntry>>(
+                    initialValue = emptyList(),
+                    attendanceSemesterId,
+                    latestSemesterId,
+                    authorizedId,
+                    dbRevision,
+            ) {
+                val selected = attendanceSemesterId
+                value =
+                        if (selected != null && selected != latestSemesterId) {
+                            withContext(Dispatchers.IO) {
+                                UserDatabase.loadAttendance(authorizedId, selected)
                             }
                         } else {
                             emptyList()
                         }
+            }
+    val pageAttendance =
+            if (attendanceSemesterId == null || attendanceSemesterId == latestSemesterId) {
+                liveAttendance
+            } else {
+                historicalAttendance
+            }
 
-                // Classes scheduled today in chronological order of start time
-                val todayClasses =
-                        storedTimetable.filter { it.dayOfWeek == todayDayOfWeek }.sortedBy {
-                            UserDatabase.parseTime(it.startTime)?.toSecondOfDay() ?: Int.MAX_VALUE
-                        }
-
-                // Find running class
-                val runningClass =
-                        todayClasses.firstOrNull { c ->
-                            val start = UserDatabase.parseTime(c.startTime)
-                            val end = UserDatabase.parseTime(c.endTime)
-                            start != null &&
-                                    end != null &&
-                                    !todayTime.isBefore(start) &&
-                                    todayTime.isBefore(end)
-                        }
-
-                // If none running, find next upcoming class today
-                val nextClass =
-                        if (runningClass == null) {
-                            todayClasses.firstOrNull { c ->
-                                val start = UserDatabase.parseTime(c.startTime)
-                                start != null && todayTime.isBefore(start)
+    val historicalTimetable by
+            produceState<List<TimetableEntry>>(
+                    initialValue = emptyList(),
+                    timetableSemesterId,
+                    latestSemesterId,
+                    authorizedId,
+                    dbRevision,
+            ) {
+                val selected = timetableSemesterId
+                value =
+                        if (selected != null && selected != latestSemesterId) {
+                            withContext(Dispatchers.IO) {
+                                UserDatabase.loadTimetable(authorizedId, selected)
                             }
-                        } else null
+                        } else {
+                            emptyList()
+                        }
+            }
+    val pageTimetable =
+            if (timetableSemesterId == null || timetableSemesterId == latestSemesterId) {
+                storedTimetable
+            } else {
+                historicalTimetable
+            }
 
-                // Most recent class that finished today (if any)
-                val mostRecentClass =
-                        if (runningClass == null && nextClass == null) {
-                            todayClasses.lastOrNull { c ->
-                                val end = UserDatabase.parseTime(c.endTime)
-                                end != null && !todayTime.isBefore(end)
-                            }
-                        } else null
+    // Static attendance/timetable/session indexing memoized independently of the 60s clock tick.
+    val (baseSubjects, baseByCode) =
+            remember(liveAttendance) {
+                val list =
+                        liveAttendance.map { entry ->
+                            // ponytail: calculate safe bunks to maintain 75% attendance threshold
+                            val safeBunks =
+                                    ((entry.attendedClasses - 0.75 * entry.totalClasses) / 0.75)
+                                            .toInt()
+                                            .coerceAtLeast(0)
+                            SubjectAttendance(
+                                    courseCode = entry.courseCode,
+                                    courseTitle = entry.courseTitle,
+                                    percentage = entry.attendancePercentage.toInt(),
+                                    attendedClasses = entry.attendedClasses,
+                                    totalClasses = entry.totalClasses,
+                                    safeBunks = safeBunks,
+                                    examTarget = "CAT-1",
+                            )
+                        }
+                val byCode = HashMap<String, SubjectAttendance>(list.size * 2)
+                for (subject in list) {
+                    byCode.putIfAbsent(subject.courseCode.trim().uppercase(), subject)
+                }
+                list to byCode
+            }
 
-                // Today's subjects in chronological order
-                val todaySubjects = mutableListOf<SubjectAttendance>()
-                val seenCodes = mutableSetOf<String>()
-                val dateIso = todayDate.toString()
-
-                todayClasses.forEach { classEntry ->
-                    val codeClean = classEntry.courseCode.trim().uppercase()
-                    if (!seenCodes.contains(codeClean)) {
-                        seenCodes.add(codeClean)
-                        val base =
-                                baseSubjects.firstOrNull {
-                                    it.courseCode.trim().equals(codeClean, ignoreCase = true)
-                                }
-                                        ?: SubjectAttendance(
-                                                courseCode = classEntry.courseCode,
-                                                courseTitle = classEntry.courseTitle,
-                                                percentage = 100,
-                                                attendedClasses = 1,
-                                                totalClasses = 1,
-                                                safeBunks = 0,
+    val timetableByDay =
+            remember(storedTimetable) {
+                storedTimetable
+                        .groupBy { it.dayOfWeek }
+                        .mapValues { (_, items) ->
+                            items
+                                    .map {
+                                        TimedTimetableEntry(
+                                                entry = it,
+                                                start = UserDatabase.parseTime(it.startTime),
+                                                end = UserDatabase.parseTime(it.endTime),
                                         )
-                        val isRunning =
-                                runningClass
-                                        ?.courseCode
-                                        ?.trim()
-                                        ?.equals(codeClean, ignoreCase = true) == true
-                        val isNextUp =
-                                nextClass
-                                        ?.courseCode
-                                        ?.trim()
-                                        ?.equals(codeClean, ignoreCase = true) == true
-                        val sessionToday =
-                                liveSessions.firstOrNull {
-                                    it.courseCode.trim().equals(codeClean, ignoreCase = true) &&
-                                            it.date == dateIso
-                                }
+                                    }
+                                    .sortedBy { it.start?.toSecondOfDay() ?: Int.MAX_VALUE }
+                        }
+            }
 
-                        val activeSlotItem =
-                                when {
-                                    isRunning -> runningClass
-                                    isNextUp -> nextClass
-                                    else -> classEntry
-                                }
-                                        ?: classEntry
-
-                        todaySubjects.add(
-                                base.copy(
-                                        todaySlot =
-                                                activeSlotItem.activeSlot.ifBlank {
-                                                    activeSlotItem.slots.firstOrNull().orEmpty()
-                                                },
-                                        todayStartTime = activeSlotItem.startTime,
-                                        todayEndTime = activeSlotItem.endTime,
-                                        isOngoing = isRunning,
-                                        isNext = isNextUp,
-                                        isToday = true,
-                                        todayStatus = sessionToday?.status,
-                                )
-                        )
+    val sessionStatusIndex =
+            remember(liveSessions) {
+                HashMap<Pair<String, String>, String>(liveSessions.size * 2).apply {
+                    for (s in liveSessions) {
+                        putIfAbsent(s.courseCode.trim().uppercase() to s.date, s.status)
                     }
                 }
+            }
 
-                // Non-today subjects appended at the end
+    val (attendanceSubjects, attendanceFocusIndex) =
+            remember(baseSubjects, baseByCode, timetableByDay, sessionStatusIndex, now) {
+                val todayDate = now.toLocalDate()
+                val todayDayOfWeek = todayDate.dayOfWeek.value // 1 = Monday .. 7 = Sunday
+                val todayTime = now.toLocalTime()
+                val todayClasses = timetableByDay[todayDayOfWeek].orEmpty()
+
+                val runningClass =
+                        todayClasses
+                                .firstOrNull { c ->
+                                    c.start != null &&
+                                            c.end != null &&
+                                            !todayTime.isBefore(c.start) &&
+                                            todayTime.isBefore(c.end)
+                                }
+                                ?.entry
+
+                val nextClass =
+                        if (runningClass == null) {
+                            todayClasses
+                                    .firstOrNull { c ->
+                                        c.start != null && todayTime.isBefore(c.start)
+                                    }
+                                    ?.entry
+                        } else null
+
+                val mostRecentClass =
+                        if (runningClass == null && nextClass == null) {
+                            todayClasses
+                                    .lastOrNull { c ->
+                                        c.end != null && !todayTime.isBefore(c.end)
+                                    }
+                                    ?.entry
+                        } else null
+
+                val runningCode = runningClass?.courseCode?.trim()?.uppercase()
+                val nextCode = nextClass?.courseCode?.trim()?.uppercase()
+                val todaySubjects = ArrayList<SubjectAttendance>(todayClasses.size)
+                val seenCodes = HashSet<String>(todayClasses.size * 2)
+                val dateIso = todayDate.toString()
+
+                for (timed in todayClasses) {
+                    val classEntry = timed.entry
+                    val codeClean = classEntry.courseCode.trim().uppercase()
+                    if (!seenCodes.add(codeClean)) continue
+                    val base =
+                            baseByCode[codeClean]
+                                    ?: SubjectAttendance(
+                                            courseCode = classEntry.courseCode,
+                                            courseTitle = classEntry.courseTitle,
+                                            percentage = 100,
+                                            attendedClasses = 1,
+                                            totalClasses = 1,
+                                            safeBunks = 0,
+                                    )
+                    val isRunning = codeClean == runningCode
+                    val isNextUp = codeClean == nextCode
+                    val activeSlotItem =
+                            when {
+                                isRunning -> runningClass!!
+                                isNextUp -> nextClass!!
+                                else -> classEntry
+                            }
+                    todaySubjects.add(
+                            base.copy(
+                                    todaySlot =
+                                            activeSlotItem.activeSlot.ifBlank {
+                                                activeSlotItem.slots.firstOrNull().orEmpty()
+                                            },
+                                    todayStartTime = activeSlotItem.startTime,
+                                    todayEndTime = activeSlotItem.endTime,
+                                    isOngoing = isRunning,
+                                    isNext = isNextUp,
+                                    isToday = true,
+                                    todayStatus = sessionStatusIndex[codeClean to dateIso],
+                            )
+                    )
+                }
+
                 val nonTodaySubjects =
                         baseSubjects
-                                .filter { !seenCodes.contains(it.courseCode.trim().uppercase()) }
+                                .filter { it.courseCode.trim().uppercase() !in seenCodes }
                                 .map { it.copy(isToday = false) }
-
                 val ordered = todaySubjects + nonTodaySubjects
 
+                val focusCode = (runningClass ?: nextClass ?: mostRecentClass)?.courseCode?.trim()
                 val focusIdx =
-                        when {
-                            runningClass != null ->
-                                    ordered
-                                            .indexOfFirst {
-                                                it.courseCode
-                                                        .trim()
-                                                        .equals(
-                                                                runningClass.courseCode.trim(),
-                                                                ignoreCase = true
-                                                        )
-                                            }
-                                            .coerceAtLeast(0)
-                            nextClass != null ->
-                                    ordered
-                                            .indexOfFirst {
-                                                it.courseCode
-                                                        .trim()
-                                                        .equals(
-                                                                nextClass.courseCode.trim(),
-                                                                ignoreCase = true
-                                                        )
-                                            }
-                                            .coerceAtLeast(0)
-                            mostRecentClass != null ->
-                                    ordered
-                                            .indexOfFirst {
-                                                it.courseCode
-                                                        .trim()
-                                                        .equals(
-                                                                mostRecentClass.courseCode.trim(),
-                                                                ignoreCase = true
-                                                        )
-                                            }
-                                            .coerceAtLeast(0)
-                            todaySubjects.isNotEmpty() -> 0
-                            else -> 0
-                        }
+                        if (focusCode != null) {
+                            ordered
+                                    .indexOfFirst {
+                                        it.courseCode.trim().equals(focusCode, ignoreCase = true)
+                                    }
+                                    .coerceAtLeast(0)
+                        } else 0
 
-                Pair(ordered, focusIdx)
+                ordered to focusIdx
             }
 
     val listState = rememberLazyListState()
@@ -437,61 +474,76 @@ fun MainDashboardScreen(
     var showAttendancePage by rememberSaveable { mutableStateOf(false) }
     var showTimetablePage by rememberSaveable { mutableStateOf(false) }
 
-    val faculties =
-            remember(liveAttendance, storedTimetable) {
-                val map =
-                        liveAttendance
-                                .filter { it.facultyName.isNotBlank() }
-                                .associate { it.courseCode to it.facultyName }
-                                .toMutableMap()
-                try {
-                    val semId = UserDatabase.getLatestSemesterId(authorizedId) ?: "BL20262705"
-                    listOfNotNull(
-                                    "processViewTimeTable_$semId",
-                                    "processViewTimeTable_BL20262705",
-                                    "processViewTimeTable_BL20262701",
-                            )
-                            .forEach { name ->
-                                dev.vtoppp.vtop.data.SessionCache.load(name)?.let { cached ->
-                                    dev.vtoppp.vtop.data.TimetableParser.parseFacultyMap(
-                                                    cached.first
-                                            )
-                                            .forEach { (code, fac) ->
-                                                if (map[code].isNullOrBlank() && fac.isNotBlank())
-                                                        map[code] = fac
-                                            }
-                                }
-                            }
-                    listOfNotNull(
-                                    "processViewStudentAttendance_$semId",
-                                    "processViewStudentAttendance_BL20262705",
-                                    "processViewStudentAttendance_BL20262701",
-                            )
-                            .forEach { name ->
-                                dev.vtoppp.vtop.data.SessionCache.load(name)?.let { cached ->
-                                    dev.vtoppp.vtop.data.AttendanceParser.parse(
-                                                    cached.first,
-                                                    authorizedId
-                                            )
-                                            .forEach { entry ->
-                                                if (map[entry.courseCode].isNullOrBlank() &&
-                                                                entry.facultyName.isNotBlank()
-                                                ) {
-                                                    map[entry.courseCode] = entry.facultyName
-                                                }
-                                            }
-                                }
-                            }
-                } catch (_: Exception) {}
-                map
+    val baseFaculties =
+            remember(liveAttendance) {
+                buildMap {
+                    for (entry in liveAttendance) {
+                        if (entry.facultyName.isNotBlank()) {
+                            put(entry.courseCode, entry.facultyName)
+                        }
+                    }
+                }
             }
-    val todayCourseCodes =
-            remember(storedTimetable) {
-                val today = java.time.LocalDateTime.now().dayOfWeek.value
-                storedTimetable.filter { it.dayOfWeek == today }.map { it.courseCode }.toSet()
+    val faculties by
+            produceState(
+                    initialValue = baseFaculties,
+                    baseFaculties,
+                    latestSemesterId,
+                    authorizedId,
+                    storedTimetable.size,
+            ) {
+                value =
+                        withContext(Dispatchers.IO) {
+                            val map = baseFaculties.toMutableMap()
+                            try {
+                                val semId =
+                                        latestSemesterId
+                                                ?: UserDatabase.getLatestSemesterId(authorizedId)
+                                                ?: "BL20262705"
+                                listOf(
+                                                "processViewTimeTable_$semId",
+                                                "processViewTimeTable_BL20262705",
+                                                "processViewTimeTable_BL20262701",
+                                        )
+                                        .distinct()
+                                        .forEach { name ->
+                                            SessionCache.load(name)?.let { cached ->
+                                                TimetableParser.parseFacultyMap(cached.first)
+                                                        .forEach { (code, fac) ->
+                                                            if (map[code].isNullOrBlank() &&
+                                                                            fac.isNotBlank()
+                                                            ) {
+                                                                map[code] = fac
+                                                            }
+                                                        }
+                                            }
+                                        }
+                                listOf(
+                                                "processViewStudentAttendance_$semId",
+                                                "processViewStudentAttendance_BL20262705",
+                                                "processViewStudentAttendance_BL20262701",
+                                        )
+                                        .distinct()
+                                        .forEach { name ->
+                                            SessionCache.load(name)?.let { cached ->
+                                                AttendanceParser.parse(cached.first, authorizedId)
+                                                        .forEach { entry ->
+                                                            if (map[entry.courseCode].isNullOrBlank() &&
+                                                                            entry.facultyName
+                                                                                    .isNotBlank()
+                                                            ) {
+                                                                map[entry.courseCode] =
+                                                                        entry.facultyName
+                                                            }
+                                                        }
+                                            }
+                                        }
+                            } catch (_: Exception) {}
+                            map
+                        }
             }
 
-    val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
+    val isSyncing by UserDatabase.isSyncingFlow.collectAsStateWithLifecycle()
     val isProcessing = pill.kind == PillKind.Busy || !githubPingDone || isSyncing
 
     Box(
@@ -515,6 +567,8 @@ fun MainDashboardScreen(
                 else -> selectedNavTab = 0
             }
         }
+        val enterEffect = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+        val exitEffect = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
         AnimatedContent(
                 targetState =
                         when {
@@ -527,7 +581,7 @@ fun MainDashboardScreen(
                             else -> "timeline"
                         },
                 transitionSpec = {
-                    fadeIn(tween(Motion.Content)) togetherWith fadeOut(tween(Motion.Quick))
+                    fadeIn(enterEffect) togetherWith fadeOut(exitEffect)
                 },
                 label = "navContent",
         ) { contentKey ->
@@ -649,7 +703,10 @@ fun MainDashboardScreen(
                                                 state = listState,
                                                 modifier = Modifier.fillMaxSize(),
                                                 contentPadding =
-                                                        PaddingValues(top = 12.dp, bottom = 84.dp),
+                                                        PaddingValues(
+                                                                top = AppDimens.ScreenTop,
+                                                                bottom = AppDimens.FloatingNavClearance,
+                                                        ),
                                                 verticalArrangement = Arrangement.spacedBy(16.dp),
                                         ) {
                                             // Header: Greeting on Left + Organic Question Card on
@@ -659,8 +716,8 @@ fun MainDashboardScreen(
                                                         modifier =
                                                                 Modifier.fillMaxWidth()
                                                                         .padding(
-                                                                                start = 20.dp,
-                                                                                end = 20.dp,
+                                                                                start = AppDimens.ScreenHorizontal,
+                                                                                end = AppDimens.ScreenHorizontal,
                                                                                 top = 6.dp,
                                                                                 bottom = 4.dp
                                                                         ),
@@ -707,7 +764,7 @@ fun MainDashboardScreen(
                                                             modifier = Modifier.weight(0.65f),
                                                     )
 
-                                                    Spacer(Modifier.width(12.dp))
+                                                    Spacer(Modifier.width(AppDimens.ItemGap))
 
                                                     // Right: Poll with question text above the
                                                     // shape (35% width)
@@ -733,7 +790,7 @@ fun MainDashboardScreen(
                                                         modifier =
                                                                 Modifier.fillMaxWidth()
                                                                         .padding(
-                                                                                horizontal = 20.dp,
+                                                                                horizontal = AppDimens.ScreenHorizontal,
                                                                                 vertical = 2.dp
                                                                         ),
                                                         verticalAlignment =
@@ -743,7 +800,7 @@ fun MainDashboardScreen(
                                                             text = "Timeline",
                                                             style =
                                                                     MaterialTheme.typography
-                                                                            .titleLarge,
+                                                                            .titleLargeEmphasized,
                                                             fontWeight = FontWeight.Bold,
                                                             color =
                                                                     MaterialTheme.colorScheme
@@ -759,6 +816,9 @@ fun MainDashboardScreen(
                                                                             "Tomorrow" ||
                                                                     currentDay.dayName ==
                                                                             "Yesterday"
+                                                    val badgeEffects =
+                                                            MaterialTheme.motionScheme
+                                                                    .defaultEffectsSpec<Color>()
                                                     val badgeColor by
                                                             animateColorAsState(
                                                                     targetValue =
@@ -770,8 +830,7 @@ fun MainDashboardScreen(
                                                                                     MaterialTheme
                                                                                             .colorScheme
                                                                                             .surfaceContainerHigh,
-                                                                    animationSpec =
-                                                                            tween(Motion.Color),
+                                                                    animationSpec = badgeEffects,
                                                                     label = "dayBadge",
                                                             )
                                                     val badgeContent by
@@ -785,8 +844,7 @@ fun MainDashboardScreen(
                                                                                     MaterialTheme
                                                                                             .colorScheme
                                                                                             .onSurface,
-                                                                    animationSpec =
-                                                                            tween(Motion.Color),
+                                                                    animationSpec = badgeEffects,
                                                                     label = "dayBadgeContent",
                                                             )
                                                     val badgeContentDim by
@@ -804,12 +862,11 @@ fun MainDashboardScreen(
                                                                                     MaterialTheme
                                                                                             .colorScheme
                                                                                             .onSurfaceVariant,
-                                                                    animationSpec =
-                                                                            tween(Motion.Color),
+                                                                    animationSpec = badgeEffects,
                                                                     label = "dayBadgeDim",
                                                             )
                                                     Surface(
-                                                            shape = RoundedCornerShape(12.dp),
+                                                            shape = MaterialTheme.shapes.medium,
                                                             color = badgeColor,
                                                     ) {
                                                         Row(
@@ -863,32 +920,31 @@ fun MainDashboardScreen(
                                                                                     .isNotEmpty(),
                                                                     enter =
                                                                             fadeIn(
-                                                                                    tween(
-                                                                                            Motion.Quick
-                                                                                    )
+                                                                                    MaterialTheme
+                                                                                            .motionScheme
+                                                                                            .fastEffectsSpec()
                                                                             ) +
                                                                                     scaleIn(
-                                                                                            tween(
-                                                                                                    Motion.Content
-                                                                                            )
+                                                                                            MaterialTheme
+                                                                                                    .motionScheme
+                                                                                                    .defaultSpatialSpec()
                                                                                     ),
                                                                     exit =
                                                                             fadeOut(
-                                                                                    tween(
-                                                                                            Motion.Fast
-                                                                                    )
+                                                                                    MaterialTheme
+                                                                                            .motionScheme
+                                                                                            .fastEffectsSpec()
                                                                             ) +
                                                                                     scaleOut(
-                                                                                            tween(
-                                                                                                    Motion.Fast
-                                                                                            )
+                                                                                            MaterialTheme
+                                                                                                    .motionScheme
+                                                                                                    .fastEffectsSpec()
                                                                                     ),
                                                             ) {
                                                                 Surface(
                                                                         shape =
-                                                                                RoundedCornerShape(
-                                                                                        8.dp
-                                                                                ),
+                                                                                MaterialTheme.shapes
+                                                                                        .small,
                                                                         color =
                                                                                 MaterialTheme
                                                                                         .colorScheme
@@ -896,7 +952,7 @@ fun MainDashboardScreen(
                                                                         modifier =
                                                                                 Modifier.padding(
                                                                                         start =
-                                                                                                12.dp
+                                                                                                AppDimens.ItemGap
                                                                                 ),
                                                                 ) {
                                                                     Text(
@@ -915,7 +971,7 @@ fun MainDashboardScreen(
                                                                             modifier =
                                                                                     Modifier.padding(
                                                                                             horizontal =
-                                                                                                    8.dp,
+                                                                                                    AppDimens.CompactGap,
                                                                                             vertical =
                                                                                                     1.dp
                                                                                     ),
@@ -925,31 +981,34 @@ fun MainDashboardScreen(
                                                         }
                                                     }
                                                     Spacer(modifier = Modifier.weight(1f))
-                                                    Surface(
+                                                    FilledTonalIconButton(
                                                             onClick = { showTimetablePage = true },
-                                                            shape = CircleShape,
-                                                            color =
-                                                                    MaterialTheme.colorScheme
-                                                                            .surfaceContainerHigh,
-                                                            modifier = Modifier.size(32.dp),
+                                                            shapes = IconButtonDefaults.shapes(),
+                                                            colors =
+                                                                    IconButtonDefaults
+                                                                            .filledTonalIconButtonColors(
+                                                                                    containerColor =
+                                                                                            MaterialTheme
+                                                                                                    .colorScheme
+                                                                                                    .surfaceContainerHigh,
+                                                                                    contentColor =
+                                                                                            MaterialTheme
+                                                                                                    .colorScheme
+                                                                                                    .primary,
+                                                                            ),
+                                                            modifier = Modifier.size(36.dp),
                                                     ) {
-                                                        Box(contentAlignment = Alignment.Center) {
-                                                            Text(
-                                                                    text = "↗",
-                                                                    style =
-                                                                            MaterialTheme.typography
-                                                                                    .titleMedium
-                                                                                    .copy(
-                                                                                            fontSize =
-                                                                                                    15.sp
-                                                                                    ),
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    color =
-                                                                            MaterialTheme
-                                                                                    .colorScheme
-                                                                                    .primary,
-                                                            )
-                                                        }
+                                                        Text(
+                                                                text = "↗",
+                                                                style =
+                                                                        MaterialTheme.typography
+                                                                                .titleMedium
+                                                                                .copy(
+                                                                                        fontSize =
+                                                                                                15.sp
+                                                                                ),
+                                                                fontWeight = FontWeight.Bold,
+                                                        )
                                                     }
                                                 }
                                             }
@@ -990,9 +1049,15 @@ fun MainDashboardScreen(
         AnimatedVisibility(
                 visible = !hideBottomBar,
                 enter =
-                        fadeIn(tween(Motion.Fast)) +
-                                slideInVertically(tween(Motion.Content)) { it },
-                exit = fadeOut(tween(Motion.Quick)) + slideOutVertically(tween(Motion.Fast)) { it },
+                        fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                                slideInVertically(
+                                        MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+                                ) { it },
+                exit =
+                        fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                                slideOutVertically(
+                                        MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
+                                ) { it },
                 modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             Box(
@@ -1012,7 +1077,7 @@ fun MainDashboardScreen(
                                                             ),
                                             ),
                                     )
-                                    .padding(bottom = 12.dp, top = 8.dp),
+                                    .padding(bottom = AppDimens.ItemGap, top = AppDimens.CompactGap),
                     contentAlignment = Alignment.Center,
             ) {
                 FloatingDashboardNavBar(
@@ -1039,11 +1104,14 @@ private fun RebuildingScreen(
         modifier: Modifier = Modifier,
 ) {
     Box(
-            modifier = modifier.fillMaxSize().padding(24.dp).padding(bottom = 80.dp),
+            modifier =
+                    modifier.fillMaxSize()
+                            .padding(AppDimens.SheetHorizontal)
+                            .padding(bottom = AppDimens.FloatingNavClearance),
             contentAlignment = Alignment.Center,
     ) {
         Card(
-                shape = RoundedCornerShape(28.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 colors =
                         CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -1053,7 +1121,8 @@ private fun RebuildingScreen(
         ) {
             Column(
                     modifier =
-                            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 32.dp),
+                            Modifier.fillMaxWidth()
+                                    .padding(horizontal = AppDimens.SheetHorizontal, vertical = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
             ) {
@@ -1066,12 +1135,12 @@ private fun RebuildingScreen(
                 Spacer(Modifier.height(20.dp))
                 Text(
                         text = "Rebuilding VTOP database…",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleLargeEmphasized,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(AppDimens.CompactGap))
                 Text(
                         text = step.ifBlank { "Synchronizing database records…" },
                         style = MaterialTheme.typography.bodyMedium,
@@ -1084,11 +1153,13 @@ private fun RebuildingScreen(
                 LinearWavyProgressIndicator(
                         progress = { progress.coerceIn(0f, 1f) },
                         modifier =
-                                Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                                Modifier.fillMaxWidth()
+                                        .height(8.dp)
+                                        .clip(MaterialTheme.shapes.extraSmall),
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(AppDimens.CompactGap))
                 Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1105,17 +1176,17 @@ private fun RebuildingScreen(
                             color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(AppDimens.SheetBottom))
                 FilledTonalButton(
                         onClick = onViewLogs,
-                        shape = RoundedCornerShape(12.dp),
+                        shapes = ButtonDefaults.shapes(),
                 ) {
                     Icon(
                             painter = painterResource(R.drawable.ic_code),
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(AppDimens.CompactGap))
                     Text("View live logs in Settings")
                 }
             }
@@ -1148,7 +1219,9 @@ private fun FloatingDashboardNavBar(
                     ),
     ) {
         Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp),
+                modifier =
+                        Modifier.fillMaxSize()
+                                .padding(horizontal = AppDimens.CompactGap, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1162,52 +1235,37 @@ private fun FloatingDashboardNavBar(
 
             items.forEachIndexed { index, (iconRes, label) ->
                 val isSelected = selectedTab == index
-                val animBg by
-                        animateColorAsState(
-                                targetValue =
-                                        if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                                        else Color.Transparent,
-                                label = "tab_bg_$index",
-                        )
-                val animTint by
-                        animateColorAsState(
-                                targetValue =
-                                        if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                label = "tab_tint_$index",
-                        )
                 val iconScale by
                         animateFloatAsState(
                                 targetValue = if (isSelected) 1.15f else 1f,
-                                animationSpec =
-                                        spring(
-                                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                stiffness = Spring.StiffnessMediumLow,
-                                        ),
+                                animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
                                 label = "tab_icon_$index",
                         )
 
-                Surface(
-                        onClick = { onTabSelected(index) },
-                        shape = CircleShape,
-                        color = animBg,
+                IconToggleButton(
+                        checked = isSelected,
+                        onCheckedChange = { onTabSelected(index) },
+                        shapes = IconButtonDefaults.toggleableShapes(),
+                        colors =
+                                IconButtonDefaults.iconToggleButtonColors(
+                                        containerColor = Color.Transparent,
+                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        checkedContainerColor =
+                                                MaterialTheme.colorScheme.primaryContainer,
+                                        checkedContentColor =
+                                                MaterialTheme.colorScheme.onPrimaryContainer,
+                                ),
                         modifier = Modifier.height(48.dp).weight(1f).padding(horizontal = 4.dp),
                 ) {
-                    Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.fillMaxSize(),
-                    ) {
-                        Icon(
-                                painter = painterResource(iconRes),
-                                contentDescription = label,
-                                tint = animTint,
-                                modifier =
-                                        Modifier.size(24.dp).graphicsLayer {
-                                            scaleX = iconScale
-                                            scaleY = iconScale
-                                        },
-                        )
-                    }
+                    Icon(
+                            painter = painterResource(iconRes),
+                            contentDescription = label,
+                            modifier =
+                                    Modifier.size(24.dp).graphicsLayer {
+                                        scaleX = iconScale
+                                        scaleY = iconScale
+                                    },
+                    )
                 }
             }
         }
@@ -1219,11 +1277,6 @@ internal suspend fun pingGitHubRelease(): Boolean =
         withContext(Dispatchers.IO) {
             if (!UserDatabase.isOnline()) return@withContext false
             runCatching {
-                        val client =
-                                OkHttpClient.Builder()
-                                        .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-                                        .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-                                        .build()
                         val request =
                                 Request.Builder()
                                         .url(
@@ -1232,7 +1285,7 @@ internal suspend fun pingGitHubRelease(): Boolean =
                                         .header("User-Agent", "vtop-android")
                                         .header("Accept", "application/vnd.github+json")
                                         .build()
-                        client.newCall(request).execute().use { response ->
+                        githubPingHttpClient.newCall(request).execute().use { response ->
                             response.isSuccessful || response.code == 404
                         }
                     }
@@ -1244,6 +1297,7 @@ internal suspend fun pingGitHubRelease(): Boolean =
  * success or full failure the result label stays visible for 3 seconds, then collapses to a green
  * or red dot. Tapping the dot re-expands the label for 4s.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun FluidStatusPill(
         isReady: Boolean,
@@ -1277,6 +1331,7 @@ internal fun FluidStatusPill(
     }
 
     val showExpanded = (!isReady && !isError) || terminalVisible || userToggled
+    val pillColorEffects = MaterialTheme.motionScheme.fastEffectsSpec<Color>()
 
     val backgroundColor by
             animateColorAsState(
@@ -1287,8 +1342,7 @@ internal fun FluidStatusPill(
                                 isReady && userToggled -> MaterialTheme.colorScheme.primaryContainer
                                 else -> MaterialTheme.colorScheme.surfaceContainerHigh
                             },
-                    animationSpec =
-                            tween(Motion.Color, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)),
+                    animationSpec = pillColorEffects,
                     label = "pillBg",
             )
 
@@ -1302,20 +1356,18 @@ internal fun FluidStatusPill(
                                         MaterialTheme.colorScheme.onPrimaryContainer
                                 else -> MaterialTheme.colorScheme.onSurfaceVariant
                             },
-                    animationSpec =
-                            tween(Motion.Color, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)),
+                    animationSpec = pillColorEffects,
                     label = "pillContent",
             )
+
+    val pillFadeEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    val pillScaleSpatial = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
 
     Box(
             contentAlignment = Alignment.Center,
             modifier =
                     modifier.animateContentSize(
-                                    animationSpec =
-                                            spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                            ),
+                                    animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
                             )
                             .clip(CircleShape)
                             .background(backgroundColor)
@@ -1331,8 +1383,10 @@ internal fun FluidStatusPill(
         AnimatedContent(
                 targetState = showExpanded,
                 transitionSpec = {
-                    fadeIn(tween(Motion.Quick)) + scaleIn(tween(Motion.Quick)) togetherWith
-                            fadeOut(tween(Motion.Fast)) + scaleOut(tween(Motion.Fast))
+                    fadeIn(pillFadeEffects) +
+                            scaleIn(pillScaleSpatial) togetherWith
+                            fadeOut(pillFadeEffects) +
+                            scaleOut(pillFadeEffects)
                 },
                 label = "pillContent",
         ) { expanded ->
@@ -1369,7 +1423,7 @@ internal fun FluidStatusPill(
 }
 
 @Composable
-@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 internal fun OrganicQuestionCard(
         modifier: Modifier = Modifier,
 ) {
@@ -1378,16 +1432,11 @@ internal fun OrganicQuestionCard(
     var previousShapeIndex by remember { mutableIntStateOf(shapeIndex) }
     val currentQuestion = IntriguingQuestions[questionIndex.coerceIn(IntriguingQuestions.indices)]
     val morphProgress = remember { androidx.compose.animation.core.Animatable(1f) }
+    val spatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     LaunchedEffect(shapeIndex) {
         if (shapeIndex == previousShapeIndex) return@LaunchedEffect
         morphProgress.snapTo(0f)
-        morphProgress.animateTo(
-                1f,
-                spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                ),
-        )
+        morphProgress.animateTo(1f, spatialSpec)
         previousShapeIndex = shapeIndex
     }
     val morph =
@@ -1406,11 +1455,7 @@ internal fun OrganicQuestionCard(
     val pressScale by
             animateFloatAsState(
                     targetValue = if (isPressed) 0.94f else 1f,
-                    animationSpec =
-                            spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMedium
-                            ),
+                    animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
                     label = "questionPress",
             )
 
@@ -1452,17 +1497,19 @@ internal fun OrganicQuestionCard(
                                 },
                 contentAlignment = Alignment.Center,
         ) {
+            val questionSlideSpatial = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
+            val questionFadeEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
             Box(
-                    modifier = Modifier.fillMaxSize().padding(12.dp),
+                    modifier = Modifier.fillMaxSize().padding(AppDimens.CompactPadding),
                     contentAlignment = Alignment.Center,
             ) {
                 AnimatedContent(
                         targetState = currentQuestion,
                         transitionSpec = {
-                            (slideInVertically(tween(Motion.Quick)) { it / 3 } +
-                                    fadeIn(tween(Motion.Quick))) togetherWith
-                                    (slideOutVertically(tween(Motion.Fast)) { -it / 3 } +
-                                            fadeOut(tween(Motion.Fast)))
+                            (slideInVertically(questionSlideSpatial) { it / 3 } +
+                                    fadeIn(questionFadeEffects)) togetherWith
+                                    (slideOutVertically(questionSlideSpatial) { -it / 3 } +
+                                            fadeOut(questionFadeEffects))
                         },
                         label = "questionText",
                 ) { question ->

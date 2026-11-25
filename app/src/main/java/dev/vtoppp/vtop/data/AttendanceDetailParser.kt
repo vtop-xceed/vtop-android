@@ -3,7 +3,7 @@ package dev.vtoppp.vtop.data
 object AttendanceDetailParser {
 
     private val dateRegex = Regex("""(\d{2})-(\d{2})-(\d{4})""")
-    private val isoDigitsRegex = Regex("""\d{4}-\d{2}-\d{2}""")
+    private val tableRegex = Regex("""<table.*?</table>""", RegexOption.DOT_MATCHES_ALL)
 
     /**
      * Parses the second inner table on the processViewAttendanceDetail page:
@@ -12,8 +12,8 @@ object AttendanceDetailParser {
     fun parse(html: String, regNo: String, semesterSubId: String, courseCode: String): List<AttendanceSession> {
         if (html.isBlank()) return emptyList()
         val results = mutableListOf<AttendanceSession>()
-        val tables = Regex("""<table.*?</table>""", RegexOption.DOT_MATCHES_ALL).findAll(html).toList()
-        val detail = tables.lastOrNull { table ->
+        val tables = tableRegex.findAll(html).toList()
+        val detail = tables.asReversed().firstOrNull { table ->
             val text = HtmlTables.sanitize(table.value)
             text.contains("Sl.No", ignoreCase = true) && text.contains("Status", ignoreCase = true)
         }
@@ -22,7 +22,7 @@ object AttendanceDetailParser {
             val cells = HtmlTables.cells(row.body)
             if (cells.size < 5) continue
             val slNo = cells[0].trim()
-            if (!slNo.matches(Regex("""\d+"""))) continue
+            if (slNo.isEmpty() || !slNo.all { it in '0'..'9' }) continue
             val dateRaw = cells[1].trim()
             val match = dateRegex.find(dateRaw) ?: continue
             val dateIso = "${match.groupValues[3]}-${match.groupValues[2]}-${match.groupValues[1]}"

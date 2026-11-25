@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.vtoppp.vtop.ui.home
 
 import androidx.compose.foundation.background
@@ -21,19 +23,16 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,12 +51,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.AgendaRow
 import dev.vtoppp.vtop.data.CALENDAR_SEMESTER_ID
 import dev.vtoppp.vtop.data.CalendarAgenda
 import dev.vtoppp.vtop.data.CalendarDayEvent
 import dev.vtoppp.vtop.data.UserDatabase
+import dev.vtoppp.vtop.ui.theme.AppDimens
+import dev.vtoppp.vtop.ui.theme.AppModalBottomSheet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Duration
@@ -67,11 +69,14 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private const val FALLBACK_SEMESTER = "Fall Semester 2026-27"
+private val WHITESPACE_REGEX = Regex("\\s+")
+private val MONTH_DAY_FORMATTER = DateTimeFormatter.ofPattern("MMM d", Locale.US)
+private val MONTH_YEAR_FORMATTER = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)
 
 @Composable
 internal fun CategoryPill(category: String) {
     val (pillBg, pillFg) = categoryColors(category)
-    Surface(shape = RoundedCornerShape(8.dp), color = pillBg) {
+    Surface(shape = MaterialTheme.shapes.small, color = pillBg) {
         Text(
             text = CalendarAgenda.humanCategory(category),
             style = MaterialTheme.typography.labelSmall,
@@ -94,7 +99,7 @@ private fun categoryColors(category: String): Pair<Color, Color> = when (categor
 
 internal fun monthDay(iso: String): String =
     runCatching {
-        LocalDate.parse(iso).format(DateTimeFormatter.ofPattern("MMM d", Locale.US))
+        LocalDate.parse(iso).format(MONTH_DAY_FORMATTER)
     }.getOrDefault(iso)
 
 internal fun rangeLabel(startIso: String, endIso: String): String {
@@ -103,7 +108,7 @@ internal fun rangeLabel(startIso: String, endIso: String): String {
     val e = runCatching { LocalDate.parse(endIso) }.getOrNull()
         ?: return monthDay(endIso)
     return if (s.month == e.month) {
-        s.format(DateTimeFormatter.ofPattern("MMM d", Locale.US)) + " - ${e.dayOfMonth}"
+        s.format(MONTH_DAY_FORMATTER) + " - ${e.dayOfMonth}"
     } else {
         monthDay(startIso) + " - " + monthDay(endIso)
     }
@@ -111,7 +116,7 @@ internal fun rangeLabel(startIso: String, endIso: String): String {
 
 /** "AUGUST 2026" -> the first day of that month. */
 internal fun parseMonthKey(monthKey: String): LocalDate? {
-    val parts = monthKey.trim().split(Regex("\\s+"))
+    val parts = monthKey.trim().split(WHITESPACE_REGEX)
     val month = when (parts.firstOrNull()?.uppercase(Locale.US)) {
         "JANUARY" -> 1; "FEBRUARY" -> 2; "MARCH" -> 3; "APRIL" -> 4; "MAY" -> 5
         "JUNE" -> 6; "JULY" -> 7; "AUGUST" -> 8; "SEPTEMBER" -> 9
@@ -149,13 +154,13 @@ internal fun EventsSection(
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "Upcoming",
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLargeEmphasized,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(AppDimens.CompactGap))
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
             contentPadding = PaddingValues(horizontal = 0.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -182,7 +187,7 @@ internal fun EventCard(
     val dateLabel = if (row.dayCount > 1) rangeLabel(row.startIso, row.endIso) else monthDay(row.startIso)
 
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.width(210.dp),
     ) {
@@ -241,7 +246,7 @@ internal fun AcademicCalendarPage(
     events: List<CalendarDayEvent>,
     onRefresh: () -> Unit = {},
 ) {
-    val isSyncing by dev.vtoppp.vtop.data.UserDatabase.isSyncingFlow.collectAsState()
+    val isSyncing by UserDatabase.isSyncingFlow.collectAsStateWithLifecycle()
     val todayIso = rememberTodayIso()
     val scope = rememberCoroutineScope()
 
@@ -256,8 +261,7 @@ internal fun AcademicCalendarPage(
             .toMap()
     }
     val currentMonthKey = remember {
-        java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)
-            .format(LocalDate.now()).uppercase(Locale.US)
+        MONTH_YEAR_FORMATTER.format(LocalDate.now()).uppercase(Locale.US)
     }
     val semesterName = remember(events) { UserDatabase.semesterName(CALENDAR_SEMESTER_ID) } ?: FALLBACK_SEMESTER
 
@@ -284,12 +288,12 @@ internal fun AcademicCalendarPage(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-                    .padding(bottom = 84.dp),
+                    .padding(horizontal = AppDimens.ScreenHorizontal)
+                    .padding(top = AppDimens.ScreenTop, bottom = AppDimens.FloatingNavClearance),
             ) {
                 Text(
                     text = "Academic Calendar",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleLargeEmphasized,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -299,7 +303,7 @@ internal fun AcademicCalendarPage(
                     color = MaterialTheme.colorScheme.outline,
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(AppDimens.ItemGap))
 
                 if (months.isEmpty()) {
                     Text(
@@ -327,6 +331,7 @@ internal fun AcademicCalendarPage(
                                     pagerState.animateScrollToPage((pagerState.settledPage - 1).coerceAtLeast(0))
                                 }
                             },
+                            shapes = IconButtonDefaults.shapes(),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_chevron_right),
@@ -341,6 +346,7 @@ internal fun AcademicCalendarPage(
                                     pagerState.animateScrollToPage((pagerState.settledPage + 1).coerceAtMost(months.size - 1))
                                 }
                             },
+                            shapes = IconButtonDefaults.shapes(),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_chevron_right),
@@ -350,7 +356,7 @@ internal fun AcademicCalendarPage(
                         }
                     }
 
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(AppDimens.CompactGap))
 
                     HorizontalPager(
                         state = pagerState,
@@ -366,7 +372,7 @@ internal fun AcademicCalendarPage(
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(AppDimens.SectionGap))
                 EventsSection(events = events, todayIso = todayIso)
             }
         }
@@ -375,47 +381,42 @@ internal fun AcademicCalendarPage(
     val openDate = sheetDate
     if (openDate != null) {
         val dayEvents = events.filter { it.date == openDate }
-        ModalBottomSheet(
-            onDismissRequest = { sheetDate = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 32.dp)) {
-                Text(
-                    text = rangeLabel(openDate, openDate),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(12.dp))
-                dayEvents.forEach { e ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CategoryPill(category = e.eventCategory)
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
+        AppModalBottomSheet(onDismissRequest = { sheetDate = null }) {
+            Text(
+                text = rangeLabel(openDate, openDate),
+                style = MaterialTheme.typography.titleLargeEmphasized,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(AppDimens.ItemGap))
+            dayEvents.forEach { e ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CategoryPill(category = e.eventCategory)
+                    Spacer(Modifier.width(AppDimens.ItemGap))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = e.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (e.subtitle.isNotBlank()) {
                             Text(
-                                text = e.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                text = e.subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (e.subtitle.isNotBlank()) {
-                                Text(
-                                    text = e.subtitle,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
                 }
-                if (dayEvents.none { it.subtitle.isNotBlank() }) {
-                    Text(
-                        text = "No note for this day.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                    )
-                }
+                Spacer(Modifier.height(10.dp))
+            }
+            if (dayEvents.none { it.subtitle.isNotBlank() }) {
+                Text(
+                    text = "No note for this day.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
             }
         }
     }
@@ -440,11 +441,11 @@ internal fun MonthCalendarCard(
     val windowStart = remember(first) { first.minusDays((first.dayOfWeek.value % 7).toLong()) }
 
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+        Column(modifier = Modifier.padding(AppDimens.CompactPadding)) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 listOf("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa").forEach { d ->
                     Text(
@@ -502,7 +503,7 @@ private fun DayCell(
         else -> MaterialTheme.colorScheme.onSurface
     }
     val description = buildString {
-        append(date.format(DateTimeFormatter.ofPattern("MMM d", Locale.US)))
+        append(date.format(MONTH_DAY_FORMATTER))
         append(", ")
         append(
             when (category) {
@@ -516,6 +517,7 @@ private fun DayCell(
             },
         )
     }
+    val dayShape = MaterialTheme.shapes.medium
 
     Column(
         modifier = modifier
@@ -527,11 +529,11 @@ private fun DayCell(
         Box(
             modifier = Modifier
                 .size(34.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(dayShape)
                 .background(fill)
                 .then(
                     if (isToday) {
-                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
+                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, dayShape)
                     } else {
                         Modifier
                     },
@@ -563,7 +565,7 @@ private fun DayCell(
 private fun CalendarLegend() {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
     ) {
         LegendTile(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.38f), "Holiday")
         LegendTile(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f), "Exam")
@@ -579,7 +581,7 @@ private fun LegendTile(color: Color, label: String) {
         Box(
             modifier = Modifier
                 .size(12.dp)
-                .clip(RoundedCornerShape(4.dp))
+                .clip(MaterialTheme.shapes.extraSmall)
                 .background(color),
         )
         Spacer(Modifier.width(5.dp))
@@ -597,7 +599,7 @@ private fun LegendEvent(color: Color, label: String) {
         Box(
             modifier = Modifier
                 .size(12.dp)
-                .clip(RoundedCornerShape(4.dp))
+                .clip(MaterialTheme.shapes.extraSmall)
                 .background(color),
             contentAlignment = Alignment.TopEnd,
         ) {

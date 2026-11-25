@@ -2,53 +2,53 @@
 
 package dev.vtoppp.vtop.ui.home
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalToggleButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.ToggleButtonSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.vtoppp.vtop.R
 import dev.vtoppp.vtop.data.UserDatabase
+import dev.vtoppp.vtop.ui.theme.AppDimens
+import dev.vtoppp.vtop.ui.theme.AppPageHeader
 
 @Composable
 fun GradeHistoryPage(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    val grades by UserDatabase.gradeHistoryFlow.collectAsState()
-    val marks by UserDatabase.marksFlow.collectAsState()
-    val summary by UserDatabase.academicSummaryFlow.collectAsState()
-    val isSyncing by UserDatabase.isSyncingFlow.collectAsState()
+    val grades by UserDatabase.gradeHistoryFlow.collectAsStateWithLifecycle()
+    val marks by UserDatabase.marksFlow.collectAsStateWithLifecycle()
+    val summary by UserDatabase.academicSummaryFlow.collectAsStateWithLifecycle()
+    val isSyncing by UserDatabase.isSyncingFlow.collectAsStateWithLifecycle()
     val marksByCourse = remember(marks) { marks.groupBy { it.courseCode } }
     val courses = remember(grades) {
         grades.groupBy { it.courseCode }
@@ -92,65 +92,38 @@ fun GradeHistoryPage(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp)
-                    .padding(top = 12.dp, bottom = 24.dp),
+                    .padding(horizontal = AppDimens.ScreenHorizontal)
+                    .padding(top = AppDimens.ScreenTop, bottom = AppDimens.ScreenBottom),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        onClick = onBack,
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.size(40.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_arrow_back),
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Grades",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "${courses.size} courses · ${freshness.label}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                    }
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        onClick = { sortByGrade = !sortByGrade },
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                AppPageHeader(
+                    title = "Grades",
+                    subtitle = "${courses.size} courses · ${freshness.label}",
+                    onBack = onBack,
+                    trailing = {
+                        FilledTonalToggleButton(
+                            checked = sortByGrade,
+                            onCheckedChange = { sortByGrade = it },
+                            buttonSize = ToggleButtonSize.ExtraSmall,
+                            shapes = ToggleButtonDefaults.shapesFor(ToggleButtonSize.ExtraSmall),
+                            contentPadding = ToggleButtonDefaults.contentPaddingFor(ButtonDefaults.ExtraSmallContainerHeight),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_expand_more),
                                 contentDescription = "Toggle sort order",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = sortIconAngle },
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .graphicsLayer { rotationZ = sortIconAngle },
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 text = if (sortByGrade) "Grade" else "Recent",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
+                    },
+                )
+                Spacer(Modifier.height(AppDimens.ItemGap))
 
                 if (courses.isEmpty()) {
                     EmptyState(
@@ -162,7 +135,7 @@ fun GradeHistoryPage(
                 } else {
                     LazyColumn(
                         state = rememberLazyListState(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(AppDimens.ItemGap),
                         contentPadding = PaddingValues(top = 2.dp),
                     ) {
                         itemsIndexed(displayedCourses, key = { _, c -> c.courseCode }) { _, course ->
